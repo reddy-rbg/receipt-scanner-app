@@ -221,14 +221,22 @@ WHAT TO EXTRACT:
    - unit_price: price per single unit
    - price: total line price
 
-   For WEIGHTED items (sold by weight — look for "lb", "kg", "oz"):
-   - These appear as: "2.71 lb @ 1.0 lb /1.97" = 2.71 lbs at $1.97 per lb
+   For WEIGHTED items (sold by weight — look for lb, kg, oz, g on the receipt):
+   - These appear as: "2.71 lb @ $1.97/lb" = 2.71 lbs at $1.97 per lb
    - code: barcode if visible or null
    - name: exact product name (e.g. "TOMATO 4X5")
    - quantity: the weight amount (e.g. 2.71)
-   - unit: the weight unit — "lb", "kg", or "oz"
-   - unit_price: price per unit weight (e.g. 1.97 per lb)
+   - unit: EXACTLY the weight unit printed — "lb", "kg", "oz", or "g"
+   - unit_price: price per unit weight (e.g. 1.97)
    - price: total line price (quantity x unit_price)
+
+   For VOLUME items (sold by liquid volume — look for fl oz, ml, l, gal, pt, qt):
+   - These include beverages, oils, cleaning products, juices, milk, etc.
+   - name: exact product name
+   - quantity: the volume amount as printed
+   - unit: EXACTLY the volume unit printed — "fl oz", "ml", "l", "gal", "pt", "qt"
+   - unit_price: price per volume unit
+   - price: total line price
 
    For MULTI-PACK items (e.g. "3 AT 1 FOR 0.60"):
    - name: exact product name
@@ -236,6 +244,21 @@ WHAT TO EXTRACT:
    - unit: "each"
    - unit_price: price per single item (e.g. 0.60)
    - price: total line price (e.g. 1.80)
+
+   UNIT RULES — VERY IMPORTANT:
+   - NEVER default all items to "lb" — only use "lb" for actual weight-sold items
+   - Read the receipt carefully — use EXACTLY the unit shown on the receipt
+   - Weight units: lb, oz, kg, g
+   - Volume units: fl oz, ml, l, liter, gal, pt, qt
+   - Count units: each, ct
+   - Examples:
+     * Chicken breast sold by weight → unit: "lb"
+     * Milk 64 fl oz carton → unit: "each" (it's sold as a single item)
+     * Deli meat sliced per lb → unit: "lb"
+     * Canned goods → unit: "each"
+     * Shredded carrots 10 oz bag → unit: "each"
+     * Bulk nuts sold per oz → unit: "oz"
+     * Oil sold per fl oz → unit: "fl oz"
 
 3. DISCOUNTS — extract ALL savings as SEPARATE items:
    - Include any discount, coupon, or savings line
@@ -314,25 +337,83 @@ def answer_question(question: str, receipts: list) -> str:
     """
     Answer a natural language question about the user's receipts.
 
-    How it works:
-    1. Convert all receipts to JSON text (Claude's knowledge base)
-    2. Send question + all receipt data to Claude
-    3. Claude reads the data and answers in plain English
-    4. Supports markdown — tables, bold, lists, headers
+    Uses Supabase MCP globally — works on Railway, mobile, anywhere.
+    MCP URL: https://mcp.supabase.com/mcp?project_ref=okzsqmoxdzrbhhdrsazy
 
-    The UI renders Claude's markdown response into proper HTML
-    so tables, headers, and bold text display correctly.
+    Claude queries the database directly using MCP tools.
+    Falls back to text mode if MCP is unavailable.
 
     Returns Claude's answer as a markdown string.
     """
+    import os
 
-    # Convert receipts list to formatted JSON string
-    # This becomes Claude's complete knowledge base for answering
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+
+    # ── Global Supabase MCP ──
+    # Works everywhere — Railway, mobile, any environment
+    # Claude uses MCP tools to query the database directly
+    if supabase_key:
+        try:
+            message = claude_client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=4096,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""You are a helpful personal shopping assistant with direct access to the user's receipt database via Supabase MCP.
+
+DATABASE TABLE: receipts
+COLUMNS: id, store, address, date, time, payment_method, total, subtotal, discount, tax, total_savings, items (JSONB array), created_at
+
+ITEMS JSONB ARRAY contains objects with: code, name, quantity, unit, unit_price, price
+
+INSTRUCTIONS:
+- Use the Supabase MCP tools to query the receipts table directly
+- Query smartly — only fetch what you need to answer the question
+- For price comparisons always use unit_price not total price
+- For weighted items (lb, oz, kg, g) always show the unit
+- Answer with exact numbers from the database — never make up data
+- Use markdown tables for comparisons and ranked lists
+- Use **bold** for store names and key numbers
+- If data is not available, say so clearly
+
+USER QUESTION: {question}
+
+Use MCP tools to query the database and answer precisely:"""
+                    }
+                ],
+                mcp_servers=[
+                    {
+                        "type": "url",
+                        "url": "https://mcp.supabase.com/mcp?project_ref=okzsqmoxdzrbhhdrsazy",
+                        "name": "supabase",
+                        "authorization_token": supabase_key,
+                    }
+                ],
+            )
+
+            # Extract answer from response blocks
+            # MCP responses may include tool_use blocks — we want the text
+            answer = ""
+            for block in message.content:
+                if hasattr(block, "text") and block.text:
+                    answer += block.text
+
+            if answer.strip():
+                print("[ask] ✓ Answered via Supabase MCP globally")
+                return answer.strip()
+
+        except Exception as e:
+            print(f"[ask] MCP failed, using fallback: {e}")
+
+    # ── Fallback: pass receipts as text ──
+    # Used when SUPABASE_SERVICE_KEY is not set or MCP fails
+    print("[ask] Answering via text fallback")
     receipts_text = json.dumps(receipts, indent=2)
 
     message = claude_client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=2048,  # allow longer answers for table responses
+        max_tokens=2048,
         messages=[
             {
                 "role": "user",
@@ -342,7 +423,7 @@ You have access to the user's complete purchase history below.
 YOUR JOB:
 - Answer the user's question clearly and specifically
 - Use exact prices, store names, dates, and item names from the data
-- For weighted items (lb, kg) compare by unit_price not total price
+- For weighted items (lb, kg, oz) compare by unit_price not total price
 - If comparing prices show all options ranked cheapest to most expensive
 - If the answer is not in the data say so honestly — never make up data
 - Keep answers concise but complete
@@ -365,8 +446,6 @@ Answer directly and helpfully:"""
         ],
     )
 
-    # Return Claude's text response
-    # The UI will render markdown into proper HTML
     return message.content[0].text
 
 
