@@ -1,0 +1,23 @@
+{
+  "cli": {
+    "version": ">= 16.0.0"
+  },
+  "build": {
+    "preview": {
+      "android": {
+        "buildType": "apk",
+        "image": "ubuntu-22.04-jdk-17-ndk-r26b",
+        "resourceClass": "medium"
+      },
+      "distribution": "internal"
+    },
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "production": {}
+  },
+  "submit": {
+    "production": {}
+  }
+}

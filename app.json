@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "ReceiptAI",
+    "slug": "receiptai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#080810"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ajay.receiptai"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#080810"
+      },
+      "package": "com.ajay.receiptai",
+      "versionCode": 1
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ReceiptAI to access your photos to scan receipts.",
+          "cameraPermission": "Allow ReceiptAI to use your camera to scan receipts."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2325e79c-ae59-428e-b502-f1c9b971bccd"
+      }
+    }
+  }
+}
