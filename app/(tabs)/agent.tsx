@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useTheme } from '../themeStore';
-import { getUserToken, useAuth, getGuestSessionId } from '../authStore';
+import { getUser, getUserToken } from '../authStore';
 import { useFocusEffect } from 'expo-router';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
@@ -29,36 +29,25 @@ const QUICK_PROMPTS = [
 ];
 
 const TOOL_LABELS: Record<string, string> = {
-  query_receipts: '🗄 Querying receipts',
-  get_price_history: '📈 Checking price history',
-  analyze_spending: '📊 Analyzing spending',
-  find_best_deals: '🛒 Finding best deals',
+  query_receipts:       '🗄 Querying receipts',
+  get_price_history:    '📈 Checking price history',
+  analyze_spending:     '📊 Analyzing spending',
+  find_best_deals:      '🛒 Finding best deals',
   search_market_prices: '🌐 Searching market prices',
 };
 
-async function safeJson(res: Response) {
-  const text = await res.text();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { detail: text };
-  }
-}
-
 export default function AgentScreen() {
   const { colors: C } = useTheme();
-  const [msgs, setMsgs] = useState<Msg[]>([
+  const [msgs, setMsgs]         = useState<Msg[]>([
     {
       role: 'agent',
       text: '👋 Hi! I\'m your ReceiptAI Agent.\n\nI can analyze your purchase history, find the best prices, optimize your shopping list, and answer any question about your spending.\n\nWhat would you like to know?',
-    },
+    }
   ]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { user } = useAuth();
-  const [sessionId] = useState(`session_${Date.now()}`);
-  const scrollRef = useRef<ScrollView>(null);
+  const [input, setInput]       = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [sessionId]             = useState(`session_${Date.now()}`);
+  const scrollRef               = useRef<ScrollView>(null);
 
   useFocusEffect(useCallback(() => {}, []));
 
@@ -80,54 +69,33 @@ export default function AgentScreen() {
 
     try {
       const token = getUserToken();
-      const guestSessionId = getGuestSessionId();
-      const isGuestUser = user?.isGuest === true || user?.is_guest === true;
-      const effectiveSessionId = isGuestUser
-        ? guestSessionId
-        : (user?.id || sessionId);
+      const headers: any = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const payload = {
-        message,
-        session_id: effectiveSessionId,
-        guest_session_id: isGuestUser ? guestSessionId : undefined,
-      };
-
-      // Use /agent first because your backend originally exposes POST /agent.
-      // Fallback to /agent/chat for newer deployments.
-      let res = await fetch(`${API}/agent`, {
-        method: 'POST',
+      const res = await fetch(`${API}/agent`, {
+        method:  'POST',
         headers,
-        body: JSON.stringify(payload),
+        body:    JSON.stringify({ message, session_id: sessionId }),
       });
 
-      if (res.status === 404) {
-        res = await fetch(`${API}/agent/chat`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-        });
-      }
-
-      const data = await safeJson(res);
+      const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+        throw new Error(data.detail || 'Agent error');
       }
 
       const agentMsg: Msg = {
-        role: 'agent',
-        text: data.response || data.message || 'I could not get an answer. Please try again.',
+        role:  'agent',
+        text:  data.response || 'I could not get an answer. Please try again.',
         tools: data.tools_used || [],
       };
 
       setMsgs(prev => [...prev.slice(0, -1), agentMsg]);
+
     } catch (e: any) {
       const errMsg: Msg = {
         role: 'agent',
-        text: `Sorry, I ran into an error: ${e.message || 'Could not connect'}. Please check Railway logs and try again.`,
+        text: `Sorry, I ran into an error: ${e.message || 'Could not connect'}. Please try again.`,
       };
       setMsgs(prev => [...prev.slice(0, -1), errMsg]);
     } finally {
@@ -144,43 +112,19 @@ export default function AgentScreen() {
         onPress: async () => {
           try {
             const token = getUserToken();
-            const guestSessionId = getGuestSessionId();
-            const isGuestUser = user?.isGuest === true || user?.is_guest === true;
-            const effectiveSessionId = isGuestUser
-              ? guestSessionId
-              : (user?.id || sessionId);
-
-            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (token) headers.Authorization = `Bearer ${token}`;
-
-            const payload = {
-              session_id: effectiveSessionId,
-              guest_session_id: isGuestUser ? guestSessionId : undefined,
-            };
-
-            let res = await fetch(`${API}/agent/clear`, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(payload),
+            const headers: any = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            await fetch(`${API}/agent/clear`, {
+              method: 'POST', headers,
+              body: JSON.stringify({ session_id: sessionId }),
             });
-
-            if (res.status === 404) {
-              await fetch(`${API}/agent/chat/clear`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(payload),
-              });
-            }
           } catch {}
-
-          setMsgs([
-            {
-              role: 'agent',
-              text: '✨ Fresh start! Ask me anything about your receipts and spending.',
-            },
-          ]);
-        },
-      },
+          setMsgs([{
+            role: 'agent',
+            text: '✨ Fresh start! Ask me anything about your receipts and spending.',
+          }]);
+        }
+      }
     ]);
   }
 
@@ -213,6 +157,7 @@ export default function AgentScreen() {
       );
     }
 
+    // Format agent response - convert markdown to readable text
     const formattedText = msg.text
       .replace(/\*\*(.+?)\*\*/g, '$1')
       .replace(/^### (.+)$/gm, '$1:')
@@ -229,7 +174,9 @@ export default function AgentScreen() {
             <View style={s.toolsUsed}>
               {msg.tools.map((tool, i) => (
                 <View key={i} style={[s.toolBadge, { backgroundColor: 'rgba(124,106,255,0.08)', borderColor: 'rgba(124,106,255,0.2)' }]}>
-                  <Text style={{ color: C.accent, fontSize: 10 }}>{TOOL_LABELS[tool] || tool}</Text>
+                  <Text style={{ color: C.accent, fontSize: 10 }}>
+                    {TOOL_LABELS[tool] || tool}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -248,16 +195,20 @@ export default function AgentScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
-      <View style={[s.agentHeader, { backgroundColor: C.surface, borderBottomColor: C.border }]}> 
+      {/* Header info */}
+      <View style={[s.agentHeader, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
         <View style={s.agentHeaderLeft}>
           <View style={[s.agentDot, { backgroundColor: C.green }]} />
-          <Text style={[s.agentHeaderTxt, { color: C.text2 }]}>AI Agent · Claude Opus · 5 tools available</Text>
+          <Text style={[s.agentHeaderTxt, { color: C.text2 }]}>
+            AI Agent · Claude Opus · 5 tools available
+          </Text>
         </View>
         <TouchableOpacity onPress={clearConversation}>
           <Text style={{ color: C.accent, fontSize: 12 }}>Clear</Text>
         </TouchableOpacity>
       </View>
 
+      {/* Messages */}
       <ScrollView
         ref={scrollRef}
         style={s.chat}
@@ -265,6 +216,7 @@ export default function AgentScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Quick prompts - only show at start */}
         {msgs.length <= 1 && (
           <View style={s.quickSection}>
             <Text style={[s.quickLabel, { color: C.text3 }]}>Try asking</Text>
@@ -283,10 +235,12 @@ export default function AgentScreen() {
           </View>
         )}
 
+        {/* Messages */}
         {msgs.map((msg, i) => renderMessage(msg, i))}
       </ScrollView>
 
-      <View style={[s.inputBar, { backgroundColor: C.surface, borderTopColor: C.border }]}> 
+      {/* Input */}
+      <View style={[s.inputBar, { backgroundColor: C.surface, borderTopColor: C.border }]}>
         <TextInput
           style={[s.input, { backgroundColor: C.surface2, borderColor: C.border, color: C.text }]}
           placeholder="Ask anything about your receipts..."
@@ -304,7 +258,10 @@ export default function AgentScreen() {
           disabled={!input.trim() || loading}
           activeOpacity={0.85}
         >
-          {loading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.sendIcon}>↑</Text>}
+          {loading
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Text style={s.sendIcon}>↑</Text>
+          }
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -312,29 +269,29 @@ export default function AgentScreen() {
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1 },
-  agentHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1 },
+  screen:       { flex: 1 },
+  agentHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1 },
   agentHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  agentDot: { width: 6, height: 6, borderRadius: 3 },
+  agentDot:     { width: 6, height: 6, borderRadius: 3 },
   agentHeaderTxt: { fontSize: 11 },
-  chat: { flex: 1 },
-  chatContent: { padding: 16, paddingBottom: 8 },
+  chat:         { flex: 1 },
+  chatContent:  { padding: 16, paddingBottom: 8 },
   quickSection: { marginBottom: 20 },
-  quickLabel: { fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 },
-  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  quickChip: { borderWidth: 1, borderRadius: 99, paddingHorizontal: 12, paddingVertical: 6 },
+  quickLabel:   { fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 },
+  quickGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  quickChip:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 12, paddingVertical: 6 },
   quickChipTxt: { fontSize: 12 },
-  msgRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14, gap: 8 },
-  userRow: { justifyContent: 'flex-end' },
-  agentAvatar: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 },
-  bubble: { maxWidth: '85%', borderRadius: 16, padding: 12, paddingHorizontal: 14 },
-  agentBubble: { borderWidth: 1, borderBottomLeftRadius: 4 },
-  userBubble: { borderBottomRightRadius: 4 },
-  bubbleTxt: { fontSize: 14, lineHeight: 21 },
-  toolsUsed: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
-  toolBadge: { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
-  inputBar: { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 10 },
-  input: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, paddingHorizontal: 14, fontSize: 14, maxHeight: 100 },
-  sendBtn: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  sendIcon: { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 },
+  msgRow:       { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14, gap: 8 },
+  userRow:      { justifyContent: 'flex-end' },
+  agentAvatar:  { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 },
+  bubble:       { maxWidth: '85%', borderRadius: 16, padding: 12, paddingHorizontal: 14 },
+  agentBubble:  { borderWidth: 1, borderBottomLeftRadius: 4 },
+  userBubble:   { borderBottomRightRadius: 4 },
+  bubbleTxt:    { fontSize: 14, lineHeight: 21 },
+  toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
+  toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
+  inputBar:     { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 10 },
+  input:        { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, paddingHorizontal: 14, fontSize: 14, maxHeight: 100 },
+  sendBtn:      { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  sendIcon:     { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 },
 });
