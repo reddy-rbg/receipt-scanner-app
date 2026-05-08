@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { getUserToken } from '../authStore';
+import { getUserToken, useAuth } from '../authStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -43,12 +43,15 @@ export default function ScanScreen(){
   // This fixes the issue where sign out doesn't update the scan screen
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+  const { user } = useAuth();
+
   useFocusEffect(
     useCallback(() => {
-      const token = getUserToken();
-      setIsLoggedIn(token !== '');
-      if (token) loadStats();
-    }, [])
+      // Allow access if logged in OR guest
+      const isAuth = user !== null;
+      setIsLoggedIn(isAuth);
+      if (isAuth) loadStats();
+    }, [user])
   );
 
   useEffect(()=>{ loadStats(); },[]);

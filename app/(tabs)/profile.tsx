@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth, clearUser, saveUser, getUserToken } from '../authStore';
+import { useAuth, clearUser } from '../authStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Modal, Switch,
@@ -16,7 +16,7 @@ const C = {
   green:'#4ade80', red:'#ff6b6b', gold:'#fbbf24',
 };
 
-type User = { id:string; email:string; name:string; created_at:string; token?:string; guestStartTime?:number };
+type User = { id:string; email:string; name:string; created_at:string; token?:string; guestStartTime?:number; isGuest?: boolean };
 
 function validatePassword(password: string): string[] {
   const errors: string[] = [];
@@ -50,15 +50,7 @@ function PasswordStrengthBar({ password }: { password: string }) {
 const n = (v:any) => parseFloat(v)||0;
 
 export default function ProfileScreen() {
-  const { user, isGuest } = useAuth();
-  const [_user, setUser]         = useState<User|null>(null);
-  const [authMode, setAuthMode] = useState<'login'|'signup'>('login');
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName]         = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [authLoading, setAuthLoading]   = useState(false);
-  const [authError, setAuthError]       = useState('');
+  const { user } = useAuth() as { user: User | null };
 
   const [stats, setStats]             = useState({ receipts:0, spent:0, saved:0, stores:0 });
   const [statsLoading, setStatsLoading] = useState(true);
@@ -104,51 +96,11 @@ export default function ProfileScreen() {
     finally { setStatsLoading(false); }
   }
 
-  async function handleAuth() {
-    setAuthError('');
-    if (!email.trim())  { setAuthError('Please enter your email.'); return; }
-    if (!password)      { setAuthError('Please enter your password.'); return; }
-    if (authMode === 'signup') {
-      if (!name.trim()) { setAuthError('Please enter your name.'); return; }
-      const errors = validatePassword(password);
-      if (errors.length > 0) { setAuthError('Password requirements not met.'); return; }
-    }
-
-    setAuthLoading(true);
-    try {
-      const endpoint = authMode === 'login' ? '/auth/login' : '/auth/signup';
-      const body: any = { email: email.trim().toLowerCase(), password };
-      if (authMode === 'signup') body.name = name.trim();
-
-      const res  = await fetch(`${API}${endpoint}`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) { setAuthError(data.detail || 'Authentication failed.'); return; }
-
-      // ✅ Save token globally for scan screen
-      
-
-      setUser({
-        id:         data.user.id,
-        email:      data.user.email,
-        name:       data.user.name,
-        created_at: data.user.created_at,
-        token:      data.session?.access_token,
-      });
-      setEmail(''); setPassword(''); setName('');
-    } catch { setAuthError('Could not connect. Please try again.'); }
-    finally  { setAuthLoading(false); }
-  }
-
   function handleSignOut() {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text:'Cancel', style:'cancel' },
-      { text:'Sign Out', style:'destructive', onPress:() => {
-        
-        setUser(null); setAuthMode('login');
-        setEmail(''); setPassword(''); setName('');
+      { text:'Sign Out', style:'destructive', onPress: async () => {
+        await clearUser();
       }},
     ]);
   }
@@ -167,7 +119,7 @@ export default function ProfileScreen() {
       if (!res.ok) { setDeleteError(data.detail || 'Could not delete account.'); return; }
       setActiveModal(null);
       Alert.alert('Account Deleted', 'Your account and all data have been permanently deleted.', [
-        { text:'OK', onPress:() => {  setUser(null); setAuthMode('login'); } }
+        { text:'OK', onPress: async () => { await clearUser(); } }
       ]);
     } catch { setDeleteError('Could not connect. Please try again.'); }
     finally  { setDeleteLoading(false); }
@@ -211,114 +163,16 @@ export default function ProfileScreen() {
     ]);
   }
 
-  // ── AUTH SCREEN ──
+  const isGuest = user?.isGuest === true || user?.id === 'guest';
+
   if (!user) {
     return (
-      <ScrollView style={s.authScroll} contentContainerStyle={s.authContainer} keyboardShouldPersistTaps="handled">
-        <View style={s.authLogo}>
-          <Text style={s.authLogoText}>{authMode==='login'?'✦':'+'}</Text>
-        </View>
-        <Text style={s.authTitle}>{authMode==='login'?'Welcome Back':'Create Account'}</Text>
-        <Text style={s.authSubtitle}>{authMode==='login'?'Sign in to your account':'Join ReceiptAI today'}</Text>
-
-        <View style={s.securityBadge}>
-          <Text style={s.securityBadgeText}>🔒  Your data is encrypted and private</Text>
-        </View>
-
-        <View style={s.authForm}>
-          {authMode==='signup' && (
-            <View style={s.inputWrap}>
-              <Text style={s.inputLabel}>Full Name</Text>
-              <TextInput style={s.authInput} placeholder="John Smith" placeholderTextColor={C.text3} value={name} onChangeText={setName} autoCapitalize="words"/>
-            </View>
-          )}
-
-          <View style={s.inputWrap}>
-            <Text style={s.inputLabel}>Email Address</Text>
-            <TextInput style={s.authInput} placeholder="you@example.com" placeholderTextColor={C.text3} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoCorrect={false}/>
-          </View>
-
-          <View style={s.inputWrap}>
-            <Text style={s.inputLabel}>Password</Text>
-            <View style={{ position:'relative' }}>
-              <TextInput
-                style={[s.authInput,{ paddingRight:50 }]}
-                placeholder={authMode==='signup'?'Min 8 chars, 1 capital, 1 special':'Enter your password'}
-                placeholderTextColor={C.text3}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity style={s.eyeBtn} onPress={()=>setShowPassword(!showPassword)}>
-                <Text style={s.eyeText}>{showPassword?'🙈':'👁'}</Text>
-              </TouchableOpacity>
-            </View>
-            {authMode==='signup' && <PasswordStrengthBar password={password}/>}
-          </View>
-
-          {authMode==='signup' && (
-            <View style={s.passwordRules}>
-              <Text style={s.passwordRulesTitle}>Password must have:</Text>
-              {[
-                { rule:'At least 8 characters',          ok: password.length >= 8 },
-                { rule:'1 uppercase letter (A-Z)',        ok: /[A-Z]/.test(password) },
-                { rule:'1 lowercase letter (a-z)',        ok: /[a-z]/.test(password) },
-                { rule:'1 special character (.,?!@#$%)', ok: /[.,?!@#$%&*_\-+]/.test(password) },
-              ].map((item,i) => (
-                <View key={i} style={s.passwordRule}>
-                  <Text style={{ color: item.ok ? C.green : C.text3, fontSize:13 }}>{item.ok?'✓':'○'}</Text>
-                  <Text style={{ color: item.ok ? C.green : C.text3, fontSize:12, marginLeft:6 }}>{item.rule}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {authError!=='' && (
-            <View style={s.authError}>
-              <Text style={s.authErrorText}>⚠  {authError}</Text>
-            </View>
-          )}
-
-          <TouchableOpacity style={[s.authBtn, authLoading&&{opacity:0.5}]} onPress={handleAuth} disabled={authLoading} activeOpacity={0.85}>
-            {authLoading
-              ? <ActivityIndicator color="#fff" size="small"/>
-              : <Text style={s.authBtnText}>{authMode==='login'?'Sign In':'Create Account'}</Text>
-            }
-          </TouchableOpacity>
-
-          <TouchableOpacity style={s.switchModeBtn} onPress={()=>{ setAuthMode(authMode==='login'?'signup':'login'); setAuthError(''); setPassword(''); }}>
-            <Text style={s.switchModeTxt}>
-              {authMode==='login'?"Don't have an account? ":'Already have an account? '}
-              <Text style={{ color:C.accent, fontWeight:'600' }}>{authMode==='login'?'Sign Up':'Sign In'}</Text>
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={s.privacyNote}>
-          <Text style={s.privacyNoteText}>🔐  We never sell your data. Your receipts are private and only visible to you.</Text>
-        </View>
-
-        <View style={s.guestSection}>
-          <Text style={s.guestSectionTitle}>Want to try first?</Text>
-          <TouchableOpacity
-            style={s.guestBtn}
-            onPress={() => setUser({
-              id:             'guest',
-              email:          'guest@receiptai.app',
-              name:           'Guest User',
-              created_at:     new Date().toISOString(),
-              guestStartTime: Date.now(),
-            })}
-          >
-            <Text style={s.guestBtnText}>⏱  Start 24-Hour Free Trial</Text>
-          </TouchableOpacity>
-          <Text style={s.guestWarning}>Trial data is automatically deleted after 24 hours</Text>
-        </View>
-      </ScrollView>
+      <View style={[s.scroll, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
+        <Text style={{ color: C.text, fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Signed out</Text>
+        <Text style={{ color: C.text2, textAlign: 'center' }}>Please log in again to view your profile.</Text>
+      </View>
     );
   }
-
-  const isGuest = user.id === 'guest';
 
   // ── PROFILE SCREEN ──
   return (
@@ -332,7 +186,7 @@ export default function ProfileScreen() {
         <Text style={s.userName}>{isGuest ? 'Guest User' : user.name}</Text>
         <Text style={s.userEmail}>{isGuest ? 'Guest Mode' : user.email}</Text>
         {isGuest && (
-          <TouchableOpacity style={s.upgradeBtn} onPress={()=>{ setUser(null); setAuthMode('signup'); }}>
+          <TouchableOpacity style={s.upgradeBtn} onPress={ async ()=>{ await clearUser(); }}>
             <Text style={s.upgradeBtnText}>✦ Create account for full access</Text>
           </TouchableOpacity>
         )}
@@ -424,7 +278,7 @@ export default function ProfileScreen() {
       </View>
 
       {isGuest ? (
-        <TouchableOpacity style={s.authBtn} onPress={()=>{ setUser(null); setAuthMode('signup'); }} activeOpacity={0.85}>
+        <TouchableOpacity style={s.authBtn} onPress={ async ()=>{ await clearUser(); }} activeOpacity={0.85}>
           <Text style={s.authBtnText}>✦  Create Free Account</Text>
         </TouchableOpacity>
       ) : (
