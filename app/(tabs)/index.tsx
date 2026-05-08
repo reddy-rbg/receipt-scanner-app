@@ -1,5 +1,4 @@
 import * as ImagePicker from 'expo-image-picker';
-import { getUserToken } from '../../userStore';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert,
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { getUserToken } from '../userStore';
 
 const API = 'https://web-production-3605f4.up.railway.app';
 const C = {

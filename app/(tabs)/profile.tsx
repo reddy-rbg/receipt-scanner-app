@@ -1,9 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
 import * as Updates from 'expo-updates';
+import { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, TextInput, Alert, Modal, Linking, Share,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { setUserToken } from '../userStore';
 
 const API = 'https://web-production-3605f4.up.railway.app';
 
@@ -183,6 +193,7 @@ export default function ProfileScreen() {
         created_at: data.user.created_at,
         token:      data.session?.access_token,
       });
+      setUserToken(data.session?.access_token || '');
       setEmail(''); setPassword(''); setName('');
     } catch { setAuthError('Could not connect. Please try again.'); }
     finally  { setAuthLoading(false); }
