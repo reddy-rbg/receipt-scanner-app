@@ -82,6 +82,8 @@ export async function clearUser() {
   _user = null;
   await AsyncStorage.removeItem('auth_user').catch(() => {});
   await AsyncStorage.removeItem('user_token').catch(() => {});
+  await AsyncStorage.removeItem('cached_receipts').catch(() => {});
+  await AsyncStorage.removeItem('receipt_cache').catch(() => {});
   notify();
 }
 

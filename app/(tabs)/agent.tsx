@@ -95,16 +95,16 @@ export default function AgentScreen() {
         guest_session_id: isGuestUser ? guestSessionId : undefined,
       };
 
-      // Backend supports both /agent/chat and /agent.
-      let res = await fetch(`${API}/agent/chat`, {
+      // Use /agent first because your backend originally exposes POST /agent.
+      // Fallback to /agent/chat for newer deployments.
+      let res = await fetch(`${API}/agent`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
       });
 
-      // Fallback for old Railway deployments that only have POST /agent.
       if (res.status === 404) {
-        res = await fetch(`${API}/agent`, {
+        res = await fetch(`${API}/agent/chat`, {
           method: 'POST',
           headers,
           body: JSON.stringify(payload),
@@ -127,7 +127,7 @@ export default function AgentScreen() {
     } catch (e: any) {
       const errMsg: Msg = {
         role: 'agent',
-        text: `Sorry, I ran into an error: ${e.message || 'Could not connect'}. Please try again.`,
+        text: `Sorry, I ran into an error: ${e.message || 'Could not connect'}. Please check Railway logs and try again.`,
       };
       setMsgs(prev => [...prev.slice(0, -1), errMsg]);
     } finally {
