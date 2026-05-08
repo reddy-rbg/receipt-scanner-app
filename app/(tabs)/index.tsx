@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { getUserToken, useAuth } from '../authStore';
+import { getUserToken, useAuth, getGuestSessionId } from '../authStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -104,16 +104,25 @@ export default function ScanScreen(){
     setLoading(true);setResult(null);setDuplicate('');
     try{
       const token = getUserToken();
+      const guestSessionId = getGuestSessionId();
+      const isGuestUser = user?.isGuest === true || user?.is_guest === true;
       const fd    = new FormData();
       const fname = uri.split('/').pop()||(isPDF?'receipt.pdf':'receipt.jpg');
       fd.append('file',{uri, name:fname, type:getMime(uri,isPDF)} as any);
-      const res=await fetch(`${API}/scan-receipt`,{
+
+      const endpoint = isGuestUser
+        ? `${API}/guest/scan-receipt?session_id=${encodeURIComponent(guestSessionId || user?.id || 'guest')}`
+        : `${API}/scan-receipt`;
+
+      const headers: Record<string, string> = {
+        'Content-Type':'multipart/form-data',
+      };
+      if (!isGuestUser && token) headers.Authorization = `Bearer ${token}`;
+
+      const res=await fetch(endpoint,{
         method:'POST',
         body:fd,
-        headers:{
-          'Content-Type':'multipart/form-data',
-          'Authorization':`Bearer ${token}`,
-        }
+        headers,
       });
       const data=await res.json();
       if(!res.ok){Alert.alert('Scan Failed',data.detail||`Error ${res.status}`);return;}

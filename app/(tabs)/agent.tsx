@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useTheme } from '../themeStore';
-import { getUserToken } from '../authStore';
+import { getUserToken, useAuth, getGuestSessionId } from '../authStore';
 import { useFocusEffect } from 'expo-router';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
@@ -56,6 +56,7 @@ export default function AgentScreen() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
   const [sessionId] = useState(`session_${Date.now()}`);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -79,15 +80,26 @@ export default function AgentScreen() {
 
     try {
       const token = getUserToken();
+      const guestSessionId = getGuestSessionId();
+      const isGuestUser = user?.isGuest === true || user?.is_guest === true;
+      const effectiveSessionId = isGuestUser
+        ? guestSessionId
+        : (user?.id || sessionId);
+
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      // Backend fixed file supports both /agent and /agent/chat.
-      // Use /agent/chat as the primary clean endpoint.
+      const payload = {
+        message,
+        session_id: effectiveSessionId,
+        guest_session_id: isGuestUser ? guestSessionId : undefined,
+      };
+
+      // Backend supports both /agent/chat and /agent.
       let res = await fetch(`${API}/agent/chat`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message, session_id: sessionId }),
+        body: JSON.stringify(payload),
       });
 
       // Fallback for old Railway deployments that only have POST /agent.
@@ -95,7 +107,7 @@ export default function AgentScreen() {
         res = await fetch(`${API}/agent`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ message, session_id: sessionId }),
+          body: JSON.stringify(payload),
         });
       }
 
@@ -132,20 +144,31 @@ export default function AgentScreen() {
         onPress: async () => {
           try {
             const token = getUserToken();
+            const guestSessionId = getGuestSessionId();
+            const isGuestUser = user?.isGuest === true || user?.is_guest === true;
+            const effectiveSessionId = isGuestUser
+              ? guestSessionId
+              : (user?.id || sessionId);
+
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (token) headers.Authorization = `Bearer ${token}`;
+
+            const payload = {
+              session_id: effectiveSessionId,
+              guest_session_id: isGuestUser ? guestSessionId : undefined,
+            };
 
             let res = await fetch(`${API}/agent/clear`, {
               method: 'POST',
               headers,
-              body: JSON.stringify({ session_id: sessionId }),
+              body: JSON.stringify(payload),
             });
 
             if (res.status === 404) {
               await fetch(`${API}/agent/chat/clear`, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({ session_id: sessionId }),
+                body: JSON.stringify(payload),
               });
             }
           } catch {}
