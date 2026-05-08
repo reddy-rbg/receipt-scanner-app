@@ -24,7 +24,6 @@
       "package": "com.ajay.receiptai"
     },
     "plugins": [
-      "expo-document-picker",
       [
         "expo-image-picker",
         {
