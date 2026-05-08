@@ -40,6 +40,9 @@ export async function clearUser() {
   _user = null;
   await AsyncStorage.removeItem('auth_user').catch(() => {});
   await AsyncStorage.removeItem('user_token').catch(() => {});
+  await AsyncStorage.removeItem('cached_receipts').catch(() => {});
+  await AsyncStorage.removeItem('receipts_cache').catch(() => {});
+  await AsyncStorage.removeItem('last_receipts_user').catch(() => {});
   notify();
 }
 
@@ -66,6 +69,23 @@ export async function loadUser(): Promise<User | null> {
 
 export function getUserToken(): string {
   return _user?.token || '';
+}
+
+
+export async function startGuestSession() {
+  const guestId = createGuestId();
+  await saveUser({
+    id: guestId,
+    email: 'guest@receiptai.app',
+    name: 'Guest User',
+    created_at: new Date().toISOString(),
+    token: '',
+    isGuest: true,
+    is_guest: true,
+    guestStartTime: Date.now(),
+    guest_session_id: guestId,
+    guestSessionId: guestId,
+  });
 }
 
 // React hook for components to subscribe to auth changes

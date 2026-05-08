@@ -1,4 +1,5 @@
 import { useTheme, getColors } from '../themeStore';
+import { useAuth, getUserToken, getGuestSessionId } from '../authStore';
 const C = getColors(); // for StyleSheet — reactive updates via useTheme() inside component
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -48,6 +49,7 @@ const SORTS = [
 
 export default function ReceiptsScreen() {
   const { colors: C } = useTheme(); // reactive theme updates
+  const { user } = useAuth();
   const [all, setAll]         = useState<Receipt[]>([]);
   const [shown, setShown]     = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,17 +72,35 @@ export default function ReceiptsScreen() {
   const [deleteMode,  setDeleteMode]  = useState(false);
   const [deleted,     setDeleted]     = useState(false);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [user?.id, user?.guest_session_id]);
 
   async function load() {
+    setLoading(true);
     try {
-      const res  = await fetch(`${API}/receipts`);
+      setAll([]);
+      setShown([]);
+      setFilterInfo('');
+
+      if (!user) return;
+
+      const isGuestUser = user.isGuest === true || user.is_guest === true;
+      const guestSessionId = getGuestSessionId();
+      const token = getUserToken();
+      const url = isGuestUser
+        ? `${API}/guest/receipts?session_id=${encodeURIComponent(guestSessionId)}`
+        : `${API}/receipts`;
+      const headers:any = {};
+      if (!isGuestUser && token) headers.Authorization = `Bearer ${token}`;
+
+      const res  = await fetch(url, { headers });
       const data = await res.json();
       const recs = data.receipts || [];
       setAll(recs);
-      applySort(recs, 'newest');
-      setFilterInfo('');
-    } catch {}
+      setShown(applySort(recs, 'newest'));
+    } catch (e) {
+      setAll([]);
+      setShown([]);
+    }
     finally { setLoading(false); setRefreshing(false); }
   }
 
@@ -136,11 +156,14 @@ export default function ReceiptsScreen() {
 
   async function filterByDateRange() {
     if (!fromD || !toD) return;
-    try {
-      const res  = await fetch(`${API}/receipts/date?from_date=${fromD}&to_date=${toD}T23:59:59`);
-      const data = await res.json();
-      showResults(data.receipts || [], `${fromD} → ${toD}`);
-    } catch {}
+    const from = new Date(fromD).getTime();
+    const to = new Date(`${toD}T23:59:59`).getTime();
+    const r = all.filter(x => {
+      const raw = x.created_at || x.date || '';
+      const t = new Date(raw).getTime();
+      return !Number.isNaN(t) && t >= from && t <= to;
+    });
+    showResults(r, `${fromD} → ${toD}`);
   }
 
   function doSort() {
@@ -163,9 +186,17 @@ export default function ReceiptsScreen() {
   }
 
   async function deleteReceipt() {
-    if (!selected) return;
+    if (!selected || !user) return;
     try {
-      await fetch(`${API}/receipts/${selected.id}`, { method:'DELETE' });
+      const isGuestUser = user.isGuest === true || user.is_guest === true;
+      const guestSessionId = getGuestSessionId();
+      const token = getUserToken();
+      const url = isGuestUser
+        ? `${API}/guest/receipts/${selected.id}?session_id=${encodeURIComponent(guestSessionId)}`
+        : `${API}/receipts/${selected.id}`;
+      const headers:any = {};
+      if (!isGuestUser && token) headers.Authorization = `Bearer ${token}`;
+      await fetch(url, { method:'DELETE', headers });
       setDeleted(true);
       setAll(prev => prev.filter(r => r.id !== selected.id));
       setShown(prev => prev.filter(r => r.id !== selected.id));

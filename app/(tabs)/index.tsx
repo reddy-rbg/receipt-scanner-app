@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { getUserToken, useAuth } from '../authStore';
+import { getUserToken, useAuth, getGuestSessionId } from '../authStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -54,14 +54,23 @@ export default function ScanScreen(){
     }, [user])
   );
 
-  useEffect(()=>{ loadStats(); },[]);
+  useEffect(()=>{ if (user) loadStats(); else setStats({receipts:0,spent:0,saved:0}); },[user?.id]);
 
   async function loadStats(){
     try{
+      if (!user) {
+        setStats({receipts:0,spent:0,saved:0});
+        return;
+      }
       const token = getUserToken();
+      const isGuestUser = user.isGuest === true || user.is_guest === true;
+      const guestSessionId = getGuestSessionId();
       const headers:any = {'Content-Type':'application/json'};
       if(token) headers['Authorization'] = `Bearer ${token}`;
-      const res=await fetch(`${API}/summary`,{headers});
+      const url = isGuestUser
+        ? `${API}/guest/summary?session_id=${encodeURIComponent(guestSessionId)}`
+        : `${API}/summary`;
+      const res=await fetch(url,{headers});
       const d=await res.json();
       setStats({
         receipts: d.total_receipts||0,
@@ -103,17 +112,24 @@ export default function ScanScreen(){
     if(!uri) return;
     setLoading(true);setResult(null);setDuplicate('');
     try{
+      if (!user) {
+        Alert.alert('Login Required', 'Please login or continue as guest first.');
+        return;
+      }
       const token = getUserToken();
+      const isGuestUser = user.isGuest === true || user.is_guest === true;
+      const guestSessionId = getGuestSessionId();
       const fd    = new FormData();
       const fname = uri.split('/').pop()||(isPDF?'receipt.pdf':'receipt.jpg');
       fd.append('file',{uri, name:fname, type:getMime(uri,isPDF)} as any);
-      const res=await fetch(`${API}/scan-receipt`,{
+      if (isGuestUser) fd.append('session_id', guestSessionId);
+      const endpoint = isGuestUser ? `${API}/guest/scan-receipt` : `${API}/scan-receipt`;
+      const headers:any = {};
+      if (!isGuestUser && token) headers['Authorization'] = `Bearer ${token}`;
+      const res=await fetch(endpoint,{
         method:'POST',
         body:fd,
-        headers:{
-          'Content-Type':'multipart/form-data',
-          'Authorization':`Bearer ${token}`,
-        }
+        headers,
       });
       const data=await res.json();
       if(!res.ok){Alert.alert('Scan Failed',data.detail||`Error ${res.status}`);return;}

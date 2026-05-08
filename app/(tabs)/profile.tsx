@@ -128,7 +128,7 @@ export default function ProfileScreen() {
       // ✅ Save token globally for scan screen
       
 
-      setUser({
+      await saveUser({
         id:         data.user.id,
         email:      data.user.email,
         name:       data.user.name,
@@ -143,10 +143,11 @@ export default function ProfileScreen() {
   function handleSignOut() {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text:'Cancel', style:'cancel' },
-      { text:'Sign Out', style:'destructive', onPress:() => {
-        
-        setUser(null); setAuthMode('login');
+      { text:'Sign Out', style:'destructive', onPress: async () => {
+        await clearUser();
+        setAuthMode('login');
         setEmail(''); setPassword(''); setName('');
+        setStats({ receipts:0, spent:0, saved:0, stores:0 });
       }},
     ]);
   }
