@@ -1,15 +1,12 @@
 {
   "cli": {
-    "version": ">= 16.0.0",
-    "appVersionSource": "remote",
-    "requireCommit": true
+    "version": ">= 16.0.0"
   },
   "build": {
     "preview": {
       "android": {
         "buildType": "apk",
-        "image": "ubuntu-22.04-jdk-17-ndk-r26b",
-        "resourceClass": "medium"
+        "image": "ubuntu-22.04-jdk-17-ndk-r26b"
       },
       "distribution": "internal",
       "channel": "preview"
