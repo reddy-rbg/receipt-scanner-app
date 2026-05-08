@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 16.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "remote",
+    "requireCommit": true
   },
   "build": {
     "preview": {
@@ -10,13 +11,16 @@
         "image": "ubuntu-22.04-jdk-17-ndk-r26b",
         "resourceClass": "medium"
       },
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "preview"
     },
     "development": {
       "developmentClient": true,
       "distribution": "internal"
     },
-    "production": {}
+    "production": {
+      "channel": "production"
+    }
   },
   "submit": {
     "production": {}

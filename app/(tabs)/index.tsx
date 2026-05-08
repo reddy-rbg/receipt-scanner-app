@@ -1,9 +1,16 @@
-import { useState, useEffect } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, Image,
-  StyleSheet, ActivityIndicator, Alert,
-} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { getUserToken } from '../../userStore';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator, Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const API = 'https://web-production-3605f4.up.railway.app';
 const C = {
@@ -13,9 +20,11 @@ const C = {
   text:'#ede8ff',text2:'#7e7a9a',text3:'#3d3a55',
   green:'#4ade80',red:'#ff6b6b',
 };
-function mime(uri:string){
+
+function getMime(uri:string, isPDF:boolean=false){
+  if(isPDF) return 'application/pdf';
   const e=uri.split('.').pop()?.toLowerCase();
-  if(e==='png') return 'image/png';
+  if(e==='png')  return 'image/png';
   if(e==='webp') return 'image/webp';
   if(e==='heic') return 'image/heic';
   return 'image/jpeg';
@@ -23,19 +32,26 @@ function mime(uri:string){
 const n=(v:any)=>parseFloat(v)||0;
 
 export default function ScanScreen(){
-  const [uri,setUri]=useState<string|null>(null);
-  const [loading,setLoading]=useState(false);
-  const [result,setResult]=useState<any>(null);
-  const [duplicate,setDuplicate]=useState('');
-  const [stats,setStats]=useState({receipts:0,spent:0,saved:0});
+  const [uri,setUri]           = useState<string|null>(null);
+  const [isPDF,setIsPDF]       = useState(false);
+  const [loading,setLoading]   = useState(false);
+  const [result,setResult]     = useState<any>(null);
+  const [duplicate,setDuplicate] = useState('');
+  const [stats,setStats]       = useState({receipts:0,spent:0,saved:0});
 
-  useEffect(()=>{loadStats();},[]);
+  // ── Check if user is logged in ──
+  const userToken  = getUserToken();
+  const isLoggedIn = userToken !== '';
+
+  useEffect(()=>{ loadStats(); },[]);
 
   async function loadStats(){
     try{
-      const res=await fetch(`${API}/summary`);
-      const d=await res.json();
-      // web app uses: data.total_receipts, data.total_spent, data.total_saved
+      const token = getUserToken();
+      const headers:any = {'Content-Type':'application/json'};
+      if(token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`${API}/summary`,{headers});
+      const d   = await res.json();
       setStats({
         receipts: d.total_receipts||0,
         spent:    d.total_spent||0,
@@ -48,32 +64,74 @@ export default function ScanScreen(){
     const p=await ImagePicker.requestMediaLibraryPermissionsAsync();
     if(!p.granted){Alert.alert('Permission needed','Allow photo access.');return;}
     const r=await ImagePicker.launchImageLibraryAsync({mediaTypes:ImagePicker.MediaTypeOptions.Images,quality:0.85});
-    if(!r.canceled&&r.assets[0]){setUri(r.assets[0].uri);setResult(null);setDuplicate('');}
+    if(!r.canceled&&r.assets[0]){
+      setUri(r.assets[0].uri);
+      setIsPDF(false);
+      setResult(null);
+      setDuplicate('');
+    }
   }
 
   async function takePhoto(){
     const p=await ImagePicker.requestCameraPermissionsAsync();
     if(!p.granted){Alert.alert('Permission needed','Allow camera access.');return;}
     const r=await ImagePicker.launchCameraAsync({quality:0.85});
-    if(!r.canceled&&r.assets[0]){setUri(r.assets[0].uri);setResult(null);setDuplicate('');}
+    if(!r.canceled&&r.assets[0]){
+      setUri(r.assets[0].uri);
+      setIsPDF(false);
+      setResult(null);
+      setDuplicate('');
+    }
+  }
+
+  async function pickPDF(){
+    try{
+      const result=await DocumentPicker.getDocumentAsync({
+        type:'application/pdf',
+        copyToCacheDirectory:true,
+      });
+      if(!result.canceled&&result.assets[0]){
+        setUri(result.assets[0].uri);
+        setIsPDF(true);
+        setResult(null);
+        setDuplicate('');
+      }
+    }catch{
+      Alert.alert('Error','Could not open PDF picker.');
+    }
   }
 
   async function scan(){
     if(!uri) return;
     setLoading(true);setResult(null);setDuplicate('');
     try{
-      const fd=new FormData();
-      fd.append('file',{uri,name:uri.split('/').pop()||'receipt.jpg',type:mime(uri)} as any);
-      const res=await fetch(`${API}/scan-receipt`,{method:'POST',body:fd,headers:{'Content-Type':'multipart/form-data'}});
+      const token = getUserToken();
+      const fd    = new FormData();
+      const fname = uri.split('/').pop()||(isPDF?'receipt.pdf':'receipt.jpg');
+      fd.append('file',{uri, name:fname, type:getMime(uri,isPDF)} as any);
+      const res=await fetch(`${API}/scan-receipt`,{
+        method:'POST',
+        body:fd,
+        headers:{
+          'Content-Type':'multipart/form-data',
+          'Authorization':`Bearer ${token}`,
+        }
+      });
       const data=await res.json();
       if(!res.ok){Alert.alert('Scan Failed',data.detail||`Error ${res.status}`);return;}
-      // ✅ Backend returns { receipt: {...}, duplicate: bool, message: string }
       if(data.duplicate) setDuplicate(data.message||'Duplicate receipt detected.');
-      setResult(data.receipt); // <-- KEY FIX: use data.receipt not data
+      setResult(data.receipt);
       loadStats();
     }catch(e:any){
       Alert.alert('Error',e.message||'Could not connect. Try again.');
     }finally{setLoading(false);}
+  }
+
+  function resetScan(){
+    setResult(null);
+    setUri(null);
+    setDuplicate('');
+    setIsPDF(false);
   }
 
   return(
@@ -102,32 +160,74 @@ export default function ScanScreen(){
           <Text style={s.cardTitle}>Scan Receipt</Text>
         </View>
 
-        <TouchableOpacity style={s.uploadZone} onPress={pickImage} activeOpacity={0.8}>
-          <Text style={s.uploadEmoji}>📄</Text>
-          <Text style={s.uploadTitle}>Tap to select a receipt</Text>
-          <Text style={s.uploadSub}>JPG · PNG · WEBP</Text>
-          <View style={s.fmtRow}>
-            {['JPG','PNG','WEBP'].map(f=>(
-              <View key={f} style={s.fmtPill}><Text style={s.fmtText}>{f}</Text></View>
-            ))}
+        {/* ── LOGIN GATE ── */}
+        {!isLoggedIn ? (
+          <View style={s.loginGate}>
+            <Text style={s.loginGateEmoji}>🔒</Text>
+            <Text style={s.loginGateTitle}>Sign in to scan receipts</Text>
+            <Text style={s.loginGateDesc}>
+              Create a free account or start a 24-hour trial to scan receipts, track prices and save money.
+            </Text>
+            <TouchableOpacity
+              style={[s.btn,s.btnPri]}
+              onPress={()=>Alert.alert('Sign In Required','Go to the Profile tab to sign in or start your free 24-hour trial.')}
+              activeOpacity={0.85}
+            >
+              <Text style={s.btnPriTxt}>Go to Profile → Sign In</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        ) : (
+          /* ── SCANNER (logged in) ── */
+          <>
+            <TouchableOpacity style={s.uploadZone} onPress={pickImage} activeOpacity={0.8}>
+              <Text style={s.uploadEmoji}>📄</Text>
+              <Text style={s.uploadTitle}>Tap to select a receipt</Text>
+              <Text style={s.uploadSub}>JPG · PNG · WEBP · PDF</Text>
+              <View style={s.fmtRow}>
+                {['JPG','PNG','WEBP','PDF'].map(f=>(
+                  <View key={f} style={s.fmtPill}><Text style={s.fmtText}>{f}</Text></View>
+                ))}
+              </View>
+            </TouchableOpacity>
 
-        {uri&&<Image source={{uri}} style={s.preview} resizeMode="contain"/>}
+            {/* Image preview */}
+            {uri && !isPDF && <Image source={{uri}} style={s.preview} resizeMode="contain"/>}
 
-        <View style={s.btnRow}>
-          <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickImage} activeOpacity={0.8}>
-            <Text style={s.btnSecTxt}>📁  Gallery</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={takePhoto} activeOpacity={0.8}>
-            <Text style={s.btnSecTxt}>📸  Camera</Text>
-          </TouchableOpacity>
-        </View>
+            {/* PDF preview */}
+            {uri && isPDF && (
+              <View style={s.pdfPreview}>
+                <Text style={s.pdfPreviewText}>📄  {uri.split('/').pop()}</Text>
+                <Text style={s.pdfPreviewSub}>PDF ready to scan</Text>
+              </View>
+            )}
 
-        {uri&&(
-          <TouchableOpacity style={[s.btn,s.btnPri,loading&&{opacity:0.5}]} onPress={scan} disabled={loading} activeOpacity={0.85}>
-            {loading?<ActivityIndicator color="#fff" size="small"/>:<Text style={s.btnPriTxt}>✦  Scan Receipt</Text>}
-          </TouchableOpacity>
+            {/* Buttons */}
+            <View style={s.btnRow}>
+              <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickImage} activeOpacity={0.8}>
+                <Text style={s.btnSecTxt}>📁  Gallery</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={takePhoto} activeOpacity={0.8}>
+                <Text style={s.btnSecTxt}>📸  Camera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickPDF} activeOpacity={0.8}>
+                <Text style={s.btnSecTxt}>📄  PDF</Text>
+              </TouchableOpacity>
+            </View>
+
+            {uri&&(
+              <TouchableOpacity
+                style={[s.btn,s.btnPri,loading&&{opacity:0.5}]}
+                onPress={scan}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading
+                  ?<ActivityIndicator color="#fff" size="small"/>
+                  :<Text style={s.btnPriTxt}>✦  Scan Receipt</Text>
+                }
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </View>
 
@@ -138,7 +238,7 @@ export default function ScanScreen(){
         </View>
       )}
 
-      {/* RESULT - uses r.store, r.date, r.items, r.total etc from data.receipt */}
+      {/* RESULT */}
       {result&&(
         <View style={s.resultCard}>
           <View style={s.resultHeader}>
@@ -150,37 +250,30 @@ export default function ScanScreen(){
 
           <View style={s.items}>
             {(result.items||[]).map((item:any,i:number)=>{
-              const neg  = item.price < 0;
-              const ps   = neg ? `-$${Math.abs(item.price).toFixed(2)}` : `$${n(item.price).toFixed(2)}`;
+              const neg  = item.price<0;
+              const ps   = neg?`-$${Math.abs(item.price).toFixed(2)}`:`$${n(item.price).toFixed(2)}`;
               const unit = (item.unit||'').toLowerCase().trim();
-              const qty  = n(item.quantity) || 1;
+              const qty  = n(item.quantity)||1;
               const up   = n(item.unit_price);
-
-              // All known weighted/volume units
-              const UNITS = ['lb','lbs','oz','kg','g','mg','ml','l','liter','liters',
-                             'fl oz','fl','gal','gallon','pt','pint','qt','quart','ct','count'];
-              const isWeighted = UNITS.includes(unit);
-
-              let qtyLabel  = '';
-              let unitLabel = '';
-
-              if (isWeighted && unit && unit !== 'each') {
-                qtyLabel  = `${qty} ${unit}`;
-                if (up > 0) unitLabel = `@ $${up.toFixed(2)}/${unit}`;
-              } else if (qty > 1) {
-                qtyLabel  = `×${qty}`;
-                if (up > 0) unitLabel = `@ $${up.toFixed(2)} each`;
+              const UNITS=['lb','lbs','oz','kg','g','mg','ml','l','liter','liters','fl oz','fl','gal','gallon','pt','pint','qt','quart','ct','count'];
+              const isWeighted=UNITS.includes(unit);
+              let qtyLabel='',unitLabel='';
+              if(isWeighted&&unit&&unit!=='each'){
+                qtyLabel=`${qty} ${unit}`;
+                if(up>0) unitLabel=`@ $${up.toFixed(2)}/${unit}`;
+              }else if(qty>1){
+                qtyLabel=`×${qty}`;
+                if(up>0) unitLabel=`@ $${up.toFixed(2)} each`;
               }
-
-              return (
+              return(
                 <View key={i} style={s.itemRow}>
                   <View style={{flex:1}}>
-                    {item.code ? <Text style={s.itemCode}>{item.code}</Text> : null}
+                    {item.code?<Text style={s.itemCode}>{item.code}</Text>:null}
                     <View style={{flexDirection:'row',alignItems:'center',flexWrap:'wrap',gap:4}}>
                       <Text style={s.itemName}>{item.name}</Text>
-                      {qtyLabel ? <Text style={s.itemQty}>{qtyLabel}</Text> : null}
+                      {qtyLabel?<Text style={s.itemQty}>{qtyLabel}</Text>:null}
                     </View>
-                    {unitLabel ? <Text style={s.itemUnit}>{unitLabel}</Text> : null}
+                    {unitLabel?<Text style={s.itemUnit}>{unitLabel}</Text>:null}
                   </View>
                   <Text style={[s.itemPrice,{color:neg?C.green:C.text}]}>{ps}</Text>
                 </View>
@@ -204,7 +297,7 @@ export default function ScanScreen(){
             </View>
           )}
 
-          <TouchableOpacity style={[s.btn,s.btnSec,{margin:16,marginTop:12}]} onPress={()=>{setResult(null);setUri(null);setDuplicate('');}}>
+          <TouchableOpacity style={[s.btn,s.btnSec,{margin:16,marginTop:12}]} onPress={resetScan}>
             <Text style={s.btnSecTxt}>↩  Scan Another Receipt</Text>
           </TouchableOpacity>
         </View>
@@ -224,6 +317,12 @@ const s=StyleSheet.create({
   cardRow:{flexDirection:'row',alignItems:'center',gap:10,marginBottom:16},
   cardIcon:{width:30,height:30,borderRadius:9,alignItems:'center',justifyContent:'center'},
   cardTitle:{color:C.text,fontSize:15,fontWeight:'700'},
+  // Login gate
+  loginGate:{alignItems:'center',padding:20,gap:12},
+  loginGateEmoji:{fontSize:48},
+  loginGateTitle:{color:C.text,fontSize:18,fontWeight:'700',textAlign:'center'},
+  loginGateDesc:{color:C.text2,fontSize:13,textAlign:'center',lineHeight:20},
+  // Upload
   uploadZone:{borderWidth:1.5,borderColor:'rgba(124,106,255,0.3)',borderStyle:'dashed',borderRadius:14,padding:28,alignItems:'center',backgroundColor:'rgba(124,106,255,0.03)'},
   uploadEmoji:{fontSize:34,marginBottom:8},
   uploadTitle:{color:C.text,fontSize:14,fontWeight:'600',marginBottom:4},
@@ -232,12 +331,15 @@ const s=StyleSheet.create({
   fmtPill:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,borderRadius:99,paddingHorizontal:8,paddingVertical:2},
   fmtText:{color:C.text3,fontSize:10},
   preview:{width:'100%',height:200,borderRadius:12,marginTop:14,borderWidth:1,borderColor:C.border},
-  btnRow:{flexDirection:'row',gap:10,marginTop:12},
+  pdfPreview:{backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:16,marginTop:14,alignItems:'center'},
+  pdfPreviewText:{color:C.accent,fontSize:13,fontWeight:'600'},
+  pdfPreviewSub:{color:C.text3,fontSize:11,marginTop:4},
+  btnRow:{flexDirection:'row',gap:8,marginTop:12},
   btn:{borderRadius:12,padding:14,alignItems:'center',marginTop:10},
   btnPri:{backgroundColor:C.accent,shadowColor:C.accent,shadowOpacity:0.4,shadowRadius:12},
   btnPriTxt:{color:'#fff',fontSize:15,fontWeight:'600'},
   btnSec:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border},
-  btnSecTxt:{color:C.text,fontSize:13,fontWeight:'500'},
+  btnSecTxt:{color:C.text,fontSize:12,fontWeight:'500'},
   warnBox:{backgroundColor:'rgba(251,191,36,0.08)',borderWidth:1,borderColor:'rgba(251,191,36,0.25)',borderRadius:12,padding:14,marginBottom:12},
   warnText:{color:'#fbbf24',fontSize:13},
   resultCard:{backgroundColor:C.surface2,borderRadius:18,overflow:'hidden',borderWidth:1,borderColor:'rgba(106,255,212,0.2)',marginBottom:16},
