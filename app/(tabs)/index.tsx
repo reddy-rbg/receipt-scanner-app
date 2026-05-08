@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert,
   Image,
@@ -39,10 +40,19 @@ export default function ScanScreen(){
   const [stats,setStats]       = useState({receipts:0,spent:0,saved:0});
 
   // ── Check if user is logged in ──
-  const userToken  = getUserToken();
-  const isLoggedIn = userToken !== '';
+  const [isLoggedIn, setIsLoggedIn] = useState(getUserToken() !== '');
 
-  useEffect(()=>{ loadStats(); },[]);
+  useEffect(() => {
+    const token = getUserToken();
+    setIsLoggedIn(token !== '');
+    loadStats();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsLoggedIn(getUserToken() !== '');
+    }, [])
+  );
 
   async function loadStats(){
     try{
