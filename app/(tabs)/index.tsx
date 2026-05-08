@@ -1,6 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
+import { getUserToken } from '../userStore';
+import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert,
   Image,
@@ -10,7 +11,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getUserToken } from '../userStore';
 
 const API = 'https://web-production-3605f4.up.railway.app';
 const C = {
@@ -32,35 +32,34 @@ function getMime(uri:string, isPDF:boolean=false){
 const n=(v:any)=>parseFloat(v)||0;
 
 export default function ScanScreen(){
-  const [uri,setUri]           = useState<string|null>(null);
-  const [isPDF,setIsPDF]       = useState(false);
-  const [loading,setLoading]   = useState(false);
-  const [result,setResult]     = useState<any>(null);
+  const [uri,setUri]             = useState<string|null>(null);
+  const [isPDF,setIsPDF]         = useState(false);
+  const [loading,setLoading]     = useState(false);
+  const [result,setResult]       = useState<any>(null);
   const [duplicate,setDuplicate] = useState('');
-  const [stats,setStats]       = useState({receipts:0,spent:0,saved:0});
+  const [stats,setStats]         = useState({receipts:0,spent:0,saved:0});
 
-  // ── Check if user is logged in ──
-  const [isLoggedIn, setIsLoggedIn] = useState(getUserToken() !== '');
-
-  useEffect(() => {
-    const token = getUserToken();
-    setIsLoggedIn(token !== '');
-    loadStats();
-  }, []);
+  // ── Re-check login every time this screen is focused ──
+  // This fixes the issue where sign out doesn't update the scan screen
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      setIsLoggedIn(getUserToken() !== '');
+      const token = getUserToken();
+      setIsLoggedIn(token !== '');
+      if (token) loadStats();
     }, [])
   );
+
+  useEffect(()=>{ loadStats(); },[]);
 
   async function loadStats(){
     try{
       const token = getUserToken();
       const headers:any = {'Content-Type':'application/json'};
       if(token) headers['Authorization'] = `Bearer ${token}`;
-      const res = await fetch(`${API}/summary`,{headers});
-      const d   = await res.json();
+      const res=await fetch(`${API}/summary`,{headers});
+      const d=await res.json();
       setStats({
         receipts: d.total_receipts||0,
         spent:    d.total_spent||0,
@@ -173,7 +172,7 @@ export default function ScanScreen(){
             </TouchableOpacity>
           </View>
         ) : (
-          /* ── SCANNER (logged in) ── */
+          /* ── SCANNER ── */
           <>
             <TouchableOpacity style={s.uploadZone} onPress={pickImage} activeOpacity={0.8}>
               <Text style={s.uploadEmoji}>📄</Text>
@@ -186,10 +185,7 @@ export default function ScanScreen(){
               </View>
             </TouchableOpacity>
 
-            {/* Image preview */}
             {uri && !isPDF && <Image source={{uri}} style={s.preview} resizeMode="contain"/>}
-
-            {/* PDF preview */}
             {uri && isPDF && (
               <View style={s.pdfPreview}>
                 <Text style={s.pdfPreviewText}>📄  {uri.split('/').pop()}</Text>
@@ -197,7 +193,6 @@ export default function ScanScreen(){
               </View>
             )}
 
-            {/* Buttons */}
             <View style={s.btnRow}>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickImage} activeOpacity={0.8}>
                 <Text style={s.btnSecTxt}>📁  Gallery</Text>
@@ -313,12 +308,10 @@ const s=StyleSheet.create({
   cardRow:{flexDirection:'row',alignItems:'center',gap:10,marginBottom:16},
   cardIcon:{width:30,height:30,borderRadius:9,alignItems:'center',justifyContent:'center'},
   cardTitle:{color:C.text,fontSize:15,fontWeight:'700'},
-  // Login gate
   loginGate:{alignItems:'center',padding:20,gap:12},
   loginGateEmoji:{fontSize:48},
   loginGateTitle:{color:C.text,fontSize:18,fontWeight:'700',textAlign:'center'},
   loginGateDesc:{color:C.text2,fontSize:13,textAlign:'center',lineHeight:20},
-  // Upload
   uploadZone:{borderWidth:1.5,borderColor:'rgba(124,106,255,0.3)',borderStyle:'dashed',borderRadius:14,padding:28,alignItems:'center',backgroundColor:'rgba(124,106,255,0.03)'},
   uploadEmoji:{fontSize:34,marginBottom:8},
   uploadTitle:{color:C.text,fontSize:14,fontWeight:'600',marginBottom:4},
