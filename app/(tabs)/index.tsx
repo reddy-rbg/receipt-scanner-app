@@ -1,5 +1,4 @@
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
 import { getUserToken } from '../../userStore';
 import { useEffect, useState } from 'react';
 import {
@@ -85,20 +84,7 @@ export default function ScanScreen(){
   }
 
   async function pickPDF(){
-    try{
-      const result=await DocumentPicker.getDocumentAsync({
-        type:'application/pdf',
-        copyToCacheDirectory:true,
-      });
-      if(!result.canceled&&result.assets[0]){
-        setUri(result.assets[0].uri);
-        setIsPDF(true);
-        setResult(null);
-        setDuplicate('');
-      }
-    }catch{
-      Alert.alert('Error','Could not open PDF picker.');
-    }
+    Alert.alert('PDF Support', 'PDF scanning coming soon! Please use Gallery or Camera for now.');
   }
 
   async function scan(){
