@@ -1,5 +1,4 @@
 import { useTheme, getColors } from '../themeStore';
-import { useAuth, getUserToken, getGuestSessionId } from '../authStore';
 const C = getColors(); // for StyleSheet — reactive updates via useTheme() inside component
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -48,8 +47,7 @@ const SORTS = [
 ];
 
 export default function ReceiptsScreen() {
-  const { colors: C } = useTheme();
-  const { user } = useAuth(); // reactive theme updates
+  const { colors: C } = useTheme(); // reactive theme updates
   const [all, setAll]         = useState<Receipt[]>([]);
   const [shown, setShown]     = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,47 +70,17 @@ export default function ReceiptsScreen() {
   const [deleteMode,  setDeleteMode]  = useState(false);
   const [deleted,     setDeleted]     = useState(false);
 
-  useEffect(() => {
-    // Critical: clear old receipt state whenever switching user ↔ guest ↔ signed out
-    setAll([]);
-    setShown([]);
-    setFilterInfo('');
-    load();
-  }, [user?.id, user?.guest_session_id, user?.isGuest, user?.is_guest]);
+  useEffect(() => { load(); }, []);
 
   async function load() {
     try {
-      setLoading(true);
-      setAll([]);
-      setShown([]);
-
-      if (!user) {
-        setFilterInfo('');
-        return;
-      }
-
-      const isGuestUser = user.isGuest === true || user.is_guest === true;
-      const guestSessionId = getGuestSessionId() || user.guest_session_id || user.guestSessionId || user.id;
-      const token = getUserToken() || user.token || '';
-
-      const url = isGuestUser
-        ? `${API}/guest/receipts?session_id=${encodeURIComponent(guestSessionId)}`
-        : `${API}/receipts`;
-
-      const headers: Record<string, string> = {};
-      if (!isGuestUser && token) headers.Authorization = `Bearer ${token}`;
-
-      const res  = await fetch(url, { headers });
+      const res  = await fetch(`${API}/receipts`);
       const data = await res.json();
       const recs = data.receipts || [];
       setAll(recs);
-      setShown(applySort(recs, 'newest'));
+      applySort(recs, 'newest');
       setFilterInfo('');
-    } catch (e) {
-      console.log('[receipts] load error', e);
-      setAll([]);
-      setShown([]);
-    }
+    } catch {}
     finally { setLoading(false); setRefreshing(false); }
   }
 
@@ -168,16 +136,11 @@ export default function ReceiptsScreen() {
 
   async function filterByDateRange() {
     if (!fromD || !toD) return;
-    // Do date filtering locally from the already owner-filtered receipt list.
-    // This prevents guest/user leakage from the old unprotected backend date endpoint.
-    const start = new Date(fromD).getTime();
-    const end = new Date(`${toD}T23:59:59`).getTime();
-    const r = all.filter(x => {
-      const raw = x.created_at || x.date || '';
-      const t = new Date(raw).getTime();
-      return !Number.isNaN(t) && t >= start && t <= end;
-    });
-    showResults(r, `${fromD} → ${toD}`);
+    try {
+      const res  = await fetch(`${API}/receipts/date?from_date=${fromD}&to_date=${toD}T23:59:59`);
+      const data = await res.json();
+      showResults(data.receipts || [], `${fromD} → ${toD}`);
+    } catch {}
   }
 
   function doSort() {
@@ -200,22 +163,9 @@ export default function ReceiptsScreen() {
   }
 
   async function deleteReceipt() {
-    if (!selected || !user) return;
+    if (!selected) return;
     try {
-      const isGuestUser = user.isGuest === true || user.is_guest === true;
-      const guestSessionId = getGuestSessionId() || user.guest_session_id || user.guestSessionId || user.id;
-      const token = getUserToken() || user.token || '';
-
-      const url = isGuestUser
-        ? `${API}/guest/receipts/${selected.id}?session_id=${encodeURIComponent(guestSessionId)}`
-        : `${API}/receipts/${selected.id}`;
-
-      const headers: Record<string, string> = {};
-      if (!isGuestUser && token) headers.Authorization = `Bearer ${token}`;
-
-      const res = await fetch(url, { method:'DELETE', headers });
-      if (!res.ok) return;
-
+      await fetch(`${API}/receipts/${selected.id}`, { method:'DELETE' });
       setDeleted(true);
       setAll(prev => prev.filter(r => r.id !== selected.id));
       setShown(prev => prev.filter(r => r.id !== selected.id));

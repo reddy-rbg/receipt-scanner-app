@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth, clearUser } from '../authStore';
+import { useAuth, clearUser, saveUser, getUserToken } from '../authStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Modal, Switch,
@@ -16,7 +16,7 @@ const C = {
   green:'#4ade80', red:'#ff6b6b', gold:'#fbbf24',
 };
 
-type User = { id:string; email:string; name:string; created_at:string; token?:string; guestStartTime?:number; isGuest?: boolean };
+type User = { id:string; email:string; name:string; created_at:string; token?:string; guestStartTime?:number };
 
 function validatePassword(password: string): string[] {
   const errors: string[] = [];
@@ -50,7 +50,13 @@ function PasswordStrengthBar({ password }: { password: string }) {
 const n = (v:any) => parseFloat(v)||0;
 
 export default function ProfileScreen() {
-  const { user } = useAuth() as { user: User | null };
+  const { user } = useAuth();
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName]         = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [authLoading, setAuthLoading]   = useState(false);
+  const [authError, setAuthError]       = useState('');
 
   const [stats, setStats]             = useState({ receipts:0, spent:0, saved:0, stores:0 });
   const [statsLoading, setStatsLoading] = useState(true);
@@ -96,11 +102,51 @@ export default function ProfileScreen() {
     finally { setStatsLoading(false); }
   }
 
+  async function handleAuth() {
+    setAuthError('');
+    if (!email.trim())  { setAuthError('Please enter your email.'); return; }
+    if (!password)      { setAuthError('Please enter your password.'); return; }
+    if (authMode === 'signup') {
+      if (!name.trim()) { setAuthError('Please enter your name.'); return; }
+      const errors = validatePassword(password);
+      if (errors.length > 0) { setAuthError('Password requirements not met.'); return; }
+    }
+
+    setAuthLoading(true);
+    try {
+      const endpoint = authMode === 'login' ? '/auth/login' : '/auth/signup';
+      const body: any = { email: email.trim().toLowerCase(), password };
+      if (authMode === 'signup') body.name = name.trim();
+
+      const res  = await fetch(`${API}${endpoint}`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAuthError(data.detail || 'Authentication failed.'); return; }
+
+      // ✅ Save token globally for scan screen
+      
+
+      setUser({
+        id:         data.user.id,
+        email:      data.user.email,
+        name:       data.user.name,
+        created_at: data.user.created_at,
+        token:      data.session?.access_token,
+      });
+      setEmail(''); setPassword(''); setName('');
+    } catch { setAuthError('Could not connect. Please try again.'); }
+    finally  { setAuthLoading(false); }
+  }
+
   function handleSignOut() {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text:'Cancel', style:'cancel' },
-      { text:'Sign Out', style:'destructive', onPress: async () => {
-        await clearUser();
+      { text:'Sign Out', style:'destructive', onPress:() => {
+        
+        setUser(null); setAuthMode('login');
+        setEmail(''); setPassword(''); setName('');
       }},
     ]);
   }
@@ -164,15 +210,6 @@ export default function ProfileScreen() {
   }
 
   const isGuest = user?.isGuest === true || user?.id === 'guest';
-
-  if (!user) {
-    return (
-      <View style={[s.scroll, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
-        <Text style={{ color: C.text, fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Signed out</Text>
-        <Text style={{ color: C.text2, textAlign: 'center' }}>Please log in again to view your profile.</Text>
-      </View>
-    );
-  }
 
   // ── PROFILE SCREEN ──
   return (
