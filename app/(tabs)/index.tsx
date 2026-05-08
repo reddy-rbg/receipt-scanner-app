@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { getUserToken } from '../userStore';
+import { getUserToken } from '../authStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {

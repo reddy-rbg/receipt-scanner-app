@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { setUserToken } from '../userStore';
+import { useAuth, clearUser, saveUser, getUserToken } from '../authStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Modal, Switch,
@@ -50,7 +50,8 @@ function PasswordStrengthBar({ password }: { password: string }) {
 const n = (v:any) => parseFloat(v)||0;
 
 export default function ProfileScreen() {
-  const [user, setUser]         = useState<User|null>(null);
+  const { user, isGuest } = useAuth();
+  const [_user, setUser]         = useState<User|null>(null);
   const [authMode, setAuthMode] = useState<'login'|'signup'>('login');
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -127,7 +128,7 @@ export default function ProfileScreen() {
       if (!res.ok) { setAuthError(data.detail || 'Authentication failed.'); return; }
 
       // ✅ Save token globally for scan screen
-      setUserToken(data.session?.access_token || '');
+      
 
       setUser({
         id:         data.user.id,
@@ -145,7 +146,7 @@ export default function ProfileScreen() {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text:'Cancel', style:'cancel' },
       { text:'Sign Out', style:'destructive', onPress:() => {
-        setUserToken('');
+        
         setUser(null); setAuthMode('login');
         setEmail(''); setPassword(''); setName('');
       }},
@@ -166,7 +167,7 @@ export default function ProfileScreen() {
       if (!res.ok) { setDeleteError(data.detail || 'Could not delete account.'); return; }
       setActiveModal(null);
       Alert.alert('Account Deleted', 'Your account and all data have been permanently deleted.', [
-        { text:'OK', onPress:() => { setUserToken(''); setUser(null); setAuthMode('login'); } }
+        { text:'OK', onPress:() => {  setUser(null); setAuthMode('login'); } }
       ]);
     } catch { setDeleteError('Could not connect. Please try again.'); }
     finally  { setDeleteLoading(false); }

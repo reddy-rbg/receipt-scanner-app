@@ -1,3 +1,5 @@
+import { useTheme, getColors } from '../themeStore';
+const C = getColors(); // for StyleSheet — reactive updates via useTheme() inside component
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
@@ -6,13 +8,6 @@ import {
 
 const API = 'https://web-production-3605f4.up.railway.app';
 
-const C = {
-  bg:'#080810', surface:'#0f0f1a', surface2:'#16162a',
-  border:'rgba(255,255,255,0.06)',
-  accent:'#7c6aff', accent2:'#ff6a9e', accent3:'#6affd4',
-  text:'#ede8ff', text2:'#7e7a9a', text3:'#3d3a55',
-  green:'#4ade80', red:'#ff6b6b', gold:'#fbbf24',
-};
 
 const n = (v:any) => parseFloat(v)||0;
 
@@ -52,6 +47,7 @@ const SORTS = [
 ];
 
 export default function ReceiptsScreen() {
+  const { colors: C } = useTheme(); // reactive theme updates
   const [all, setAll]         = useState<Receipt[]>([]);
   const [shown, setShown]     = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);

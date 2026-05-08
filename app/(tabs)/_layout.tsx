@@ -1,14 +1,44 @@
+import { useEffect, useState } from 'react';
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { loadUser, useAuth, clearUser } from './authStore';
+import { loadTheme } from './themeStore';
+import LoginScreen from './LoginScreen';
 
 const C = {
-  bg: '#080810', surface: '#0f0f1a',
-  accent: '#7c6aff', text3: '#3d3a55',
-  border: 'rgba(255,255,255,0.06)',
+  bg:'#080810', surface:'#0f0f1a',
+  accent:'#7c6aff', text3:'#3d3a55',
+  border:'rgba(255,255,255,0.06)',
 };
 
 export default function TabLayout() {
+  const { user, isLoggedIn } = useAuth();
+  const [initializing, setInitializing] = useState(true);
+
+  useEffect(() => {
+    async function init() {
+      await Promise.all([loadUser(), loadTheme()]);
+      setInitializing(false);
+    }
+    init();
+  }, []);
+
+  // Show loading spinner while checking saved auth
+  if (initializing) {
+    return (
+      <View style={{ flex:1, backgroundColor:C.bg, alignItems:'center', justifyContent:'center' }}>
+        <ActivityIndicator color={C.accent} size="large"/>
+      </View>
+    );
+  }
+
+  // Show login screen if not authenticated
+  if (!isLoggedIn) {
+    return <LoginScreen />;
+  }
+
+  // Show tabs after auth
   return (
     <Tabs
       screenOptions={{
@@ -20,7 +50,7 @@ export default function TabLayout() {
           shadowOpacity: 0,
         },
         headerTintColor: '#ede8ff',
-        headerTitleStyle: { fontWeight: '800', fontSize: 17, letterSpacing: -0.5 },
+        headerTitleStyle: { fontWeight:'800', fontSize:17, letterSpacing:-0.5 },
         headerRight: () => <View style={styles.dot} />,
         tabBarStyle: {
           backgroundColor: C.surface,
@@ -32,7 +62,7 @@ export default function TabLayout() {
         },
         tabBarActiveTintColor: C.accent,
         tabBarInactiveTintColor: C.text3,
-        tabBarLabelStyle: { fontSize: 9, fontWeight: '600', marginTop: 2 },
+        tabBarLabelStyle: { fontSize:9, fontWeight:'600', marginTop:2 },
       }}
     >
       <Tabs.Screen
@@ -52,26 +82,10 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="shopping"
+        name="agent"
         options={{
-          title: 'Shopping List',
-          tabBarLabel: 'List',
-          tabBarIcon: ({ color, size }) => <Ionicons name="cart-outline" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="price"
-        options={{
-          title: 'Price Tracker',
-          tabBarLabel: 'Prices',
-          tabBarIcon: ({ color, size }) => <Ionicons name="trending-up-outline" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="ask"
-        options={{
-          title: 'Ask AI',
-          tabBarLabel: 'Ask AI',
+          title: 'AI Agent',
+          tabBarLabel: 'Agent',
           tabBarIcon: ({ color, size }) => <Ionicons name="sparkles-outline" size={size} color={color} />,
         }}
       />
@@ -89,8 +103,8 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   dot: {
-    width: 7, height: 7, borderRadius: 4,
-    backgroundColor: '#4ade80', marginRight: 16,
-    shadowColor: '#4ade80', shadowOpacity: 0.8, shadowRadius: 4,
+    width:7, height:7, borderRadius:4,
+    backgroundColor:'#4ade80', marginRight:16,
+    shadowColor:'#4ade80', shadowOpacity:0.8, shadowRadius:4,
   },
 });
