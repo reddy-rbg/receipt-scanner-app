@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth, clearUser, saveUser, getUserToken } from '../authStore';
+import { useAuth, clearUser, saveUser, getUserToken, getGuestSessionId } from '../authStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Modal, Switch,
@@ -57,6 +57,7 @@ export default function ProfileScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [authLoading, setAuthLoading]   = useState(false);
   const [authError, setAuthError]       = useState('');
+  const [authMode, setAuthMode]         = useState<'login'|'signup'>('login');
 
   const [stats, setStats]             = useState({ receipts:0, spent:0, saved:0, stores:0 });
   const [statsLoading, setStatsLoading] = useState(true);
@@ -88,9 +89,14 @@ export default function ProfileScreen() {
   async function loadStats() {
     setStatsLoading(true);
     try {
+      const isGuestUser = user?.isGuest === true || user?.is_guest === true;
+      const guestSessionId = getGuestSessionId();
       const headers: any = { 'Content-Type':'application/json' };
-      if (user?.token) headers['Authorization'] = `Bearer ${user.token}`;
-      const res = await fetch(`${API}/summary`, { headers });
+      if (!isGuestUser && user?.token) headers['Authorization'] = `Bearer ${user.token}`;
+      const url = isGuestUser
+        ? `${API}/guest/summary?session_id=${encodeURIComponent(guestSessionId)}`
+        : `${API}/summary`;
+      const res = await fetch(url, { headers });
       const d   = await res.json();
       setStats({
         receipts: d.total_receipts || 0,
@@ -145,7 +151,6 @@ export default function ProfileScreen() {
       { text:'Cancel', style:'cancel' },
       { text:'Sign Out', style:'destructive', onPress: async () => {
         await clearUser();
-        setAuthMode('login');
         setEmail(''); setPassword(''); setName('');
         setStats({ receipts:0, spent:0, saved:0, stores:0 });
       }},
@@ -210,7 +215,9 @@ export default function ProfileScreen() {
     ]);
   }
 
-  const isGuest = user?.isGuest === true || user?.id === 'guest';
+  if (!user) return null;
+
+  const isGuest = user?.isGuest === true || user?.is_guest === true || user?.id?.startsWith('guest_');
 
   // ── PROFILE SCREEN ──
   return (

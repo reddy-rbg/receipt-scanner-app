@@ -85,6 +85,105 @@ def check_duplicate(image_hash: str) -> dict | None:
 # RECEIPT SCANNING — claude-sonnet-4-6 (vision)
 # ─────────────────────────────────────────
 
+
+def normalize_scanned_receipt_data(data: dict) -> dict:
+    """Normalize AI extraction output for printed, handwritten, and return items.
+
+    This keeps the database schema unchanged because extra metadata is stored inside
+    the existing JSON receipt/items payload.
+    """
+    items = data.get("items") or []
+    normalized_items = []
+    handwritten_items = []
+    returned_items = []
+
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+
+        item = dict(raw_item)
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+
+        source = str(item.get("source") or "printed").lower().strip()
+        if source not in {"printed", "handwritten"}:
+            source = "printed"
+
+        # Numeric cleanup. Claude may return strings like "$13.77".
+        def to_number(value, default=0):
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return value
+            try:
+                return float(str(value).replace("$", "").replace(",", "").strip())
+            except Exception:
+                return default
+
+        quantity = to_number(item.get("quantity"), 1)
+        unit_price = to_number(item.get("unit_price"), 0)
+        price = to_number(item.get("price"), unit_price * quantity if unit_price else 0)
+
+        lowered = name.lower()
+        return_words = ["return", "returned", "refund", "refunded", "void", "cancel", "credit"]
+        is_return = bool(item.get("is_return")) or price < 0 or quantity < 0 or any(w in lowered for w in return_words)
+
+        if is_return:
+            quantity = -abs(quantity) if quantity else -1
+            price = -abs(price)
+            unit_price = abs(unit_price) if unit_price else abs(price)
+        else:
+            quantity = abs(quantity) if quantity else 1
+            price = abs(price)
+            unit_price = abs(unit_price) if unit_price else (round(price / quantity, 2) if quantity else price)
+
+        item["name"] = name
+        item["quantity"] = quantity
+        item["unit"] = item.get("unit") or "each"
+        item["unit_price"] = unit_price
+        item["price"] = price
+        item["source"] = source
+        item["is_handwritten"] = source == "handwritten" or bool(item.get("is_handwritten"))
+        item["is_return"] = is_return
+        item["line_type"] = "return" if is_return else ("handwritten_item" if item["is_handwritten"] else "purchase")
+        item["valid_line_item"] = bool(item.get("valid_line_item", True))
+
+        normalized_items.append(item)
+        if item["is_handwritten"]:
+            handwritten_items.append(item)
+        if item["is_return"]:
+            returned_items.append(item)
+
+    data["items"] = normalized_items
+    data["handwritten_items"] = handwritten_items
+    data["returned_items"] = returned_items
+    data["has_handwritten_items"] = len(handwritten_items) > 0
+    data["has_returns"] = len(returned_items) > 0
+
+    printed_total = round(sum((i.get("price") or 0) for i in normalized_items if not i.get("is_return")), 2)
+    return_total = round(sum((i.get("price") or 0) for i in normalized_items if i.get("is_return")), 2)
+    item_net_total = round(sum((i.get("price") or 0) for i in normalized_items), 2)
+
+    receipt_total = data.get("total")
+    try:
+        receipt_total_num = float(str(receipt_total).replace("$", "").replace(",", "")) if receipt_total is not None else None
+    except Exception:
+        receipt_total_num = None
+
+    data["validation"] = {
+        "printed_item_total": printed_total,
+        "returned_item_total": return_total,
+        "net_item_total": item_net_total,
+        "receipt_total": receipt_total_num,
+        "handwritten_items_count": len(handwritten_items),
+        "returned_items_count": len(returned_items),
+        "notes": "Handwritten items and returned items are included when clearly visible and contextually valid.",
+    }
+
+    return data
+
+
 def scan_receipt_image(image_bytes: bytes, filename: str) -> dict:
     """
     Scan a receipt image or PDF using claude-sonnet-4-6 vision.
@@ -125,86 +224,144 @@ def scan_receipt_image(image_bytes: bytes, filename: str) -> dict:
                 },
                 {
                     "type": "text",
-                    "text": """You are a receipt scanner. Carefully read this receipt image.
+                    "text": """You are an advanced receipt scanner. Carefully read BOTH printed and handwritten content on this receipt image.
 
 FIRST — check if this is a readable receipt:
-- If NOT a receipt or too blurry, respond ONLY with:
+- If NOT a receipt or too blurry/unclear to read accurately, respond ONLY with:
   {"error": "Cannot read receipt clearly. Please take a clearer photo."}
 - If it IS a receipt, extract all data below.
+
+IMPORTANT NEW BEHAVIOR:
+- Recognize printed receipt lines AND handwritten notes written on the receipt paper.
+- If a handwritten line clearly contains a valid item name plus quantity/price context, include it as a real item.
+- Use the surrounding receipt context to understand handwritten item names and prices.
+- Detect returned/refunded/voided items and include them as NEGATIVE line items.
+- Validate whether each line looks like a real purchasable item and whether prices/totals are reasonable.
 
 WHAT TO EXTRACT:
 
 1. STORE INFO
-   - store: exact name as printed (e.g. "WAL*MART", "LOWE'S HOME CENTERS, LLC")
+   - store: exact store name as printed
    - address: full store address if visible
-   - date: exact date on receipt (e.g. "04/12/26")
-   - time: time of purchase if visible
-   - payment_method: AMEX, VISA, CASH, etc.
+   - date: exact purchase date printed on receipt
+   - time: exact purchase time if visible
+   - payment_method: payment method if visible
 
-2. ITEMS — extract EVERY item:
-
-   REGULAR items (sold by unit):
-   - code: barcode/SKU or null
-   - name: exact name as printed
-   - quantity: units bought (default 1)
-   - unit: "each"
+2. PRINTED ITEMS
+   Extract every printed purchased item line.
+   For each item return:
+   - code: barcode/SKU if visible or null
+   - name: exact item name as printed
+   - quantity: number of units/weight bought
+   - unit: "each", "ct", "lb", "oz", "kg", "g", "fl oz", "ml", "l", "gal", "pt", "qt" as appropriate
    - unit_price: price per unit
    - price: total line price
+   - source: "printed"
+   - is_handwritten: false
+   - is_return: false
+   - valid_line_item: true if item and price are contextually valid
+   - confidence: "high", "medium", or "low"
 
-   WEIGHTED items (sold by weight — lb, kg, oz, g on receipt):
-   - Appear as: "2.71 lb @ $1.97/lb"
-   - code: barcode or null
-   - name: exact name
-   - quantity: weight amount (e.g. 2.71)
-   - unit: EXACTLY as printed — "lb", "kg", "oz", or "g"
-   - unit_price: price per weight unit
-   - price: total line price
+3. HANDWRITTEN ITEMS ON RECEIPT PAPER
+   Also read handwriting written over/on the receipt.
+   Include a handwritten line ONLY when it appears to be a valid purchased item, return, price correction, or added item.
+   For handwritten items:
+   - source must be "handwritten"
+   - is_handwritten must be true
+   - name should be the best readable item name, preserving the handwritten text as much as possible
+   - quantity should be extracted if written, otherwise 1
+   - unit should be "each" unless handwriting clearly shows weight/volume
+   - unit_price should be the handwritten price if visible; if only total price is visible, use that as unit_price for quantity 1
+   - price should be quantity x unit_price
+   - valid_line_item should be true only if the handwriting has enough item + price/quantity context
 
-   VOLUME items (fl oz, ml, l, gal, pt, qt):
-   - name: exact name
-   - quantity: volume amount
-   - unit: EXACTLY as printed — "fl oz", "ml", "l", "gal", "pt", "qt"
-   - unit_price: price per volume unit
-   - price: total line price
+   Example:
+   Handwritten text: "24/7 Red 100s" with a clear price/quantity nearby
+   Output it as an item with source="handwritten" and is_handwritten=true.
 
-   MULTI-PACK (e.g. "3 AT 1 FOR 0.60"):
-   - name: exact name
-   - quantity: total bought
-   - unit: "each"
-   - unit_price: price per item
-   - price: total line price
+4. RETURNS / REFUNDS / VOIDED ITEMS
+   Detect returned items from printed OR handwritten context.
+   Clues include: negative price, negative quantity, RETURN, REFUND, VOID, CREDIT, CANCEL, item crossed out with minus amount.
+   For returned items:
+   - is_return: true
+   - quantity: negative number, usually -1 unless exact returned quantity is visible
+   - price: negative amount
+   - unit_price: positive per-unit amount
+   - line_type: "return"
+   - source: "printed" or "handwritten" based on where it appears
 
-   CRITICAL UNIT RULES:
-   - NEVER default everything to "lb" — only use "lb" for weight-sold items
-   - Use EXACTLY the unit shown on the receipt
-   - Weight: lb, oz, kg, g
-   - Volume: fl oz, ml, l, gal, pt, qt
-   - Count: each, ct
-   - Examples: chicken by weight→"lb", milk carton→"each", deli per oz→"oz"
+5. DISCOUNTS / COUPONS
+   Extract discounts/coupons as separate negative line items only if shown as separate receipt lines.
+   - name format: "DISCOUNT: [description]"
+   - price should be negative
+   - line_type: "discount"
 
-3. DISCOUNTS — ALL savings as SEPARATE negative items:
-   - {"code": null, "name": "DISCOUNT GIVEN", "quantity": 1, "unit": "each", "unit_price": -3.47, "price": -3.47}
+6. TOTALS
+   - subtotal: amount before tax/discount if visible, otherwise 0.00
+   - discount: total discount amount as POSITIVE number, otherwise 0.00
+   - tax: tax charged, otherwise 0.00
+   - total: final total paid, exactly as printed if visible
+   - total_savings: total savings if shown, otherwise 0.00
 
-4. TOTALS
-   - subtotal, discount (positive), tax, total (must match receipt exactly), total_savings
+7. VALIDATION
+   Add validation info:
+   - printed_item_total: sum of printed non-return items when possible
+   - handwritten_items_count
+   - returned_items_count
+   - net_item_total: sum of all item prices including returns/discounts
+   - receipt_total_matches: true/false/null depending on whether totals can be validated
+   - warnings: list of any uncertainty, e.g. handwritten price unclear
 
-STRICT: Only extract clearly visible data. Never guess. Never invent.
+STRICT RULES:
+- Do not ignore handwritten item additions if they are clear and contextually valid.
+- Do not invent unreadable handwriting; if uncertain, either omit it or include confidence="low" with a warning.
+- Printed item names must remain exact as printed.
+- Handwritten item names should preserve visible handwritten text.
+- Return/refund amounts must be negative.
+- Never default every item to "lb".
+- Do not include transaction number, barcode number, survey URL, cashier name, card number, or change due as items.
+- Return JSON only — no markdown, no explanation.
 
-Return JSON only — no markdown:
+Return this exact JSON shape:
 {
-    "store": "name",
+    "store": "store name",
     "address": "address or null",
     "date": "date or null",
     "time": "time or null",
-    "payment_method": "method or null",
+    "payment_method": "payment method or null",
     "subtotal": 0.00,
     "discount": 0.00,
     "tax": 0.00,
     "total": 0.00,
     "total_savings": 0.00,
+    "has_handwritten_items": false,
+    "has_returns": false,
     "items": [
-        {"code": null, "name": "name", "quantity": 1, "unit": "each", "unit_price": 0.00, "price": 0.00}
-    ]
+        {
+            "code": "barcode or null",
+            "name": "exact item name",
+            "quantity": 1,
+            "unit": "each",
+            "unit_price": 0.00,
+            "price": 0.00,
+            "source": "printed",
+            "is_handwritten": false,
+            "is_return": false,
+            "line_type": "purchase",
+            "valid_line_item": true,
+            "confidence": "high"
+        }
+    ],
+    "handwritten_items": [],
+    "returned_items": [],
+    "validation": {
+        "printed_item_total": 0.00,
+        "handwritten_items_count": 0,
+        "returned_items_count": 0,
+        "net_item_total": 0.00,
+        "receipt_total_matches": null,
+        "warnings": []
+    }
 }"""
                 }
             ],

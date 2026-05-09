@@ -8,7 +8,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, ActivityIndicator, Alert,
 } from 'react-native';
-import { saveUser } from './authStore';
+import { saveUser, startGuestSession } from './authStore';
 
 const API = 'https://web-production-3605f4.up.railway.app';
 
@@ -96,15 +96,7 @@ export default function LoginScreen() {
   }
 
   async function handleGuest() {
-    await saveUser({
-      id:             'guest',
-      email:          'guest@receiptai.app',
-      name:           'Guest User',
-      created_at:     new Date().toISOString(),
-      token:          '',
-      isGuest:        true,
-      guestStartTime: Date.now(),
-    });
+    await startGuestSession();
   }
 
   return (
