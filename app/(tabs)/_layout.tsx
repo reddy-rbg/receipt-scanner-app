@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Tabs } from 'expo-router';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { loadUser, useAuth, clearUser } from '../authStore';
-import { loadTheme } from '../themeStore';
+import { loadUser, useAuth, clearUser } from '../../stores/authStore';
+import { loadTheme } from '../../stores/themeStore';
 import LoginScreen from '../LoginScreen';
 
 const C = {
@@ -97,9 +97,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
         }}
       />
-      <Tabs.Screen name="ask" options={{ href: null }} />
-      <Tabs.Screen name="shopping" options={{ href: null }} />
-      <Tabs.Screen name="price" options={{ href: null }} />
     </Tabs>
   );
 }

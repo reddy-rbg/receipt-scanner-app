@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
-import { useTheme } from '../themeStore';
-import { getUserToken, getGuestSessionId, useAuth } from '../authStore';
+import { useTheme } from '../../stores/themeStore';
+import { getUserToken, getGuestSessionId } from '../../stores/authStore';
 import { useFocusEffect } from 'expo-router';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
@@ -38,7 +38,6 @@ const TOOL_LABELS: Record<string, string> = {
 
 export default function AgentScreen() {
   const { colors: C } = useTheme();
-  const { user } = useAuth();
   const [msgs, setMsgs]         = useState<Msg[]>([
     {
       role: 'agent',
@@ -73,12 +72,10 @@ export default function AgentScreen() {
       const headers: any = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const isGuestUser = user?.isGuest === true || user?.is_guest === true;
-      const guestSessionId = getGuestSessionId();
       const res = await fetch(`${API}/agent/chat`, {
         method:  'POST',
         headers,
-        body:    JSON.stringify({ message, session_id: sessionId, guest_session_id: isGuestUser ? guestSessionId : undefined }),
+        body:    JSON.stringify({ message, session_id: sessionId, guest_session_id: getGuestSessionId() || undefined }),
       });
 
       const data = await res.json();
@@ -119,7 +116,7 @@ export default function AgentScreen() {
             if (token) headers['Authorization'] = `Bearer ${token}`;
             await fetch(`${API}/agent/clear`, {
               method: 'POST', headers,
-              body: JSON.stringify({ session_id: sessionId, guest_session_id: getGuestSessionId() }),
+              body: JSON.stringify({ session_id: sessionId, guest_session_id: getGuestSessionId() || undefined }),
             });
           } catch {}
           setMsgs([{

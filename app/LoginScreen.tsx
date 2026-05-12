@@ -8,7 +8,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, ActivityIndicator, Alert,
 } from 'react-native';
-import { saveUser, startGuestSession } from './authStore';
+import { saveUser, startGuestSession } from '../stores/authStore';
 
 const API = 'https://web-production-3605f4.up.railway.app';
 
@@ -82,13 +82,26 @@ export default function LoginScreen() {
 
       if (!res.ok) { setError(data.detail || 'Authentication failed.'); return; }
 
+      const accessToken =
+        data.session?.access_token ||
+        data.access_token ||
+        data.token ||
+        '';
+
+      if (!accessToken) {
+        setError('Account created, but session token was not returned. Please sign in once.');
+        setMode('login');
+        return;
+      }
+
       await saveUser({
         id:         data.user.id,
         email:      data.user.email,
         name:       data.user.name,
         created_at: data.user.created_at,
-        token:      data.session?.access_token,
+        token:      accessToken,
         isGuest:    false,
+        is_guest:   false,
       });
 
     } catch { setError('Could not connect. Please try again.'); }
@@ -96,7 +109,12 @@ export default function LoginScreen() {
   }
 
   async function handleGuest() {
-    await startGuestSession();
+    setError('');
+    try {
+      await startGuestSession();
+    } catch {
+      setError('Could not start guest session. Please try again.');
+    }
   }
 
   return (

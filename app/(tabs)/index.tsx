@@ -1,5 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import { getUserToken, useAuth, getGuestSessionId } from '../authStore';
+import { getUserToken, getGuestSessionId, useAuth } from '../../stores/authStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -11,6 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+function getDisplayName(user:any){ if(!user) return 'Guest'; if(user.isGuest || user.is_guest || user.token === 'guest') return 'Guest'; return user.name || user.email?.split('@')[0] || 'User';}
+function getInitial(user:any){ return getDisplayName(user).charAt(0).toUpperCase();}
 
 const API = 'https://web-production-3605f4.up.railway.app';
 const C = {
@@ -44,6 +47,8 @@ export default function ScanScreen(){
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const { user } = useAuth();
+  const displayName = getDisplayName(user);
+  const profileInitial = getInitial(user);
 
   useFocusEffect(
     useCallback(() => {
@@ -54,23 +59,14 @@ export default function ScanScreen(){
     }, [user])
   );
 
-  useEffect(()=>{ if (user) loadStats(); else setStats({receipts:0,spent:0,saved:0}); },[user?.id]);
+  useEffect(()=>{ loadStats(); },[]);
 
   async function loadStats(){
     try{
-      if (!user) {
-        setStats({receipts:0,spent:0,saved:0});
-        return;
-      }
       const token = getUserToken();
-      const isGuestUser = user.isGuest === true || user.is_guest === true;
-      const guestSessionId = getGuestSessionId();
       const headers:any = {'Content-Type':'application/json'};
       if(token) headers['Authorization'] = `Bearer ${token}`;
-      const url = isGuestUser
-        ? `${API}/guest/summary?session_id=${encodeURIComponent(guestSessionId)}`
-        : `${API}/summary`;
-      const res=await fetch(url,{headers});
+      const res=await fetch(`${API}/summary`,{headers});
       const d=await res.json();
       setStats({
         receipts: d.total_receipts||0,
@@ -112,20 +108,17 @@ export default function ScanScreen(){
     if(!uri) return;
     setLoading(true);setResult(null);setDuplicate('');
     try{
-      if (!user) {
-        Alert.alert('Login Required', 'Please login or continue as guest first.');
-        return;
-      }
       const token = getUserToken();
-      const isGuestUser = user.isGuest === true || user.is_guest === true;
-      const guestSessionId = getGuestSessionId();
       const fd    = new FormData();
       const fname = uri.split('/').pop()||(isPDF?'receipt.pdf':'receipt.jpg');
       fd.append('file',{uri, name:fname, type:getMime(uri,isPDF)} as any);
-      if (isGuestUser) fd.append('session_id', guestSessionId);
-      const endpoint = isGuestUser ? `${API}/guest/scan-receipt` : `${API}/scan-receipt`;
-      const headers:any = {};
-      if (!isGuestUser && token) headers['Authorization'] = `Bearer ${token}`;
+      const guestId = getGuestSessionId();
+      const isGuestMode = !!guestId || user?.isGuest || user?.is_guest || token === 'guest';
+      const endpoint = isGuestMode
+        ? `${API}/guest/scan-receipt?session_id=${encodeURIComponent(guestId || user?.id || 'guest')}`
+        : `${API}/scan-receipt`;
+      const headers:any = { 'Content-Type':'multipart/form-data' };
+      if (!isGuestMode && token) headers['Authorization'] = `Bearer ${token}`;
       const res=await fetch(endpoint,{
         method:'POST',
         body:fd,
@@ -150,6 +143,17 @@ export default function ScanScreen(){
 
   return(
     <ScrollView style={s.scroll} contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
+
+      {/* PROFILE BADGE */}
+      {user && (
+        <View style={s.profileBadge}>
+          <View style={s.profileCircle}><Text style={s.profileInitial}>{profileInitial}</Text></View>
+          <View style={{flex:1}}>
+            <Text style={s.profileName} numberOfLines={1}>{displayName}</Text>
+            <Text style={s.profileMode}>{(user.isGuest || user.is_guest || user.token === 'guest') ? 'Guest Trial' : 'Signed In'}</Text>
+          </View>
+        </View>
+      )}
 
       {/* STATS */}
       <View style={s.statsRow}>
@@ -317,6 +321,11 @@ export default function ScanScreen(){
 }
 
 const s=StyleSheet.create({
+  profileBadge:{flexDirection:'row',alignItems:'center',alignSelf:'flex-end',gap:8,maxWidth:175,paddingVertical:7,paddingHorizontal:10,borderRadius:999,backgroundColor:'rgba(255,255,255,0.06)',borderWidth:1,borderColor:'rgba(124,106,255,0.35)',marginBottom:12},
+  profileCircle:{width:32,height:32,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:C.accent},
+  profileInitial:{color:'#fff',fontSize:14,fontWeight:'800'},
+  profileName:{color:C.text,fontSize:12,fontWeight:'800',maxWidth:115},
+  profileMode:{color:C.text2,fontSize:10,marginTop:1},
   scroll:{flex:1,backgroundColor:C.bg},
   container:{padding:16,paddingBottom:40},
   statsRow:{flexDirection:'row',gap:10,marginBottom:16},
