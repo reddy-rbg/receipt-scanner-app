@@ -407,18 +407,6 @@ app/(tabs)/price.tsx
 
 The `app-example` scaffold may still reference Expo starter aliases. The active app lives in `app/`.
 
-## Commit Commands
-
-Frontend repo:
-
-```powershell
-cd "C:\Users\ajayp\OneDrive\Documents\Ajay\Projects\Recepit Scanner\ReceiptScanner"
-git status
-git add README.md
-git commit -m "Add professional ReceiptAI project README"
-git push
-```
-
 ## License
 
 Private project. Add a license before making the repository public.
