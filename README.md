@@ -409,4 +409,4 @@ The `app-example` scaffold may still reference Expo starter aliases. The active 
 
 ## License
 
-Private project. Add a license before making the repository public.
+This project is proprietary and intended for portfolio and demonstration purposes only. Unauthorized copying, modification, or distribution of this code is not permitted. © 2026 Ajay Kumar Reddy Poreddy. All rights reserved.
