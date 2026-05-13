@@ -19,15 +19,86 @@ type Receipt = {
   tax?:number; payment_method?:string; created_at?:string;
 };
 
+type ReceiptCategory = {
+  key: string;
+  label: string;
+  icon: string;
+};
+
 const FILTER_TABS = [
   { key:'all',   label:'All' },
   { key:'store', label:'By Store' },
+  { key:'category', label:'Category' },
   { key:'id',    label:'By ID' },
   { key:'month', label:'By Month' },
   { key:'year',  label:'By Year' },
   { key:'date',  label:'Date Range' },
   { key:'sort',  label:'Sort' },
 ];
+
+const CATEGORIES: ReceiptCategory[] = [
+  { key:'food',       label:'Food & Grocery',       icon:'🛒' },
+  { key:'restaurant', label:'Restaurants',          icon:'🍽️' },
+  { key:'garden',     label:'Gardening & Hardware', icon:'🌿' },
+  { key:'medical',    label:'Hospital & Medical',   icon:'🏥' },
+  { key:'pharmacy',   label:'Pharmacy & Health',    icon:'💊' },
+  { key:'bank',       label:'Bank & Finance',       icon:'🏦' },
+  { key:'fuel',       label:'Fuel & Auto',          icon:'⛽' },
+  { key:'home',       label:'Home & Household',     icon:'🏠' },
+  { key:'shopping',   label:'Retail Shopping',      icon:'🛍️' },
+  { key:'other',      label:'Other',                icon:'🧾' },
+];
+
+function receiptSearchText(receipt: Receipt) {
+  const itemText = (receipt.items || [])
+    .map((item:any) => [item?.name, item?.item, item?.code].filter(Boolean).join(' '))
+    .join(' ');
+
+  return [
+    receipt.store,
+    receipt.address,
+    receipt.payment_method,
+    itemText,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function matchAny(text: string, words: string[]) {
+  return words.some(word => text.includes(word));
+}
+
+function getReceiptCategory(receipt: Receipt): ReceiptCategory {
+  const text = receiptSearchText(receipt);
+
+  if (matchAny(text, ['bank', 'atm', 'withdrawal', 'deposit', 'credit union', 'chase', 'wells fargo', 'bank of america', 'capital one', 'payment receipt'])) {
+    return CATEGORIES.find(c => c.key === 'bank')!;
+  }
+  if (matchAny(text, ['hospital', 'clinic', 'medical center', 'urgent care', 'doctor', 'dental', 'dentist', 'labcorp', 'quest diagnostics', 'patient'])) {
+    return CATEGORIES.find(c => c.key === 'medical')!;
+  }
+  if (matchAny(text, ['cvs', 'walgreens', 'pharmacy', 'rx ', 'medicine', 'vitamin', 'health'])) {
+    return CATEGORIES.find(c => c.key === 'pharmacy')!;
+  }
+  if (matchAny(text, ['lowe', 'home depot', 'tractor supply', 'garden', 'mulch', 'soil', 'plant', 'rose', 'fertilizer', 'hardware', 'paint', 'lumber'])) {
+    return CATEGORIES.find(c => c.key === 'garden')!;
+  }
+  if (matchAny(text, ['restaurant', 'cafe', 'pizza', 'burger', 'taco', 'mcdonald', 'starbucks', 'subway', 'doordash', 'uber eats', 'grubhub'])) {
+    return CATEGORIES.find(c => c.key === 'restaurant')!;
+  }
+  if (matchAny(text, ['walmart', 'kroger', 'aldi', 'costco', 'sam club', 'target grocery', 'supermarket', 'market', 'grocery', 'food', 'seafood', 'milk', 'bread', 'egg'])) {
+    return CATEGORIES.find(c => c.key === 'food')!;
+  }
+  if (matchAny(text, ['shell', 'exxon', 'chevron', 'bp ', 'circle k', 'speedway', 'gas', 'fuel', 'auto', 'oil change', 'tire'])) {
+    return CATEGORIES.find(c => c.key === 'fuel')!;
+  }
+  if (matchAny(text, ['ikea', 'bed bath', 'household', 'cleaner', 'detergent', 'furniture', 'kitchen'])) {
+    return CATEGORIES.find(c => c.key === 'home')!;
+  }
+  if (matchAny(text, ['amazon', 'best buy', 'tj maxx', 'marshalls', 'mall', 'clothing', 'shoes', 'apparel', 'electronics'])) {
+    return CATEGORIES.find(c => c.key === 'shopping')!;
+  }
+
+  return CATEGORIES.find(c => c.key === 'other')!;
+}
 
 const MONTHS = [
   {label:'January',val:'01'},{label:'February',val:'02'},{label:'March',val:'03'},
@@ -67,6 +138,7 @@ export default function ReceiptsScreen() {
   const [fromD,   setFromD]   = useState('');
   const [toD,     setToD]     = useState('');
   const [sortVal, setSortVal] = useState('newest');
+  const [category, setCategory] = useState('food');
 
   // Modal
   const [selected,    setSelected]    = useState<Receipt|null>(null);
@@ -126,8 +198,15 @@ export default function ReceiptsScreen() {
 
   function filterByStore() {
     if (!storeQ.trim()) { load(); return; }
-    const r = all.filter(x => (x.store||'').toLowerCase().includes(storeQ.toLowerCase()));
-    showResults(r, `Store: "${storeQ}"`);
+    const q = storeQ.trim().toLowerCase();
+    const r = all.filter(x => receiptSearchText(x).includes(q) || String(x.id).includes(q) || getReceiptCategory(x).label.toLowerCase().includes(q));
+    showResults(r, `Search: "${storeQ.trim()}"`);
+  }
+
+  function filterByCategory(value = category) {
+    const selectedCategory = CATEGORIES.find(c => c.key === value) || CATEGORIES[CATEGORIES.length - 1];
+    const r = all.filter(x => getReceiptCategory(x).key === selectedCategory.key);
+    showResults(r, `${selectedCategory.icon} ${selectedCategory.label}`);
   }
 
   function filterById() {
@@ -171,6 +250,7 @@ export default function ReceiptsScreen() {
   function applyFilter() {
     switch (activeTab) {
       case 'store': filterByStore(); break;
+      case 'category': filterByCategory(); break;
       case 'id':    filterById();    break;
       case 'month': filterByMonth(); break;
       case 'year':  filterByYear();  break;
@@ -192,19 +272,40 @@ export default function ReceiptsScreen() {
   }
 
   // ── FILTER PANEL CONTENT ──
-  function FilterPanel() {
+  function renderFilterPanel() {
     switch (activeTab) {
       case 'store':
         return (
           <View style={s.filterRow}>
-            <TextInput style={s.filterInput} placeholder="e.g. walmart, kroger..." placeholderTextColor={C.text3} value={storeQ} onChangeText={setStoreQ} onSubmitEditing={applyFilter} returnKeyType="search"/>
+            <TextInput style={s.filterInput} placeholder="Search store, item, category..." placeholderTextColor={C.text3} value={storeQ} onChangeText={setStoreQ} onSubmitEditing={applyFilter} returnKeyType="search" autoCorrect={false}/>
             <TouchableOpacity style={s.filterBtn} onPress={applyFilter}><Text style={s.filterBtnTxt}>Search</Text></TouchableOpacity>
+          </View>
+        );
+      case 'category':
+        return (
+          <View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:6,paddingBottom:8}}>
+              {CATEGORIES.map(cat => (
+                <TouchableOpacity
+                  key={cat.key}
+                  style={[s.selectChip, category===cat.key && s.selectChipActive]}
+                  onPress={() => {
+                    setCategory(cat.key);
+                    filterByCategory(cat.key);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[s.selectChipTxt, category===cat.key && s.selectChipTxtActive]}>{cat.icon} {cat.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <Text style={s.filterHint}>Categories are detected from store names and scanned receipt items.</Text>
           </View>
         );
       case 'id':
         return (
           <View style={s.filterRow}>
-            <TextInput style={s.filterInput} placeholder="Enter receipt ID..." placeholderTextColor={C.text3} value={idQ} onChangeText={setIdQ} onSubmitEditing={applyFilter} keyboardType="numeric" returnKeyType="search"/>
+            <TextInput style={s.filterInput} placeholder="Enter receipt ID..." placeholderTextColor={C.text3} value={idQ} onChangeText={setIdQ} onSubmitEditing={applyFilter} keyboardType="numeric" returnKeyType="search" autoCorrect={false}/>
             <TouchableOpacity style={s.filterBtn} onPress={applyFilter}><Text style={s.filterBtnTxt}>Find</Text></TouchableOpacity>
           </View>
         );
@@ -248,11 +349,11 @@ export default function ReceiptsScreen() {
           <View>
             <View style={s.filterRow}>
               <Text style={s.filterLabel}>From</Text>
-              <TextInput style={s.filterInput} placeholder="YYYY-MM-DD" placeholderTextColor={C.text3} value={fromD} onChangeText={setFromD}/>
+              <TextInput style={s.filterInput} placeholder="YYYY-MM-DD" placeholderTextColor={C.text3} value={fromD} onChangeText={setFromD} autoCorrect={false}/>
             </View>
             <View style={s.filterRow}>
               <Text style={s.filterLabel}>To</Text>
-              <TextInput style={s.filterInput} placeholder="YYYY-MM-DD" placeholderTextColor={C.text3} value={toD} onChangeText={setToD}/>
+              <TextInput style={s.filterInput} placeholder="YYYY-MM-DD" placeholderTextColor={C.text3} value={toD} onChangeText={setToD} autoCorrect={false}/>
               <TouchableOpacity style={s.filterBtn} onPress={applyFilter}><Text style={s.filterBtnTxt}>Filter</Text></TouchableOpacity>
             </View>
           </View>
@@ -303,7 +404,7 @@ export default function ReceiptsScreen() {
 
         {/* Filter Panel */}
         <View style={s.filterPanel}>
-          <FilterPanel />
+          {renderFilterPanel()}
         </View>
 
         {/* Results info */}
@@ -336,7 +437,12 @@ export default function ReceiptsScreen() {
               activeOpacity={0.8}
             >
               <View style={{flex:1}}>
-                <Text style={s.idBadge}>#{r.id}</Text>
+                <View style={s.cardTopLine}>
+                  <Text style={s.idBadge}>#{r.id}</Text>
+                  <View style={s.categoryBadge}>
+                    <Text style={s.categoryBadgeTxt}>{getReceiptCategory(r).icon} {getReceiptCategory(r).label}</Text>
+                  </View>
+                </View>
                 <Text style={s.storeName}>{r.store}</Text>
                 <Text style={s.meta} numberOfLines={2}>
                   {[r.date, r.time, r.address].filter(Boolean).join(' · ')}
@@ -369,6 +475,11 @@ export default function ReceiptsScreen() {
           <View style={s.modalHeader}>
             <View style={{flex:1}}>
               <Text style={s.modalStore}>{selected?.store||'Unknown Store'}</Text>
+              {selected ? (
+                <View style={[s.categoryBadge, { alignSelf:'flex-start', marginBottom:8 }]}>
+                  <Text style={s.categoryBadgeTxt}>{getReceiptCategory(selected).icon} {getReceiptCategory(selected).label}</Text>
+                </View>
+              ) : null}
               <Text style={s.modalMeta}>
                 {[selected?.id&&`#${selected.id}`, selected?.date, selected?.time, selected?.address].filter(Boolean).join('  ·  ')}
               </Text>
@@ -466,6 +577,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   filterInput:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:11, padding:10, paddingHorizontal:14, color:C.text, fontSize:13 },
   filterBtn:{ backgroundColor:C.accent, borderRadius:11, paddingHorizontal:16, paddingVertical:10 },
   filterBtnTxt:{ color:'#fff', fontWeight:'600', fontSize:13 },
+  filterHint:{ color:C.text3, fontSize:11, lineHeight:15, marginTop:2 },
 
   // Select chips (month/year/sort)
   selectChip:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:14, paddingVertical:6, flexShrink:0 },
@@ -486,7 +598,10 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
 
   // Receipt cards
   card:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:16, padding:16, marginBottom:10, flexDirection:'row', alignItems:'center', gap:10 },
+  cardTopLine:{ flexDirection:'row', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:4 },
   idBadge:{ color:C.text3, fontSize:9, fontFamily:'monospace', letterSpacing:0.5, marginBottom:3 },
+  categoryBadge:{ backgroundColor:'rgba(124,106,255,0.10)', borderWidth:1, borderColor:'rgba(124,106,255,0.22)', borderRadius:99, paddingHorizontal:8, paddingVertical:2 },
+  categoryBadgeTxt:{ color:C.accent, fontSize:10, fontWeight:'600' },
   storeName:{ color:C.text, fontSize:14, fontWeight:'700', marginBottom:3 },
   meta:{ color:C.text2, fontSize:11 },
   total:{ color:C.text, fontSize:18, fontWeight:'800', letterSpacing:-0.5 },
