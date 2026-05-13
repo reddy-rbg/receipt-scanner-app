@@ -10,6 +10,15 @@ import {
 
 const API = 'https://web-production-3605f4.up.railway.app';
 
+function friendlyAgentError(message: string) {
+  if (!message) return 'I had trouble answering that. Please try again.';
+  const lower = message.toLowerCase();
+  if (lower.includes('column') || lower.includes('receipts.') || lower.includes('sql') || lower.includes('supabase')) {
+    return 'I had trouble reading your receipt data. Please try again in a moment.';
+  }
+  return message;
+}
+
 type Msg = {
   role: 'user' | 'agent';
   text: string;
@@ -24,24 +33,18 @@ const QUICK_PROMPTS = [
   { label: '🛒 Shopping plan', prompt: 'Help me plan my next grocery shopping trip to save money' },
   { label: '💡 Save money', prompt: 'What are the top 3 ways I can save money based on my receipts?' },
   { label: '📊 Monthly report', prompt: 'Give me a monthly spending report with store breakdown' },
+  { label: '📉 Spending graph', prompt: 'Show my monthly expenses spent analysis as a chart' },
+  { label: '🧾 Buy this month', prompt: 'Give me this month items to purchase based on my receipts' },
   { label: '🔍 Compare prices', prompt: 'Compare my prices to current market prices and find where I overpaid' },
   { label: '🎯 Best deals', prompt: 'What were the best deals I got recently?' },
 ];
-
-const TOOL_LABELS: Record<string, string> = {
-  query_receipts:       '🗄 Querying receipts',
-  get_price_history:    '📈 Checking price history',
-  analyze_spending:     '📊 Analyzing spending',
-  find_best_deals:      '🛒 Finding best deals',
-  search_market_prices: '🌐 Searching market prices',
-};
 
 export default function AgentScreen() {
   const { colors: C } = useTheme();
   const [msgs, setMsgs]         = useState<Msg[]>([
     {
       role: 'agent',
-      text: '👋 Hi! I\'m your ReceiptAI Agent.\n\nI can analyze your purchase history, find the best prices, optimize your shopping list, and answer any question about your spending.\n\nWhat would you like to know?',
+      text: 'Ask me anything about your receipts, spending, or prices.',
     }
   ]);
   const [input, setInput]       = useState('');
@@ -78,10 +81,16 @@ export default function AgentScreen() {
         body:    JSON.stringify({ message, session_id: sessionId, guest_session_id: getGuestSessionId() || undefined }),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      let data: any = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { detail: raw };
+      }
 
       if (!res.ok) {
-        throw new Error(data.detail || 'Agent error');
+        throw new Error(friendlyAgentError(data.detail || data.message || 'Agent error'));
       }
 
       const agentMsg: Msg = {
@@ -95,7 +104,7 @@ export default function AgentScreen() {
     } catch (e: any) {
       const errMsg: Msg = {
         role: 'agent',
-        text: `Sorry, I ran into an error: ${e.message || 'Could not connect'}. Please try again.`,
+        text: friendlyAgentError(e.message || 'Could not connect'),
       };
       setMsgs(prev => [...prev.slice(0, -1), errMsg]);
     } finally {
@@ -170,17 +179,6 @@ export default function AgentScreen() {
           <Text style={{ color: C.accent, fontSize: 12 }}>✦</Text>
         </View>
         <View style={{ flex: 1 }}>
-          {msg.tools && msg.tools.length > 0 && (
-            <View style={s.toolsUsed}>
-              {msg.tools.map((tool, i) => (
-                <View key={i} style={[s.toolBadge, { backgroundColor: 'rgba(124,106,255,0.08)', borderColor: 'rgba(124,106,255,0.2)' }]}>
-                  <Text style={{ color: C.accent, fontSize: 10 }}>
-                    {TOOL_LABELS[tool] || tool}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
           <View style={[s.bubble, s.agentBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
             <Text style={[s.bubbleTxt, { color: C.text }]}>{formattedText}</Text>
           </View>
@@ -200,7 +198,7 @@ export default function AgentScreen() {
         <View style={s.agentHeaderLeft}>
           <View style={[s.agentDot, { backgroundColor: C.green }]} />
           <Text style={[s.agentHeaderTxt, { color: C.text2 }]}>
-            AI Agent · Claude Opus · 5 tools available
+            Ready
           </Text>
         </View>
         <TouchableOpacity onPress={clearConversation}>

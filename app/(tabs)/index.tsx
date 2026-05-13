@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
-import { getUserToken, getGuestSessionId, useAuth } from '../../stores/authStore';
+import { getUserToken, useAuth } from '../../stores/authStore';
+import { useTheme } from '../../stores/themeStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -12,11 +13,21 @@ import {
   View,
 } from 'react-native';
 
-function getDisplayName(user:any){ if(!user) return 'Guest'; if(user.isGuest || user.is_guest || user.token === 'guest') return 'Guest'; return user.name || user.email?.split('@')[0] || 'User';}
-function getInitial(user:any){ return getDisplayName(user).charAt(0).toUpperCase();}
+function getDisplayName(user: any) {
+  if (!user) return 'Guest';
+  if (user.is_guest) return 'Guest';
+  return user.name || user.email?.split('@')[0] || 'User';
+}
+
+function getInitial(user: any) {
+  if (!user) return 'G';
+  if (user.is_guest) return 'G';
+  const value = user.name || user.email || 'User';
+  return value.trim().charAt(0).toUpperCase();
+}
 
 const API = 'https://web-production-3605f4.up.railway.app';
-const C = {
+const FALLBACK_COLORS = {
   bg:'#080810',surface:'#0f0f1a',surface2:'#16162a',
   border:'rgba(255,255,255,0.06)',
   accent:'#7c6aff',accent2:'#ff6a9e',accent3:'#6affd4',
@@ -35,6 +46,8 @@ function getMime(uri:string, isPDF:boolean=false){
 const n=(v:any)=>parseFloat(v)||0;
 
 export default function ScanScreen(){
+  const { colors: C } = useTheme();
+  const s = createStyles(C);
   const [uri,setUri]             = useState<string|null>(null);
   const [isPDF,setIsPDF]         = useState(false);
   const [loading,setLoading]     = useState(false);
@@ -63,7 +76,7 @@ export default function ScanScreen(){
 
   async function loadStats(){
     try{
-      const token = getUserToken();
+      const token = await getUserToken();
       const headers:any = {'Content-Type':'application/json'};
       if(token) headers['Authorization'] = `Bearer ${token}`;
       const res=await fetch(`${API}/summary`,{headers});
@@ -106,32 +119,72 @@ export default function ScanScreen(){
 
   async function scan(){
     if(!uri) return;
-    setLoading(true);setResult(null);setDuplicate('');
+
+    if(!user){
+      Alert.alert('Authentication required', 'Please sign in or start a guest trial first.');
+      return;
+    }
+
+    setLoading(true);
+    setResult(null);
+    setDuplicate('');
+
     try{
-      const token = getUserToken();
-      const fd    = new FormData();
-      const fname = uri.split('/').pop()||(isPDF?'receipt.pdf':'receipt.jpg');
-      fd.append('file',{uri, name:fname, type:getMime(uri,isPDF)} as any);
-      const guestId = getGuestSessionId();
-      const isGuestMode = !!guestId || user?.isGuest || user?.is_guest || token === 'guest';
-      const endpoint = isGuestMode
-        ? `${API}/guest/scan-receipt?session_id=${encodeURIComponent(guestId || user?.id || 'guest')}`
-        : `${API}/scan-receipt`;
-      const headers:any = { 'Content-Type':'multipart/form-data' };
-      if (!isGuestMode && token) headers['Authorization'] = `Bearer ${token}`;
-      const res=await fetch(endpoint,{
-        method:'POST',
-        body:fd,
+      const token = await getUserToken();
+      const fd = new FormData();
+      const fname = uri.split('/').pop() || (isPDF ? 'receipt.pdf' : 'receipt.jpg');
+
+      fd.append('file', {
+        uri,
+        name: fname,
+        type: getMime(uri, isPDF),
+      } as any);
+
+      let endpoint = `${API}/scan-receipt`;
+      const headers:any = {};
+
+      if(user?.is_guest || user?.token === 'guest'){
+        const guestSessionId = user.guest_session_id || user.id;
+
+        if(!guestSessionId){
+          Alert.alert('Authentication required', 'Guest session is missing. Please sign out and start guest trial again.');
+          return;
+        }
+
+        endpoint = `${API}/guest/scan-receipt?session_id=${encodeURIComponent(guestSessionId)}`;
+      } else {
+        if(!token || token === 'guest'){
+          Alert.alert('Authentication required', 'Your session token is missing. Please sign out and sign in again.');
+          return;
+        }
+
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        body: fd,
         headers,
       });
-      const data=await res.json();
-      if(!res.ok){Alert.alert('Scan Failed',data.detail||`Error ${res.status}`);return;}
-      if(data.duplicate) setDuplicate(data.message||'Duplicate receipt detected.');
+
+      const data = await res.json();
+
+      if(!res.ok){
+        Alert.alert('Scan Failed', data.detail || data.message || `Error ${res.status}`);
+        return;
+      }
+
+      if(data.duplicate) {
+        setDuplicate(data.message || 'Duplicate receipt detected.');
+      }
+
       setResult(data.receipt);
-      loadStats();
+      await loadStats();
     }catch(e:any){
-      Alert.alert('Error',e.message||'Could not connect. Try again.');
-    }finally{setLoading(false);}
+      Alert.alert('Error', e.message || 'Could not connect. Try again.');
+    }finally{
+      setLoading(false);
+    }
   }
 
   function resetScan(){
@@ -144,13 +197,16 @@ export default function ScanScreen(){
   return(
     <ScrollView style={s.scroll} contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
 
+
       {/* PROFILE BADGE */}
       {user && (
         <View style={s.profileBadge}>
-          <View style={s.profileCircle}><Text style={s.profileInitial}>{profileInitial}</Text></View>
-          <View style={{flex:1}}>
+          <View style={s.profileCircle}>
+            <Text style={s.profileInitial}>{profileInitial}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
             <Text style={s.profileName} numberOfLines={1}>{displayName}</Text>
-            <Text style={s.profileMode}>{(user.isGuest || user.is_guest || user.token === 'guest') ? 'Guest Trial' : 'Signed In'}</Text>
+            <Text style={s.profileMode}>{user.is_guest ? 'Guest Trial' : 'Signed In'}</Text>
           </View>
         </View>
       )}
@@ -320,12 +376,45 @@ export default function ScanScreen(){
   );
 }
 
-const s=StyleSheet.create({
-  profileBadge:{flexDirection:'row',alignItems:'center',alignSelf:'flex-end',gap:8,maxWidth:175,paddingVertical:7,paddingHorizontal:10,borderRadius:999,backgroundColor:'rgba(255,255,255,0.06)',borderWidth:1,borderColor:'rgba(124,106,255,0.35)',marginBottom:12},
-  profileCircle:{width:32,height:32,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:C.accent},
-  profileInitial:{color:'#fff',fontSize:14,fontWeight:'800'},
-  profileName:{color:C.text,fontSize:12,fontWeight:'800',maxWidth:115},
-  profileMode:{color:C.text2,fontSize:10,marginTop:1},
+const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
+  profileBadge:{
+    flexDirection:'row',
+    alignItems:'center',
+    alignSelf:'flex-end',
+    gap:8,
+    maxWidth:170,
+    paddingVertical:7,
+    paddingHorizontal:10,
+    borderRadius:999,
+    backgroundColor:'rgba(255,255,255,0.06)',
+    borderWidth:1,
+    borderColor:'rgba(124,106,255,0.35)',
+    marginBottom:12,
+  },
+  profileCircle:{
+    width:32,
+    height:32,
+    borderRadius:16,
+    alignItems:'center',
+    justifyContent:'center',
+    backgroundColor:C.accent,
+  },
+  profileInitial:{
+    color:'#fff',
+    fontSize:14,
+    fontWeight:'800',
+  },
+  profileName:{
+    color:C.text,
+    fontSize:12,
+    fontWeight:'800',
+    maxWidth:110,
+  },
+  profileMode:{
+    color:C.text2,
+    fontSize:10,
+    marginTop:1,
+  },
   scroll:{flex:1,backgroundColor:C.bg},
   container:{padding:16,paddingBottom:40},
   statsRow:{flexDirection:'row',gap:10,marginBottom:16},

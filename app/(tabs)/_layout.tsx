@@ -3,10 +3,10 @@ import { Tabs } from 'expo-router';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { loadUser, useAuth, clearUser } from '../../stores/authStore';
-import { loadTheme } from '../../stores/themeStore';
+import { loadTheme, useTheme } from '../../stores/themeStore';
 import LoginScreen from '../LoginScreen';
 
-const C = {
+const FALLBACK_COLORS = {
   bg:'#080810', surface:'#0f0f1a',
   accent:'#7c6aff', text3:'#3d3a55',
   border:'rgba(255,255,255,0.06)',
@@ -14,6 +14,7 @@ const C = {
 
 export default function TabLayout() {
   const { user, isLoggedIn } = useAuth();
+  const { colors: C } = useTheme();
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
@@ -27,8 +28,8 @@ export default function TabLayout() {
   // Show loading spinner while checking saved auth
   if (initializing) {
     return (
-      <View style={{ flex:1, backgroundColor:C.bg, alignItems:'center', justifyContent:'center' }}>
-        <ActivityIndicator color={C.accent} size="large"/>
+      <View style={{ flex:1, backgroundColor:FALLBACK_COLORS.bg, alignItems:'center', justifyContent:'center' }}>
+        <ActivityIndicator color={FALLBACK_COLORS.accent} size="large"/>
       </View>
     );
   }
@@ -49,7 +50,7 @@ export default function TabLayout() {
           elevation: 0,
           shadowOpacity: 0,
         },
-        headerTintColor: '#ede8ff',
+        headerTintColor: C.text,
         headerTitleStyle: { fontWeight:'800', fontSize:17, letterSpacing:-0.5 },
         headerRight: () => <View style={styles.dot} />,
         tabBarStyle: {

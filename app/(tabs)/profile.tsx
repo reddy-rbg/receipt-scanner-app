@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useAuth, clearUser, saveUser, getUserToken } from '../../stores/authStore';
+import { useTheme } from '../../stores/themeStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Modal, Switch,
-  Linking, Share, Appearance,
+  Linking, Share,
 } from 'react-native';
 
 const API = 'https://web-production-3605f4.up.railway.app';
 
-const C = {
+const FALLBACK_COLORS = {
   bg:'#080810', surface:'#0f0f1a', surface2:'#16162a', surface3:'#1e1e35',
   border:'rgba(255,255,255,0.06)',
   accent:'#7c6aff', accent2:'#ff6a9e', accent3:'#6affd4',
@@ -36,12 +37,12 @@ function PasswordStrengthBar({ password }: { password: string }) {
     <View style={{ marginTop:8, marginBottom:4 }}>
       <View style={{ flexDirection:'row', gap:4, marginBottom:4 }}>
         {[0,1,2,3].map(i => (
-          <View key={i} style={{ flex:1, height:3, borderRadius:2, backgroundColor: i < strength ? colors[strength] : C.surface3 }} />
+          <View key={i} style={{ flex:1, height:3, borderRadius:2, backgroundColor: i < strength ? colors[strength] : FALLBACK_COLORS.surface3 }} />
         ))}
       </View>
       {strength < 4
-        ? <Text style={{ fontSize:11, color:C.text3 }}>Missing: {errors.join(' · ')}</Text>
-        : <Text style={{ fontSize:11, color:C.green }}>✓ Strong password</Text>
+        ? <Text style={{ fontSize:11, color:FALLBACK_COLORS.text3 }}>Missing: {errors.join(' · ')}</Text>
+        : <Text style={{ fontSize:11, color:FALLBACK_COLORS.green }}>✓ Strong password</Text>
       }
     </View>
   );
@@ -50,6 +51,8 @@ function PasswordStrengthBar({ password }: { password: string }) {
 const n = (v:any) => parseFloat(v)||0;
 
 export default function ProfileScreen() {
+  const { theme, colors: C, setTheme } = useTheme();
+  const s = createStyles(C);
   const { user } = useAuth();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -72,9 +75,6 @@ export default function ProfileScreen() {
   const [notifReceipts, setNotifReceipts] = useState(true);
   const [notifSavings, setNotifSavings]   = useState(true);
   const [notifDeals, setNotifDeals]       = useState(false);
-
-  // Theme
-  const [themeMode, setThemeMode] = useState<'dark'|'light'>('dark');
 
   // Rating
   const [rating, setRating]         = useState(0);
@@ -217,6 +217,8 @@ export default function ProfileScreen() {
   }
 
   const isGuest = user?.is_guest === true || user?.id === 'guest' || user?.token === 'guest';
+  const profileName = user?.name || user?.email?.split('@')[0] || 'User';
+  const profileEmail = user?.email || '';
 
   // ── PROFILE SCREEN ──
   return (
@@ -225,10 +227,10 @@ export default function ProfileScreen() {
       {/* Avatar */}
       <View style={s.avatarSection}>
         <View style={s.avatar}>
-          <Text style={s.avatarText}>{isGuest ? '👤' : user.name?.[0]?.toUpperCase()||'✦'}</Text>
+          <Text style={s.avatarText}>{isGuest ? '👤' : profileName[0]?.toUpperCase() || '✦'}</Text>
         </View>
-        <Text style={s.userName}>{isGuest ? 'Guest User' : user.name}</Text>
-        <Text style={s.userEmail}>{isGuest ? 'Guest Mode' : user.email}</Text>
+        <Text style={s.userName}>{isGuest ? 'Guest User' : profileName}</Text>
+        <Text style={s.userEmail}>{isGuest ? 'Guest Mode' : profileEmail}</Text>
         {isGuest && (
           <TouchableOpacity style={s.upgradeBtn} onPress={ async ()=>{ await clearUser(); }}>
             <Text style={s.upgradeBtnText}>✦ Create account for full access</Text>
@@ -538,21 +540,18 @@ export default function ProfileScreen() {
                   key={t.value}
                   style={{
                     flex:1, padding:20, borderRadius:16, alignItems:'center',
-                    borderWidth: themeMode===t.value ? 2 : 1,
-                    borderColor: themeMode===t.value ? C.accent : C.border,
-                    backgroundColor: themeMode===t.value ? 'rgba(124,106,255,0.15)' : C.surface2,
+                    borderWidth: theme===t.value ? 2 : 1,
+                    borderColor: theme===t.value ? C.accent : C.border,
+                    backgroundColor: theme===t.value ? 'rgba(124,106,255,0.15)' : C.surface2,
                   }}
-                  onPress={() => {
-                    setThemeMode(t.value);
-                    Appearance.setColorScheme(t.value);
-                  }}
+                  onPress={() => setTheme(t.value)}
                   activeOpacity={0.8}
                 >
                   <Text style={{ fontSize:32, marginBottom:8 }}>{t.emoji}</Text>
-                  <Text style={{ color: themeMode===t.value ? C.accent : C.text2, fontWeight:'700', fontSize:14 }}>
+                  <Text style={{ color: theme===t.value ? C.accent : C.text2, fontWeight:'700', fontSize:14 }}>
                     {t.label}
                   </Text>
-                  {themeMode===t.value && (
+                  {theme===t.value && (
                     <View style={{ marginTop:6, backgroundColor:C.accent, borderRadius:99, paddingHorizontal:10, paddingVertical:2 }}>
                       <Text style={{ color:'#fff', fontSize:10, fontWeight:'600' }}>Active</Text>
                     </View>
@@ -620,7 +619,7 @@ export default function ProfileScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   // AUTH
   authScroll:{ flex:1, backgroundColor:C.bg },
   authContainer:{ padding:24, paddingBottom:50, alignItems:'center' },

@@ -9,16 +9,9 @@ import {
   TextInput, ActivityIndicator, Alert,
 } from 'react-native';
 import { saveUser, startGuestSession } from '../stores/authStore';
+import { DARK_COLORS, useTheme } from '../stores/themeStore';
 
 const API = 'https://web-production-3605f4.up.railway.app';
-
-const C = {
-  bg:'#080810', surface:'#0f0f1a', surface2:'#16162a', surface3:'#1e1e35',
-  border:'rgba(255,255,255,0.06)',
-  accent:'#7c6aff', accent2:'#ff6a9e', accent3:'#6affd4',
-  text:'#ede8ff', text2:'#7e7a9a', text3:'#3d3a55',
-  green:'#4ade80', red:'#ff6b6b', gold:'#fbbf24',
-};
 
 function validatePassword(password: string): string[] {
   const errors: string[] = [];
@@ -29,7 +22,7 @@ function validatePassword(password: string): string[] {
   return errors;
 }
 
-function PasswordStrengthBar({ password }: { password: string }) {
+function PasswordStrengthBar({ password, colors: C }: { password: string; colors: typeof DARK_COLORS }) {
   if (!password) return null;
   const errors = validatePassword(password);
   const strength = 4 - errors.length;
@@ -50,6 +43,8 @@ function PasswordStrengthBar({ password }: { password: string }) {
 }
 
 export default function LoginScreen() {
+  const { colors: C } = useTheme();
+  const s = createStyles(C);
   const [mode, setMode]         = useState<'login'|'signup'>('login');
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -78,9 +73,21 @@ export default function LoginScreen() {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data: any = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { detail: raw };
+      }
 
-      if (!res.ok) { setError(data.detail || 'Authentication failed.'); return; }
+      if (!res.ok) {
+        const detail = Array.isArray(data.detail)
+          ? data.detail.map((d: any) => d?.msg || String(d)).join('\n')
+          : data.detail || data.message || raw;
+        setError(detail || 'Authentication failed.');
+        return;
+      }
 
       const accessToken =
         data.session?.access_token ||
@@ -186,7 +193,7 @@ export default function LoginScreen() {
               <Text style={s.eyeText}>{showPw?'🙈':'👁'}</Text>
             </TouchableOpacity>
           </View>
-          {mode==='signup' && <PasswordStrengthBar password={password}/>}
+          {mode==='signup' && <PasswordStrengthBar password={password} colors={C}/>}
         </View>
 
         {mode==='signup' && (
@@ -251,7 +258,7 @@ export default function LoginScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   scroll:{ flex:1, backgroundColor:C.bg },
   container:{ padding:24, paddingBottom:50, alignItems:'center', minHeight:'100%', justifyContent:'center' },
 

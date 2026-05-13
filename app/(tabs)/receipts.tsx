@@ -1,6 +1,6 @@
-import { useTheme, getColors } from '../../stores/themeStore';
+import { useTheme } from '../../stores/themeStore';
 import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore';
-const C = getColors(); // for StyleSheet — reactive updates via useTheme() inside component
+import { DARK_COLORS } from '../../stores/themeStore';
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
@@ -49,6 +49,7 @@ const SORTS = [
 
 export default function ReceiptsScreen() {
   const { colors: C } = useTheme();
+  const s = createStyles(C);
   const { user } = useAuth(); // reactive theme updates
   const [all, setAll]         = useState<Receipt[]>([]);
   const [shown, setShown]     = useState<Receipt[]>([]);
@@ -446,7 +447,7 @@ export default function ReceiptsScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   screen:{ flex:1, backgroundColor:C.bg },
 
   top:{ backgroundColor:C.bg, paddingTop:8 },
