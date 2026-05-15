@@ -91,6 +91,14 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="memory"
+        options={{
+          title: 'Price Memory',
+          tabBarLabel: 'Memory',
+          tabBarIcon: ({ color, size }) => <Ionicons name="pricetag-outline" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
