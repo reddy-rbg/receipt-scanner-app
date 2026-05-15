@@ -105,6 +105,12 @@ export default function PriceMemoryScreen() {
 
   const strongItems = items.filter(item => item.recommendation === 'may need soon').length;
   const compareItems = items.filter(item => item.recommendation === 'compare before buying').length;
+  const nextPlan = items.filter(item => item.recommendation === 'may need soon').slice(0, 5);
+  const comparePlan = items
+    .filter(item => item.recommendation === 'compare before buying')
+    .sort((a, b) => n(b.price_range) - n(a.price_range))
+    .slice(0, 4);
+  const planTotal = nextPlan.reduce((sum, item) => sum + n(item.usual_price), 0);
   const avgAvoid = items.length
     ? items.reduce((sum, item) => sum + n(item.avoid_above_price), 0) / items.length
     : 0;
@@ -137,6 +143,51 @@ export default function PriceMemoryScreen() {
             <Text style={s.statLbl}>Compare</Text>
           </View>
         </View>
+
+        {items.length > 0 ? (
+          <View style={s.planBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.planKicker}>Next Purchase Assistant</Text>
+                <Text style={s.planTitle}>Smart shopping plan</Text>
+              </View>
+              <View style={s.planTotalPill}>
+                <Text style={s.planTotalTxt}>{money(planTotal)}</Text>
+              </View>
+            </View>
+
+            {nextPlan.length > 0 ? (
+              <View style={s.planSection}>
+                <Text style={s.planSectionTitle}>May need soon</Text>
+                {nextPlan.map((item, index) => (
+                  <View key={`${item.item_name}-soon-${index}`} style={s.planRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.planItem} numberOfLines={1}>{item.item_name}</Text>
+                      <Text style={s.planMeta}>
+                        Usual {money(item.usual_price)} · good deal {money(item.good_deal_price)}
+                      </Text>
+                    </View>
+                    <Text style={s.planStore} numberOfLines={1}>{item.cheapest_store || 'Store?'}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={s.planEmpty}>No repeat item looks due yet. Keep scanning and this will get smarter.</Text>
+            )}
+
+            {comparePlan.length > 0 ? (
+              <View style={s.planSection}>
+                <Text style={s.planSectionTitle}>Compare before buying</Text>
+                {comparePlan.map((item, index) => (
+                  <View key={`${item.item_name}-compare-${index}`} style={s.compareRow}>
+                    <Text style={s.compareItem} numberOfLines={1}>{item.item_name}</Text>
+                    <Text style={s.compareRange}>{money(item.price_range)} swing</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={s.searchWrap}>
           <TextInput
@@ -237,6 +288,22 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   statBox:{ flex:1, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:12, padding:12 },
   statVal:{ color:C.accent, fontSize:22, fontWeight:'900' },
   statLbl:{ color:C.text2, fontSize:11, marginTop:2 },
+  planBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  planHeader:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:12 },
+  planKicker:{ color:C.green, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  planTitle:{ color:C.text, fontSize:18, fontWeight:'900' },
+  planTotalPill:{ backgroundColor:'rgba(74,222,128,0.10)', borderWidth:1, borderColor:'rgba(74,222,128,0.24)', borderRadius:12, paddingHorizontal:10, paddingVertical:7 },
+  planTotalTxt:{ color:C.green, fontWeight:'900', fontSize:13 },
+  planSection:{ marginTop:8 },
+  planSectionTitle:{ color:C.text3, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.6, marginBottom:8 },
+  planRow:{ flexDirection:'row', alignItems:'center', gap:10, paddingVertical:8, borderTopWidth:1, borderTopColor:C.border },
+  planItem:{ color:C.text, fontSize:13, fontWeight:'800' },
+  planMeta:{ color:C.text2, fontSize:11, marginTop:2 },
+  planStore:{ color:C.accent, fontSize:11, fontWeight:'800', maxWidth:110 },
+  planEmpty:{ color:C.text2, fontSize:12, lineHeight:17 },
+  compareRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, paddingVertical:7, borderTopWidth:1, borderTopColor:C.border },
+  compareItem:{ color:C.text2, fontSize:12, flex:1 },
+  compareRange:{ color:C.gold, fontSize:11, fontWeight:'900' },
   searchWrap:{ flexDirection:'row', alignItems:'center', gap:8, marginBottom:14 },
   search:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, color:C.text, paddingHorizontal:14, paddingVertical:11, fontSize:14 },
   clearBtn:{ paddingHorizontal:12, paddingVertical:10, borderRadius:10, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border },
