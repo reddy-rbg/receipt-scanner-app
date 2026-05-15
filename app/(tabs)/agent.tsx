@@ -3,7 +3,6 @@ import { useTheme } from '../../stores/themeStore';
 import { getUserToken, getGuestSessionId } from '../../stores/authStore';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Voice from '@react-native-voice/voice';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
@@ -11,6 +10,20 @@ import {
 } from 'react-native';
 
 const API = 'https://web-production-3605f4.up.railway.app';
+declare const require: any;
+let VoiceModule: any = null;
+let VoiceModuleChecked = false;
+
+function getVoiceModule() {
+  if (VoiceModuleChecked) return VoiceModule;
+  VoiceModuleChecked = true;
+  try {
+    VoiceModule = require('@react-native-voice/voice').default;
+  } catch {
+    VoiceModule = null;
+  }
+  return VoiceModule;
+}
 
 function friendlyAgentError(message: string) {
   if (!message) return 'I had trouble answering that. Please try again.';
@@ -84,11 +97,13 @@ export default function AgentScreen() {
   }
 
   async function stopVoice() {
+    const Voice = getVoiceModule();
     if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current);
     wakeRestartRef.current = null;
     voiceModeRef.current = null;
     setVoiceMode(null);
     setVoiceText('');
+    if (!Voice) return;
     try {
       await Voice.stop();
       await Voice.cancel();
@@ -98,6 +113,11 @@ export default function AgentScreen() {
   async function startVoice(mode: Exclude<VoiceMode, null>) {
     if (loading) return;
     try {
+      const Voice = getVoiceModule();
+      if (!Voice) {
+        voiceUnavailable();
+        return;
+      }
       const available = await Voice.isAvailable();
       if (!available) {
         voiceUnavailable();
@@ -121,7 +141,13 @@ export default function AgentScreen() {
   }
 
   async function restartWakeListening() {
+    const Voice = getVoiceModule();
     if (voiceModeRef.current !== 'wake') return;
+    if (!Voice) {
+      voiceModeRef.current = null;
+      setVoiceMode(null);
+      return;
+    }
     try {
       await Voice.start('en-US');
     } catch {
@@ -154,8 +180,10 @@ export default function AgentScreen() {
   }
 
   useEffect(() => {
-    Voice.onSpeechPartialResults = e => handleSpeechText((e.value || [])[0] || '');
-    Voice.onSpeechResults = e => handleSpeechText((e.value || [])[0] || '', true);
+    const Voice = getVoiceModule();
+    if (!Voice) return;
+    Voice.onSpeechPartialResults = (e: any) => handleSpeechText((e.value || [])[0] || '');
+    Voice.onSpeechResults = (e: any) => handleSpeechText((e.value || [])[0] || '', true);
     Voice.onSpeechError = () => {
       if (voiceModeRef.current === 'wake') {
         wakeRestartRef.current = setTimeout(restartWakeListening, 700);
