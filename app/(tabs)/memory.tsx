@@ -585,6 +585,17 @@ export default function PriceMemoryScreen() {
     .filter(item => item.recommendation === 'compare before buying')
     .sort((a, b) => n(b.price_range) - n(a.price_range))
     .slice(0, 4);
+  const savingsOpportunities = items
+    .map(item => ({
+      item,
+      perBuy: Math.max(0, n(item.usual_price) - n(item.good_deal_price)),
+      swing: n(item.price_range),
+      repeatWeight: Math.min(4, Math.max(1, n(item.times_bought))),
+    }))
+    .filter(row => row.perBuy > 0.25 || row.swing >= 2)
+    .sort((a, b) => (b.perBuy * b.repeatWeight + b.swing * 0.2) - (a.perBuy * a.repeatWeight + a.swing * 0.2))
+    .slice(0, 4);
+  const totalOpportunity = savingsOpportunities.reduce((sum, row) => sum + row.perBuy, 0);
   const nextPlan = plan?.plan_items?.length ? plan.plan_items : localNextPlan;
   const comparePlan = plan?.compare_items?.length ? plan.compare_items : localComparePlan;
   const planTotal = plan ? plan.estimated_total : nextPlan.reduce((sum, item) => sum + n(item.usual_price), 0);
@@ -803,6 +814,38 @@ export default function PriceMemoryScreen() {
                 ))}
               </View>
             ) : null}
+          </View>
+        ) : null}
+
+        {savingsOpportunities.length > 0 ? (
+          <View style={s.opportunityBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.opportunityKicker}>Savings Opportunities</Text>
+                <Text style={s.planTitle}>Best places to save</Text>
+              </View>
+              <View style={s.opportunityPill}>
+                <Text style={s.opportunityPillTxt}>{money(totalOpportunity)}</Text>
+              </View>
+            </View>
+            {savingsOpportunities.map(({ item, perBuy, swing }, index) => (
+              <View key={`${item.item_name}-opportunity-${index}`} style={s.opportunityRow}>
+                <View style={{ flex:1 }}>
+                  <Text style={s.opportunityItem} numberOfLines={1}>{item.item_name}</Text>
+                  <Text style={s.opportunityMeta} numberOfLines={1}>
+                    Target {money(item.good_deal_price)} · usual {money(item.usual_price)}
+                  </Text>
+                  {item.cheapest_store ? (
+                    <Text style={s.opportunityStore} numberOfLines={1}>Best known store: {item.cheapest_store}</Text>
+                  ) : null}
+                </View>
+                <View style={s.opportunitySave}>
+                  <Text style={s.opportunitySaveVal}>{money(perBuy)}</Text>
+                  <Text style={s.opportunitySaveLbl}>per buy</Text>
+                  {swing > perBuy ? <Text style={s.opportunitySwing}>{money(swing)} swing</Text> : null}
+                </View>
+              </View>
+            ))}
           </View>
         ) : null}
 
@@ -1125,6 +1168,18 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   compareRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, paddingVertical:7, borderTopWidth:1, borderTopColor:C.border },
   compareItem:{ color:C.text2, fontSize:12, flex:1 },
   compareRange:{ color:C.gold, fontSize:11, fontWeight:'900' },
+  opportunityBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  opportunityKicker:{ color:C.green, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  opportunityPill:{ backgroundColor:'rgba(74,222,128,0.10)', borderWidth:1, borderColor:'rgba(74,222,128,0.24)', borderRadius:12, paddingHorizontal:10, paddingVertical:7 },
+  opportunityPillTxt:{ color:C.green, fontWeight:'900', fontSize:13 },
+  opportunityRow:{ flexDirection:'row', alignItems:'flex-start', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
+  opportunityItem:{ color:C.text, fontSize:13, fontWeight:'900' },
+  opportunityMeta:{ color:C.text2, fontSize:11, marginTop:3 },
+  opportunityStore:{ color:C.accent, fontSize:11, fontWeight:'800', marginTop:4 },
+  opportunitySave:{ alignItems:'flex-end', minWidth:78 },
+  opportunitySaveVal:{ color:C.green, fontSize:15, fontWeight:'900' },
+  opportunitySaveLbl:{ color:C.text3, fontSize:9, fontWeight:'800', marginTop:2, textTransform:'uppercase' },
+  opportunitySwing:{ color:C.gold, fontSize:10, fontWeight:'800', marginTop:5 },
   alertBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   alertKicker:{ color:C.gold, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
   alertCountPill:{ backgroundColor:'rgba(251,191,36,0.10)', borderWidth:1, borderColor:'rgba(251,191,36,0.24)', borderRadius:12, minWidth:34, paddingHorizontal:10, paddingVertical:7, alignItems:'center' },
