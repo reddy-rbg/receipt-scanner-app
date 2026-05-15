@@ -123,6 +123,38 @@ const daysInMonthKey = (key: string) => {
   if (!year || !month) return 30;
   return new Date(year, month, 0).getDate();
 };
+const normalizeSearchText = (value: any) => String(value || '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+const searchTokens = (value: any) => normalizeSearchText(value)
+  .split(' ')
+  .filter(token => token.length >= 2);
+const fuzzyScore = (query: string, target: string) => {
+  const q = normalizeSearchText(query);
+  const t = normalizeSearchText(target);
+  if (!q || !t) return 0;
+  if (t.includes(q)) return 100;
+
+  const qTokens = searchTokens(q);
+  const tTokens = searchTokens(t);
+  if (!qTokens.length || !tTokens.length) return 0;
+
+  let score = 0;
+  qTokens.forEach(qToken => {
+    const best = Math.max(...tTokens.map(tToken => {
+      if (tToken === qToken) return 24;
+      if (tToken.startsWith(qToken) || qToken.startsWith(tToken)) return 18;
+      if (tToken.length >= 4 && qToken.length >= 4 && tToken.slice(0, 4) === qToken.slice(0, 4)) return 14;
+      if (tToken.includes(qToken) || qToken.includes(tToken)) return 10;
+      return 0;
+    }));
+    score += best;
+  });
+
+  return score / qTokens.length;
+};
 const receiptSearchText = (receipt: ReceiptLite) => {
   const itemText = (receipt.items || [])
     .map((item:any) => [item?.name, item?.item, item?.code].filter(Boolean).join(' '))
@@ -291,14 +323,15 @@ export default function PriceMemoryScreen() {
   useFocusEffect(useCallback(() => { loadMemory(false); }, [user?.id, user?.guest_session_id]));
 
   useEffect(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     const filtered = items.filter(item => {
-      const matchesQuery = !q || [
+      const searchable = [
         item.item_name,
         item.product_size,
         item.cheapest_store,
         item.recommendation,
-      ].filter(Boolean).join(' ').toLowerCase().includes(q);
+      ].filter(Boolean).join(' ');
+      const matchesQuery = !q || fuzzyScore(q, searchable) >= 12;
 
       if (!matchesQuery) return false;
       if (activeFilter === 'soon') return item.recommendation === 'may need soon';
@@ -621,9 +654,13 @@ export default function PriceMemoryScreen() {
     ? items
         .map(item => ({
           item,
-          score: item.item_name.toLowerCase().includes(checkItem.trim().toLowerCase()) ? 2 : 0,
+          score: fuzzyScore(checkItem, [
+            item.item_name,
+            item.product_size,
+            item.cheapest_store,
+          ].filter(Boolean).join(' ')),
         }))
-        .filter(row => row.score > 0)
+        .filter(row => row.score >= 12)
         .sort((a, b) => b.score - a.score)[0]?.item
     : null;
   const currentPrice = n(checkPrice);
