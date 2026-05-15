@@ -75,6 +75,49 @@ function recommendationLabel(value: string) {
   }
 }
 
+function dealInsight(item: PriceMemoryItem) {
+  const range = n(item.price_range);
+  const volatility = n(item.volatility_pct);
+  const lowest = n(item.lowest_price);
+  const highest = n(item.highest_price);
+  const usual = n(item.usual_price);
+  const position = range > 0 ? Math.min(1, Math.max(0, (usual - lowest) / range)) : 0.5;
+
+  if (item.recommendation === 'may need soon') {
+    return {
+      label: 'Buy soon',
+      tone: 'good',
+      text: `Watch for ${money(item.good_deal_price)} or less${item.cheapest_store ? ` at ${item.cheapest_store}` : ''}.`,
+      position,
+    };
+  }
+
+  if (item.recommendation === 'compare before buying' || range >= 5 || volatility >= 25) {
+    return {
+      label: 'Price swings',
+      tone: 'warn',
+      text: `You have paid ${money(lowest)} to ${money(highest)}. Compare before buying again.`,
+      position,
+    };
+  }
+
+  if (item.times_bought <= 1) {
+    return {
+      label: 'Learning',
+      tone: 'neutral',
+      text: 'Scan this item again to build a stronger price memory.',
+      position,
+    };
+  }
+
+  return {
+    label: 'Stable price',
+    tone: 'good',
+    text: `Normal price is around ${money(usual)}.`,
+    position,
+  };
+}
+
 export default function PriceMemoryScreen() {
   const { colors: C } = useTheme();
   const s = createStyles(C);
@@ -471,7 +514,9 @@ export default function PriceMemoryScreen() {
           </View>
         ) : (
           <View style={s.list}>
-            {shown.map((item, index) => (
+            {shown.map((item, index) => {
+              const insight = dealInsight(item);
+              return (
               <View key={`${item.item_name}-${item.product_size || ''}-${index}`} style={s.card}>
                 <View style={s.cardHeader}>
                   <View style={{ flex: 1 }}>
@@ -500,6 +545,27 @@ export default function PriceMemoryScreen() {
                   </View>
                 </View>
 
+                <View style={s.insightBox}>
+                  <View style={s.insightTop}>
+                    <Text style={[
+                      s.insightLabel,
+                      insight.tone === 'good' && { color: C.green },
+                      insight.tone === 'warn' && { color: C.gold },
+                    ]}>
+                      {insight.label}
+                    </Text>
+                    <Text style={s.insightMini}>usual price</Text>
+                  </View>
+                  <View style={s.priceTrack}>
+                    <View style={[s.priceMarker, { left: `${Math.round(insight.position * 100)}%` }]} />
+                  </View>
+                  <View style={s.trackLabels}>
+                    <Text style={s.trackText}>{money(item.lowest_price)}</Text>
+                    <Text style={s.trackText}>{money(item.highest_price)}</Text>
+                  </View>
+                  <Text style={s.insightText}>{insight.text}</Text>
+                </View>
+
                 <View style={s.rangeRow}>
                   <Text style={s.rangeText}>
                     Lowest {money(item.lowest_price)} · Highest {money(item.highest_price)} · {item.times_bought} buy{item.times_bought === 1 ? '' : 's'}
@@ -509,7 +575,8 @@ export default function PriceMemoryScreen() {
                   ) : null}
                 </View>
               </View>
-            ))}
+              );
+            })}
           </View>
         )}
 
@@ -597,6 +664,15 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   priceGrid:{ flexDirection:'row', justifyContent:'space-between', backgroundColor:C.surface2, borderRadius:12, padding:12, gap:8 },
   priceLbl:{ color:C.text3, fontSize:10, marginBottom:3 },
   priceVal:{ color:C.text, fontSize:15, fontWeight:'900' },
+  insightBox:{ marginTop:10, backgroundColor:C.surface2, borderRadius:12, padding:11, borderWidth:1, borderColor:C.border },
+  insightTop:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:8, marginBottom:8 },
+  insightLabel:{ color:C.text, fontSize:12, fontWeight:'900' },
+  insightMini:{ color:C.text3, fontSize:10, fontWeight:'700' },
+  priceTrack:{ height:7, borderRadius:99, backgroundColor:C.border, overflow:'visible', marginHorizontal:4 },
+  priceMarker:{ position:'absolute', top:-4, width:4, height:15, borderRadius:99, backgroundColor:C.accent },
+  trackLabels:{ flexDirection:'row', justifyContent:'space-between', marginTop:6 },
+  trackText:{ color:C.text3, fontSize:10, fontWeight:'700' },
+  insightText:{ color:C.text2, fontSize:11, lineHeight:16, marginTop:7 },
   rangeRow:{ marginTop:10, gap:4 },
   rangeText:{ color:C.text2, fontSize:11, lineHeight:15 },
   footerNote:{ marginTop:14, backgroundColor:'rgba(74,222,128,0.08)', borderWidth:1, borderColor:'rgba(74,222,128,0.22)', borderRadius:12, padding:12 },
