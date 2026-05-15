@@ -110,20 +110,33 @@ type MemoryView = 'today' | 'spending' | 'items' | 'more';
 
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
+const parseReceiptDate = (value: any) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const shortDate = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2})$/);
+  const parsed = shortDate
+    ? new Date(2000 + Number(shortDate[3]), Number(shortDate[1]) - 1, Number(shortDate[2]))
+    : new Date(raw);
+
+  if (Number.isNaN(parsed.getTime())) return null;
+  const year = parsed.getFullYear();
+  const nextYear = new Date().getFullYear() + 1;
+  if (year < 2020 || year > nextYear) return null;
+  return parsed;
+};
 const monthLabel = (key: string) => {
   const [year, month] = key.split('-').map(Number);
   if (!year || !month) return 'This month';
   return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 };
 const receiptMonthKey = (receipt: ReceiptLite) => {
-  const raw = receipt.date || receipt.created_at || '';
-  const parsed = raw ? new Date(raw) : null;
+  const parsed = parseReceiptDate(receipt.date) || parseReceiptDate(receipt.created_at);
   if (!parsed || Number.isNaN(parsed.getTime())) return '';
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
 };
 const receiptDateValue = (receipt: ReceiptLite) => {
-  const raw = receipt.date || receipt.created_at || '';
-  const parsed = raw ? new Date(raw) : null;
+  const parsed = parseReceiptDate(receipt.date) || parseReceiptDate(receipt.created_at);
   return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
 };
 const daysInMonthKey = (key: string) => {
