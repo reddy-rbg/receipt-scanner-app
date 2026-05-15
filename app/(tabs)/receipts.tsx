@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Modal, FlatList, TextInput, RefreshControl,
+  Alert,
 } from 'react-native';
 
 const API = 'https://web-production-3605f4.up.railway.app';
@@ -144,6 +145,11 @@ export default function ReceiptsScreen() {
   const [selected,    setSelected]    = useState<Receipt|null>(null);
   const [deleteMode,  setDeleteMode]  = useState(false);
   const [deleted,     setDeleted]     = useState(false);
+  const [editingItem, setEditingItem] = useState<{ index:number; item:any } | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editQty, setEditQty] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => { load(); }, [user?.id, user?.guest_session_id]);
 
@@ -269,6 +275,53 @@ export default function ReceiptsScreen() {
       setShown(prev => prev.filter(r => r.id !== selected.id));
       setTimeout(() => { setSelected(null); setDeleted(false); setDeleteMode(false); }, 1600);
     } catch {}
+  }
+
+  function startEditItem(index: number, item: any) {
+    setEditingItem({ index, item });
+    setEditName(item.name || item.item || '');
+    setEditPrice(item.price != null ? String(item.price) : '');
+    setEditQty(item.quantity != null ? String(item.quantity) : '1');
+  }
+
+  async function saveEditedItem() {
+    if (!selected || !editingItem) return;
+    if (!editName.trim()) {
+      Alert.alert('Item name required', 'Please enter an item name.');
+      return;
+    }
+
+    setEditSaving(true);
+    try {
+      const guestId = getGuestSessionId();
+      const isGuestMode = !!guestId || user?.isGuest || user?.is_guest || user?.token === 'guest';
+      const token = getUserToken();
+      const headers:any = { 'Content-Type':'application/json' };
+      if (!isGuestMode && token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(`${API}/receipts/${selected.id}/items/${editingItem.index}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          name: editName.trim(),
+          price: n(editPrice),
+          quantity: n(editQty) || 1,
+          session_id: isGuestMode ? (guestId || user?.id) : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not save item correction.');
+
+      const updatedReceipt = data.receipt || selected;
+      setSelected(updatedReceipt);
+      setAll(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
+      setShown(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
+      setEditingItem(null);
+    } catch (e:any) {
+      Alert.alert('Could not save', e.message || 'Please try again.');
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   // ── FILTER PANEL CONTENT ──
@@ -520,9 +573,15 @@ export default function ReceiptsScreen() {
                     <View style={{flex:1}}>
                       {item.code ? <Text style={s.mCode}>{item.code}</Text> : null}
                       <Text style={s.mName}>{item.name}</Text>
+                      {item.corrected_by_user ? <Text style={s.correctedTxt}>Corrected</Text> : null}
                       {item.quantity>1&&item.unit_price ? <Text style={s.mDetail}>{item.quantity} × ${n(item.unit_price).toFixed(2)}</Text> : null}
                     </View>
-                    <Text style={[s.mPrice,{color:neg?C.green:C.text}]}>{ps}</Text>
+                    <View style={{ alignItems:'flex-end', gap:6 }}>
+                      <Text style={[s.mPrice,{color:neg?C.green:C.text}]}>{ps}</Text>
+                      <TouchableOpacity style={s.editItemBtn} onPress={() => startEditItem(i, item)}>
+                        <Text style={s.editItemTxt}>Edit</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 );
               })}
@@ -552,6 +611,59 @@ export default function ReceiptsScreen() {
               )}
             </ScrollView>
           )}
+        </View>
+      </Modal>
+
+      <Modal visible={!!editingItem} animationType="slide" transparent onRequestClose={() => setEditingItem(null)}>
+        <View style={s.editOverlay}>
+          <View style={s.editSheet}>
+            <Text style={s.editTitle}>Edit Item</Text>
+            <Text style={s.editHint}>Correct OCR mistakes so Price Memory learns the right price.</Text>
+
+            <Text style={s.editLabel}>Item name</Text>
+            <TextInput
+              style={s.editInput}
+              value={editName}
+              onChangeText={setEditName}
+              placeholder="Item name"
+              placeholderTextColor={C.text3}
+              autoCorrect={false}
+            />
+
+            <View style={s.editTwoCol}>
+              <View style={{ flex:1 }}>
+                <Text style={s.editLabel}>Price</Text>
+                <TextInput
+                  style={s.editInput}
+                  value={editPrice}
+                  onChangeText={setEditPrice}
+                  placeholder="0.00"
+                  placeholderTextColor={C.text3}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={{ flex:1 }}>
+                <Text style={s.editLabel}>Qty</Text>
+                <TextInput
+                  style={s.editInput}
+                  value={editQty}
+                  onChangeText={setEditQty}
+                  placeholder="1"
+                  placeholderTextColor={C.text3}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
+
+            <View style={s.editActions}>
+              <TouchableOpacity style={s.editCancelBtn} onPress={() => setEditingItem(null)} disabled={editSaving}>
+                <Text style={s.editCancelTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.editSaveBtn, editSaving && { opacity:0.6 }]} onPress={saveEditedItem} disabled={editSaving}>
+                {editSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.editSaveTxt}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </View>
@@ -627,6 +739,9 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   mName:{ color:C.text, fontSize:13 },
   mDetail:{ color:C.text2, fontSize:10, marginTop:3 },
   mPrice:{ fontSize:13, fontWeight:'600' },
+  correctedTxt:{ color:C.green, fontSize:10, marginTop:3, fontWeight:'700' },
+  editItemBtn:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:8, paddingHorizontal:9, paddingVertical:4 },
+  editItemTxt:{ color:C.accent, fontSize:11, fontWeight:'800' },
   totalsBox:{ backgroundColor:C.surface2, borderRadius:12, padding:14 },
   tRow:{ flexDirection:'row', justifyContent:'space-between', paddingVertical:4 },
   tLbl:{ color:C.text2, fontSize:13 },
@@ -646,4 +761,16 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   deletedBox:{ flex:1, alignItems:'center', justifyContent:'center', padding:40 },
   deletedTitle:{ color:C.text, fontSize:20, fontWeight:'700', marginBottom:6 },
   deletedSub:{ color:C.text2, fontSize:13 },
+  editOverlay:{ flex:1, backgroundColor:'rgba(0,0,0,0.58)', justifyContent:'flex-end' },
+  editSheet:{ backgroundColor:C.bg, borderTopLeftRadius:20, borderTopRightRadius:20, padding:20, borderWidth:1, borderColor:C.border },
+  editTitle:{ color:C.text, fontSize:20, fontWeight:'900', marginBottom:4 },
+  editHint:{ color:C.text2, fontSize:12, lineHeight:17, marginBottom:16 },
+  editLabel:{ color:C.text3, fontSize:11, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 },
+  editInput:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, color:C.text, paddingHorizontal:14, paddingVertical:12, fontSize:14, marginBottom:12 },
+  editTwoCol:{ flexDirection:'row', gap:10 },
+  editActions:{ flexDirection:'row', gap:10, marginTop:4 },
+  editCancelBtn:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, padding:14, alignItems:'center' },
+  editCancelTxt:{ color:C.text2, fontWeight:'800' },
+  editSaveBtn:{ flex:1, backgroundColor:C.accent, borderRadius:12, padding:14, alignItems:'center' },
+  editSaveTxt:{ color:'#fff', fontWeight:'900' },
 });
