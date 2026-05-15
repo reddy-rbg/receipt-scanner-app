@@ -89,6 +89,10 @@ type MonthlySnapshot = {
   receipts: number;
   average: number;
   saved: number;
+  dailyPace: number;
+  projectedTotal: number;
+  daysRemaining: number;
+  suggestedTarget: number;
   topStore: string;
   topStoreTotal: number;
   topStorePct: number;
@@ -113,6 +117,11 @@ const receiptMonthKey = (receipt: ReceiptLite) => {
   const parsed = raw ? new Date(raw) : null;
   if (!parsed || Number.isNaN(parsed.getTime())) return '';
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+};
+const daysInMonthKey = (key: string) => {
+  const [year, month] = key.split('-').map(Number);
+  if (!year || !month) return 30;
+  return new Date(year, month, 0).getDate();
 };
 const receiptSearchText = (receipt: ReceiptLite) => {
   const itemText = (receipt.items || [])
@@ -246,8 +255,10 @@ function monthlyReportText(snapshot: MonthlySnapshot, watch: ReturnType<typeof m
     `ReceiptAI Monthly Snapshot - ${snapshot.label}`,
     '',
     `Total spent: ${money(snapshot.total)}`,
+    `Projected month end: ${money(snapshot.projectedTotal)}`,
     `Receipts: ${snapshot.receipts}`,
     `Average trip: ${money(snapshot.average)}`,
+    `Daily pace: ${money(snapshot.dailyPace)}`,
     `Savings found: ${money(snapshot.saved)}`,
     `Top store: ${snapshot.topStore} (${money(snapshot.topStoreTotal)})`,
     snapshot.topCategory ? `Top category: ${snapshot.topCategory.label} (${money(snapshot.topCategory.total)})` : '',
@@ -446,6 +457,16 @@ export default function PriceMemoryScreen() {
       const previousKey = targetIndex > 0 ? monthKeys[targetIndex - 1] : '';
       const previousTotal = (byMonth[previousKey] || []).reduce((sum, receipt) => sum + n(receipt.total), 0);
       const trendPct = previousTotal > 0 ? ((total - previousTotal) / previousTotal) * 100 : null;
+      const now = new Date();
+      const isCurrentMonth = targetKey === currentKey;
+      const daysInMonth = daysInMonthKey(targetKey);
+      const elapsedDays = isCurrentMonth ? Math.max(1, now.getDate()) : daysInMonth;
+      const daysRemaining = isCurrentMonth ? Math.max(0, daysInMonth - now.getDate()) : 0;
+      const dailyPace = total / elapsedDays;
+      const projectedTotal = isCurrentMonth ? dailyPace * daysInMonth : total;
+      const suggestedTarget = previousTotal > 0
+        ? Math.max(total, previousTotal)
+        : Math.max(total, projectedTotal * 0.9);
 
       setMonthly({
         label: monthLabel(targetKey),
@@ -453,6 +474,10 @@ export default function PriceMemoryScreen() {
         receipts: targetReceipts.length,
         average: targetReceipts.length ? total / targetReceipts.length : 0,
         saved,
+        dailyPace,
+        projectedTotal,
+        daysRemaining,
+        suggestedTarget,
         topStore,
         topStoreTotal,
         topStorePct: total > 0 ? (topStoreTotal / total) * 100 : 0,
@@ -640,6 +665,33 @@ export default function PriceMemoryScreen() {
                 <Text style={[s.monthMetricVal, { color: C.green }]}>{money(monthly.saved)}</Text>
                 <Text style={s.monthMetricLbl}>Saved</Text>
               </View>
+            </View>
+
+            <View style={s.forecastBox}>
+              <View style={s.forecastTop}>
+                <View>
+                  <Text style={s.forecastKicker}>Month-end forecast</Text>
+                  <Text style={s.forecastValue}>{money(monthly.projectedTotal)}</Text>
+                </View>
+                <View style={s.forecastPill}>
+                  <Text style={s.forecastPillTxt}>{monthly.daysRemaining} days left</Text>
+                </View>
+              </View>
+              <View style={s.forecastGrid}>
+                <View>
+                  <Text style={s.forecastLbl}>Daily pace</Text>
+                  <Text style={s.forecastSub}>{money(monthly.dailyPace)}</Text>
+                </View>
+                <View>
+                  <Text style={s.forecastLbl}>Suggested target</Text>
+                  <Text style={s.forecastSub}>{money(monthly.suggestedTarget)}</Text>
+                </View>
+              </View>
+              <Text style={s.forecastHint}>
+                {monthly.projectedTotal > monthly.suggestedTarget
+                  ? `To stay near target, slow the pace by about ${money((monthly.projectedTotal - monthly.suggestedTarget) / Math.max(1, monthly.daysRemaining || 1))} per remaining day.`
+                  : 'Current pace is within the suggested monthly target.'}
+              </Text>
             </View>
 
             <View style={s.monthStoreRow}>
@@ -1020,6 +1072,16 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   monthMetric:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, padding:10 },
   monthMetricVal:{ color:C.text, fontSize:15, fontWeight:'900' },
   monthMetricLbl:{ color:C.text3, fontSize:10, marginTop:3, fontWeight:'700' },
+  forecastBox:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, padding:12, marginBottom:12 },
+  forecastTop:{ flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:10, marginBottom:10 },
+  forecastKicker:{ color:C.text3, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  forecastValue:{ color:C.text, fontSize:22, fontWeight:'900' },
+  forecastPill:{ backgroundColor:'rgba(124,106,255,0.12)', borderWidth:1, borderColor:'rgba(124,106,255,0.24)', borderRadius:99, paddingHorizontal:9, paddingVertical:5 },
+  forecastPillTxt:{ color:C.accent, fontSize:10, fontWeight:'900' },
+  forecastGrid:{ flexDirection:'row', justifyContent:'space-between', gap:10, marginBottom:8 },
+  forecastLbl:{ color:C.text3, fontSize:10, fontWeight:'700', marginBottom:3 },
+  forecastSub:{ color:C.text, fontSize:13, fontWeight:'900' },
+  forecastHint:{ color:C.text2, fontSize:11, lineHeight:16 },
   monthStoreRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:7 },
   monthStoreLabel:{ color:C.text3, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:2 },
   monthStoreName:{ color:C.text, fontSize:13, fontWeight:'900' },
