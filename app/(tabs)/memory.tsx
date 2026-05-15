@@ -63,11 +63,43 @@ type PriceAlert = {
   store?: string | null;
 };
 
+type ReceiptLite = {
+  store?: string | null;
+  date?: string | null;
+  created_at?: string | null;
+  total?: number | string | null;
+  total_savings?: number | string | null;
+};
+
+type MonthlySnapshot = {
+  label: string;
+  total: number;
+  receipts: number;
+  average: number;
+  saved: number;
+  topStore: string;
+  topStoreTotal: number;
+  topStorePct: number;
+  previousTotal: number;
+  trendPct: number | null;
+};
+
 type MemoryFilter = 'all' | 'soon' | 'compare' | 'learning';
 type MemorySort = 'smart' | 'savings' | 'swing' | 'recent';
 
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
+const monthLabel = (key: string) => {
+  const [year, month] = key.split('-').map(Number);
+  if (!year || !month) return 'This month';
+  return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+};
+const receiptMonthKey = (receipt: ReceiptLite) => {
+  const raw = receipt.date || receipt.created_at || '';
+  const parsed = raw ? new Date(raw) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return '';
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+};
 
 function recommendationLabel(value: string) {
   switch (value) {
@@ -129,6 +161,7 @@ export default function PriceMemoryScreen() {
   const [shown, setShown] = useState<PriceMemoryItem[]>([]);
   const [plan, setPlan] = useState<ShoppingPlan | null>(null);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [monthly, setMonthly] = useState<MonthlySnapshot | null>(null);
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<MemoryFilter>('all');
   const [activeSort, setActiveSort] = useState<MemorySort>('smart');
@@ -205,6 +238,7 @@ export default function PriceMemoryScreen() {
       setShown(nextItems);
       await loadShoppingPlan(headers, isGuest ? (guestId || user.id) : '');
       await loadPriceAlerts(headers, isGuest ? (guestId || user.id) : '', nextItems);
+      await loadMonthlySnapshot(headers, isGuest ? (guestId || user.id) : '');
     } catch (e: any) {
       setError(e.message || 'Could not load Price Memory.');
     } finally {
@@ -247,6 +281,63 @@ export default function PriceMemoryScreen() {
     } catch {}
 
     setAlerts(buildLocalAlerts(fallbackItems));
+  }
+
+  async function loadMonthlySnapshot(headers: any, guestId: string) {
+    try {
+      const url = guestId
+        ? `${API}/guest/receipts?session_id=${encodeURIComponent(guestId)}`
+        : `${API}/receipts`;
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      if (!res.ok) throw new Error('Could not load receipts.');
+      const receipts: ReceiptLite[] = data.receipts || [];
+      const byMonth: Record<string, ReceiptLite[]> = {};
+
+      receipts.forEach(receipt => {
+        const key = receiptMonthKey(receipt);
+        if (!key) return;
+        byMonth[key] = byMonth[key] || [];
+        byMonth[key].push(receipt);
+      });
+
+      const currentKey = receiptMonthKey({ date: new Date().toISOString() });
+      const monthKeys = Object.keys(byMonth).sort();
+      const targetKey = byMonth[currentKey] ? currentKey : monthKeys[monthKeys.length - 1];
+      if (!targetKey) {
+        setMonthly(null);
+        return;
+      }
+
+      const targetReceipts = byMonth[targetKey] || [];
+      const total = targetReceipts.reduce((sum, receipt) => sum + n(receipt.total), 0);
+      const saved = targetReceipts.reduce((sum, receipt) => sum + n(receipt.total_savings), 0);
+      const storeTotals: Record<string, number> = {};
+      targetReceipts.forEach(receipt => {
+        const store = receipt.store || 'Unknown store';
+        storeTotals[store] = (storeTotals[store] || 0) + n(receipt.total);
+      });
+      const [topStore, topStoreTotal] = Object.entries(storeTotals).sort((a, b) => b[1] - a[1])[0] || ['Unknown store', 0];
+      const targetIndex = monthKeys.indexOf(targetKey);
+      const previousKey = targetIndex > 0 ? monthKeys[targetIndex - 1] : '';
+      const previousTotal = (byMonth[previousKey] || []).reduce((sum, receipt) => sum + n(receipt.total), 0);
+      const trendPct = previousTotal > 0 ? ((total - previousTotal) / previousTotal) * 100 : null;
+
+      setMonthly({
+        label: monthLabel(targetKey),
+        total,
+        receipts: targetReceipts.length,
+        average: targetReceipts.length ? total / targetReceipts.length : 0,
+        saved,
+        topStore,
+        topStoreTotal,
+        topStorePct: total > 0 ? (topStoreTotal / total) * 100 : 0,
+        previousTotal,
+        trendPct,
+      });
+    } catch {
+      setMonthly(null);
+    }
   }
 
   function buildLocalAlerts(sourceItems: PriceMemoryItem[]): PriceAlert[] {
@@ -384,6 +475,51 @@ export default function PriceMemoryScreen() {
             <Text style={s.statLbl}>Compare</Text>
           </View>
         </View>
+
+        {monthly ? (
+          <View style={s.monthBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.monthKicker}>Monthly Snapshot</Text>
+                <Text style={s.planTitle}>{monthly.label}</Text>
+              </View>
+              <View style={s.monthTotalPill}>
+                <Text style={s.monthTotalTxt}>{money(monthly.total)}</Text>
+              </View>
+            </View>
+
+            <View style={s.monthGrid}>
+              <View style={s.monthMetric}>
+                <Text style={s.monthMetricVal}>{monthly.receipts}</Text>
+                <Text style={s.monthMetricLbl}>Receipts</Text>
+              </View>
+              <View style={s.monthMetric}>
+                <Text style={s.monthMetricVal}>{money(monthly.average)}</Text>
+                <Text style={s.monthMetricLbl}>Avg trip</Text>
+              </View>
+              <View style={s.monthMetric}>
+                <Text style={[s.monthMetricVal, { color: C.green }]}>{money(monthly.saved)}</Text>
+                <Text style={s.monthMetricLbl}>Saved</Text>
+              </View>
+            </View>
+
+            <View style={s.monthStoreRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.monthStoreLabel}>Top store</Text>
+                <Text style={s.monthStoreName} numberOfLines={1}>{monthly.topStore}</Text>
+              </View>
+              <Text style={s.monthStoreTotal}>{money(monthly.topStoreTotal)}</Text>
+            </View>
+            <View style={s.monthTrack}>
+              <View style={[s.monthTrackFill, { width: `${Math.min(100, Math.round(monthly.topStorePct))}%` }]} />
+            </View>
+            <Text style={s.monthHint}>
+              {monthly.trendPct === null
+                ? 'This is your first month with enough scanned receipt history.'
+                : `${Math.abs(monthly.trendPct).toFixed(0)}% ${monthly.trendPct >= 0 ? 'higher' : 'lower'} than the previous scanned month.`}
+            </Text>
+          </View>
+        ) : null}
 
         {items.length > 0 ? (
           <View style={s.planBox}>
@@ -692,6 +828,21 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   statBox:{ flex:1, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:12, padding:12 },
   statVal:{ color:C.accent, fontSize:22, fontWeight:'900' },
   statLbl:{ color:C.text2, fontSize:11, marginTop:2 },
+  monthBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  monthKicker:{ color:C.accent, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  monthTotalPill:{ backgroundColor:'rgba(124,106,255,0.12)', borderWidth:1, borderColor:'rgba(124,106,255,0.26)', borderRadius:12, paddingHorizontal:10, paddingVertical:7 },
+  monthTotalTxt:{ color:C.accent, fontWeight:'900', fontSize:13 },
+  monthGrid:{ flexDirection:'row', gap:8, marginBottom:12 },
+  monthMetric:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, padding:10 },
+  monthMetricVal:{ color:C.text, fontSize:15, fontWeight:'900' },
+  monthMetricLbl:{ color:C.text3, fontSize:10, marginTop:3, fontWeight:'700' },
+  monthStoreRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:7 },
+  monthStoreLabel:{ color:C.text3, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:2 },
+  monthStoreName:{ color:C.text, fontSize:13, fontWeight:'900' },
+  monthStoreTotal:{ color:C.gold, fontSize:13, fontWeight:'900' },
+  monthTrack:{ height:8, borderRadius:99, backgroundColor:C.surface2, overflow:'hidden', borderWidth:1, borderColor:C.border },
+  monthTrackFill:{ height:'100%', borderRadius:99, backgroundColor:C.gold },
+  monthHint:{ color:C.text2, fontSize:11, lineHeight:16, marginTop:8 },
   planBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   planHeader:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:12 },
   planKicker:{ color:C.green, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
