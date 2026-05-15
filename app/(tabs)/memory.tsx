@@ -65,10 +65,21 @@ type PriceAlert = {
 
 type ReceiptLite = {
   store?: string | null;
+  address?: string | null;
+  payment_method?: string | null;
   date?: string | null;
   created_at?: string | null;
   total?: number | string | null;
   total_savings?: number | string | null;
+  items?: any[];
+};
+
+type CategorySpend = {
+  key: string;
+  label: string;
+  total: number;
+  receipts: number;
+  pct: number;
 };
 
 type MonthlySnapshot = {
@@ -82,6 +93,8 @@ type MonthlySnapshot = {
   topStorePct: number;
   previousTotal: number;
   trendPct: number | null;
+  topCategory: CategorySpend | null;
+  categories: CategorySpend[];
 };
 
 type MemoryFilter = 'all' | 'soon' | 'compare' | 'learning';
@@ -99,6 +112,32 @@ const receiptMonthKey = (receipt: ReceiptLite) => {
   const parsed = raw ? new Date(raw) : null;
   if (!parsed || Number.isNaN(parsed.getTime())) return '';
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+};
+const receiptSearchText = (receipt: ReceiptLite) => {
+  const itemText = (receipt.items || [])
+    .map((item:any) => [item?.name, item?.item, item?.code].filter(Boolean).join(' '))
+    .join(' ');
+
+  return [
+    receipt.store,
+    receipt.address,
+    receipt.payment_method,
+    itemText,
+  ].filter(Boolean).join(' ').toLowerCase();
+};
+const matchAny = (text: string, words: string[]) => words.some(word => text.includes(word));
+const receiptCategory = (receipt: ReceiptLite) => {
+  const text = receiptSearchText(receipt);
+  if (matchAny(text, ['bank', 'atm', 'withdrawal', 'deposit', 'credit union', 'chase', 'wells fargo', 'bank of america', 'capital one', 'payment receipt'])) return { key:'bank', label:'Bank & Finance' };
+  if (matchAny(text, ['hospital', 'clinic', 'medical center', 'urgent care', 'doctor', 'dental', 'dentist', 'labcorp', 'quest diagnostics', 'patient'])) return { key:'medical', label:'Hospital & Medical' };
+  if (matchAny(text, ['cvs', 'walgreens', 'pharmacy', 'rx ', 'medicine', 'vitamin', 'health'])) return { key:'pharmacy', label:'Pharmacy & Health' };
+  if (matchAny(text, ['lowe', 'home depot', 'tractor supply', 'garden', 'mulch', 'soil', 'plant', 'rose', 'fertilizer', 'hardware', 'paint', 'lumber'])) return { key:'garden', label:'Gardening & Hardware' };
+  if (matchAny(text, ['restaurant', 'cafe', 'pizza', 'burger', 'taco', 'mcdonald', 'starbucks', 'subway', 'doordash', 'uber eats', 'grubhub'])) return { key:'restaurant', label:'Restaurants' };
+  if (matchAny(text, ['walmart', 'kroger', 'aldi', 'costco', 'sam club', 'target grocery', 'supermarket', 'market', 'grocery', 'food', 'seafood', 'milk', 'bread', 'egg'])) return { key:'food', label:'Food & Grocery' };
+  if (matchAny(text, ['shell', 'exxon', 'chevron', 'bp ', 'circle k', 'speedway', 'gas', 'fuel', 'auto', 'oil change', 'tire'])) return { key:'fuel', label:'Fuel & Auto' };
+  if (matchAny(text, ['ikea', 'bed bath', 'household', 'cleaner', 'detergent', 'furniture', 'kitchen'])) return { key:'home', label:'Home & Household' };
+  if (matchAny(text, ['amazon', 'target', 'best buy', 'tj maxx', 'marshalls', 'mall', 'retail'])) return { key:'shopping', label:'Retail Shopping' };
+  return { key:'other', label:'Other' };
 };
 
 function recommendationLabel(value: string) {
@@ -313,11 +352,30 @@ export default function PriceMemoryScreen() {
       const total = targetReceipts.reduce((sum, receipt) => sum + n(receipt.total), 0);
       const saved = targetReceipts.reduce((sum, receipt) => sum + n(receipt.total_savings), 0);
       const storeTotals: Record<string, number> = {};
+      const categoryTotals: Record<string, CategorySpend> = {};
       targetReceipts.forEach(receipt => {
         const store = receipt.store || 'Unknown store';
-        storeTotals[store] = (storeTotals[store] || 0) + n(receipt.total);
+        const totalValue = n(receipt.total);
+        const category = receiptCategory(receipt);
+        storeTotals[store] = (storeTotals[store] || 0) + totalValue;
+        categoryTotals[category.key] = categoryTotals[category.key] || {
+          key: category.key,
+          label: category.label,
+          total: 0,
+          receipts: 0,
+          pct: 0,
+        };
+        categoryTotals[category.key].total += totalValue;
+        categoryTotals[category.key].receipts += 1;
       });
       const [topStore, topStoreTotal] = Object.entries(storeTotals).sort((a, b) => b[1] - a[1])[0] || ['Unknown store', 0];
+      const categories = Object.values(categoryTotals)
+        .map(category => ({
+          ...category,
+          total: n(category.total.toFixed(2)),
+          pct: total > 0 ? (category.total / total) * 100 : 0,
+        }))
+        .sort((a, b) => b.total - a.total);
       const targetIndex = monthKeys.indexOf(targetKey);
       const previousKey = targetIndex > 0 ? monthKeys[targetIndex - 1] : '';
       const previousTotal = (byMonth[previousKey] || []).reduce((sum, receipt) => sum + n(receipt.total), 0);
@@ -334,6 +392,8 @@ export default function PriceMemoryScreen() {
         topStorePct: total > 0 ? (topStoreTotal / total) * 100 : 0,
         previousTotal,
         trendPct,
+        topCategory: categories[0] || null,
+        categories,
       });
     } catch {
       setMonthly(null);
@@ -518,6 +578,35 @@ export default function PriceMemoryScreen() {
                 ? 'This is your first month with enough scanned receipt history.'
                 : `${Math.abs(monthly.trendPct).toFixed(0)}% ${monthly.trendPct >= 0 ? 'higher' : 'lower'} than the previous scanned month.`}
             </Text>
+
+            {monthly.categories.length > 0 ? (
+              <View style={s.categoryBlock}>
+                <View style={s.categoryHeader}>
+                  <Text style={s.categoryTitle}>Category breakdown</Text>
+                  {monthly.topCategory ? (
+                    <Text style={s.categoryTop} numberOfLines={1}>
+                      Top: {monthly.topCategory.label}
+                    </Text>
+                  ) : null}
+                </View>
+                {monthly.categories.slice(0, 4).map(category => (
+                  <View key={category.key} style={s.categoryRow}>
+                    <View style={{ flex:1 }}>
+                      <View style={s.categoryLine}>
+                        <Text style={s.categoryName}>{category.label}</Text>
+                        <Text style={s.categoryAmount}>{money(category.total)}</Text>
+                      </View>
+                      <View style={s.categoryTrack}>
+                        <View style={[s.categoryFill, { width: `${Math.min(100, Math.round(category.pct))}%` }]} />
+                      </View>
+                      <Text style={s.categoryMeta}>
+                        {category.receipts} receipt{category.receipts === 1 ? '' : 's'} · {category.pct.toFixed(0)}%
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -843,6 +932,17 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   monthTrack:{ height:8, borderRadius:99, backgroundColor:C.surface2, overflow:'hidden', borderWidth:1, borderColor:C.border },
   monthTrackFill:{ height:'100%', borderRadius:99, backgroundColor:C.gold },
   monthHint:{ color:C.text2, fontSize:11, lineHeight:16, marginTop:8 },
+  categoryBlock:{ marginTop:12, borderTopWidth:1, borderTopColor:C.border, paddingTop:12 },
+  categoryHeader:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:8 },
+  categoryTitle:{ color:C.text, fontSize:13, fontWeight:'900' },
+  categoryTop:{ color:C.accent, fontSize:11, fontWeight:'800', maxWidth:170 },
+  categoryRow:{ paddingVertical:6 },
+  categoryLine:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:5 },
+  categoryName:{ color:C.text2, fontSize:12, fontWeight:'800', flex:1 },
+  categoryAmount:{ color:C.text, fontSize:12, fontWeight:'900' },
+  categoryTrack:{ height:6, borderRadius:99, backgroundColor:C.surface2, overflow:'hidden' },
+  categoryFill:{ height:'100%', borderRadius:99, backgroundColor:C.accent },
+  categoryMeta:{ color:C.text3, fontSize:10, marginTop:4, fontWeight:'700' },
   planBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   planHeader:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:12 },
   planKicker:{ color:C.green, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
