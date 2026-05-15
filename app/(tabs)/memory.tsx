@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   ActivityIndicator,
   RefreshControl,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from 'expo-router';
 import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
 import { DARK_COLORS, useTheme } from '../../stores/themeStore';
@@ -87,6 +89,7 @@ export default function PriceMemoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [scheduledAlerts, setScheduledAlerts] = useState<Record<string, boolean>>({});
 
   useFocusEffect(useCallback(() => { loadMemory(false); }, [user?.id, user?.guest_session_id]));
 
@@ -199,6 +202,39 @@ export default function PriceMemoryScreen() {
       }
     });
     return nextAlerts.slice(0, 10);
+  }
+
+  async function scheduleAlert(alert: PriceAlert) {
+    try {
+      const permissions = await Notifications.getPermissionsAsync();
+      let status = permissions.status;
+      if (status !== 'granted') {
+        const requested = await Notifications.requestPermissionsAsync();
+        status = requested.status;
+      }
+      if (status !== 'granted') {
+        Alert.alert('Notifications disabled', 'Enable notifications to receive shopping reminders.');
+        return;
+      }
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: alert.title,
+          body: alert.message,
+          data: { type: alert.type, item_name: alert.item_name },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: 60 * 60 * 24,
+        },
+      });
+
+      const key = `${alert.type}-${alert.item_name}`;
+      setScheduledAlerts(prev => ({ ...prev, [key]: true }));
+      Alert.alert('Reminder set', 'I will remind you tomorrow.');
+    } catch {
+      Alert.alert('Could not set reminder', 'Please try again.');
+    }
   }
 
   const strongItems = items.filter(item => item.recommendation === 'may need soon').length;
@@ -322,21 +358,35 @@ export default function PriceMemoryScreen() {
                 <Text style={s.alertCountTxt}>{alerts.length}</Text>
               </View>
             </View>
-            {alerts.slice(0, 5).map((alert, index) => (
-              <View key={`${alert.type}-${alert.item_name}-${index}`} style={s.alertRow}>
-                <View style={[
-                  s.alertDot,
-                  alert.severity === 'warning' && { backgroundColor: C.gold },
-                  alert.severity === 'info' && { backgroundColor: C.accent },
-                  alert.severity === 'tip' && { backgroundColor: C.green },
-                ]} />
-                <View style={{ flex:1 }}>
-                  <Text style={s.alertTitle}>{alert.title}</Text>
-                  <Text style={s.alertMsg}>{alert.message}</Text>
-                  {alert.store ? <Text style={s.alertStore}>Best known store: {alert.store}</Text> : null}
+            {alerts.slice(0, 5).map((alert, index) => {
+              const alertKey = `${alert.type}-${alert.item_name}`;
+              const scheduled = scheduledAlerts[alertKey];
+              return (
+                <View key={`${alertKey}-${index}`} style={s.alertRow}>
+                  <View style={[
+                    s.alertDot,
+                    alert.severity === 'warning' && { backgroundColor: C.gold },
+                    alert.severity === 'info' && { backgroundColor: C.accent },
+                    alert.severity === 'tip' && { backgroundColor: C.green },
+                  ]} />
+                  <View style={{ flex:1 }}>
+                    <Text style={s.alertTitle}>{alert.title}</Text>
+                    <Text style={s.alertMsg}>{alert.message}</Text>
+                    {alert.store ? <Text style={s.alertStore}>Best known store: {alert.store}</Text> : null}
+                  </View>
+                  <TouchableOpacity
+                    style={[s.remindBtn, scheduled && s.remindBtnDone]}
+                    onPress={() => scheduleAlert(alert)}
+                    disabled={scheduled}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[s.remindTxt, scheduled && s.remindTxtDone]}>
+                      {scheduled ? 'Set' : 'Remind'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
         ) : null}
 
@@ -505,11 +555,15 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   alertKicker:{ color:C.gold, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
   alertCountPill:{ backgroundColor:'rgba(251,191,36,0.10)', borderWidth:1, borderColor:'rgba(251,191,36,0.24)', borderRadius:12, minWidth:34, paddingHorizontal:10, paddingVertical:7, alignItems:'center' },
   alertCountTxt:{ color:C.gold, fontWeight:'900', fontSize:13 },
-  alertRow:{ flexDirection:'row', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
+  alertRow:{ flexDirection:'row', alignItems:'flex-start', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
   alertDot:{ width:9, height:9, borderRadius:5, backgroundColor:C.accent, marginTop:4 },
   alertTitle:{ color:C.text, fontSize:13, fontWeight:'900', lineHeight:18 },
   alertMsg:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:2 },
   alertStore:{ color:C.accent, fontSize:11, fontWeight:'800', marginTop:4 },
+  remindBtn:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:10, paddingHorizontal:10, paddingVertical:7, marginTop:1 },
+  remindBtnDone:{ backgroundColor:'rgba(74,222,128,0.10)', borderColor:'rgba(74,222,128,0.24)' },
+  remindTxt:{ color:C.accent, fontSize:11, fontWeight:'900' },
+  remindTxtDone:{ color:C.green },
   checkBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   checkTitle:{ color:C.text, fontSize:18, fontWeight:'900', marginBottom:10 },
   checkInputs:{ flexDirection:'row', gap:8 },
