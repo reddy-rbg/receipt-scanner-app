@@ -3,10 +3,11 @@ import { useTheme } from '../../stores/themeStore';
 import { getUserToken, getGuestSessionId } from '../../stores/authStore';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Alert,
+  Platform, Alert, NativeModules,
 } from 'react-native';
 
 const API = 'https://web-production-3605f4.up.railway.app';
@@ -17,6 +18,10 @@ let VoiceModuleChecked = false;
 function getVoiceModule() {
   if (VoiceModuleChecked) return VoiceModule;
   VoiceModuleChecked = true;
+  if (Constants.appOwnership === 'expo' || !NativeModules.Voice) {
+    VoiceModule = null;
+    return VoiceModule;
+  }
   try {
     VoiceModule = require('@react-native-voice/voice').default;
   } catch {
