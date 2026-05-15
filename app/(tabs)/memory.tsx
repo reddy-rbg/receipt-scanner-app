@@ -596,6 +596,20 @@ export default function PriceMemoryScreen() {
     .sort((a, b) => (b.perBuy * b.repeatWeight + b.swing * 0.2) - (a.perBuy * a.repeatWeight + a.swing * 0.2))
     .slice(0, 4);
   const totalOpportunity = savingsOpportunities.reduce((sum, row) => sum + row.perBuy, 0);
+  const storeIntelligence = Object.values(items.reduce((acc, item) => {
+    const store = item.cheapest_store?.trim();
+    if (!store) return acc;
+    acc[store] = acc[store] || { store, items: 0, opportunity: 0, bestItem: '' };
+    const opportunity = Math.max(0, n(item.usual_price) - n(item.good_deal_price));
+    acc[store].items += 1;
+    acc[store].opportunity += opportunity;
+    if (!acc[store].bestItem || opportunity > acc[store].opportunity / Math.max(1, acc[store].items)) {
+      acc[store].bestItem = item.item_name;
+    }
+    return acc;
+  }, {} as Record<string, { store: string; items: number; opportunity: number; bestItem: string }>))
+    .sort((a, b) => b.items - a.items || b.opportunity - a.opportunity)
+    .slice(0, 4);
   const nextPlan = plan?.plan_items?.length ? plan.plan_items : localNextPlan;
   const comparePlan = plan?.compare_items?.length ? plan.compare_items : localComparePlan;
   const planTotal = plan ? plan.estimated_total : nextPlan.reduce((sum, item) => sum + n(item.usual_price), 0);
@@ -905,6 +919,38 @@ export default function PriceMemoryScreen() {
                   <Text style={s.opportunitySaveVal}>{money(perBuy)}</Text>
                   <Text style={s.opportunitySaveLbl}>per buy</Text>
                   {swing > perBuy ? <Text style={s.opportunitySwing}>{money(swing)} swing</Text> : null}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {storeIntelligence.length > 0 ? (
+          <View style={s.storeIntelBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.storeIntelKicker}>Store Intelligence</Text>
+                <Text style={s.planTitle}>Where prices look best</Text>
+              </View>
+              <View style={s.storeIntelPill}>
+                <Text style={s.storeIntelPillTxt}>{storeIntelligence.length}</Text>
+              </View>
+            </View>
+            {storeIntelligence.map((store, index) => (
+              <View key={`${store.store}-${index}`} style={s.storeIntelRow}>
+                <View style={s.storeRank}>
+                  <Text style={s.storeRankTxt}>{index + 1}</Text>
+                </View>
+                <View style={{ flex:1 }}>
+                  <Text style={s.storeIntelName} numberOfLines={1}>{store.store}</Text>
+                  <Text style={s.storeIntelMeta}>
+                    Cheapest for {store.items} tracked item{store.items === 1 ? '' : 's'}
+                  </Text>
+                  {store.bestItem ? <Text style={s.storeIntelItem} numberOfLines={1}>Watch: {store.bestItem}</Text> : null}
+                </View>
+                <View style={s.storeIntelSave}>
+                  <Text style={s.storeIntelSaveVal}>{money(store.opportunity)}</Text>
+                  <Text style={s.storeIntelSaveLbl}>potential</Text>
                 </View>
               </View>
             ))}
@@ -1252,6 +1298,19 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   opportunitySaveVal:{ color:C.green, fontSize:15, fontWeight:'900' },
   opportunitySaveLbl:{ color:C.text3, fontSize:9, fontWeight:'800', marginTop:2, textTransform:'uppercase' },
   opportunitySwing:{ color:C.gold, fontSize:10, fontWeight:'800', marginTop:5 },
+  storeIntelBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  storeIntelKicker:{ color:C.accent, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  storeIntelPill:{ backgroundColor:'rgba(124,106,255,0.12)', borderWidth:1, borderColor:'rgba(124,106,255,0.26)', borderRadius:12, minWidth:34, paddingHorizontal:10, paddingVertical:7, alignItems:'center' },
+  storeIntelPillTxt:{ color:C.accent, fontWeight:'900', fontSize:13 },
+  storeIntelRow:{ flexDirection:'row', alignItems:'flex-start', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
+  storeRank:{ width:28, height:28, borderRadius:99, backgroundColor:'rgba(124,106,255,0.12)', borderWidth:1, borderColor:'rgba(124,106,255,0.25)', alignItems:'center', justifyContent:'center' },
+  storeRankTxt:{ color:C.accent, fontSize:12, fontWeight:'900' },
+  storeIntelName:{ color:C.text, fontSize:13, fontWeight:'900' },
+  storeIntelMeta:{ color:C.text2, fontSize:11, marginTop:3 },
+  storeIntelItem:{ color:C.gold, fontSize:11, fontWeight:'800', marginTop:4 },
+  storeIntelSave:{ alignItems:'flex-end', minWidth:74 },
+  storeIntelSaveVal:{ color:C.green, fontSize:14, fontWeight:'900' },
+  storeIntelSaveLbl:{ color:C.text3, fontSize:9, fontWeight:'800', marginTop:2, textTransform:'uppercase' },
   alertBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   alertKicker:{ color:C.gold, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
   alertCountPill:{ backgroundColor:'rgba(251,191,36,0.10)', borderWidth:1, borderColor:'rgba(251,191,36,0.24)', borderRadius:12, minWidth:34, paddingHorizontal:10, paddingVertical:7, alignItems:'center' },
