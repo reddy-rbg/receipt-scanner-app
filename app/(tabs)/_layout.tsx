@@ -85,7 +85,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="agent"
         options={{
-          title: 'AI Agent',
+          title: 'Ask Anything',
           tabBarLabel: 'Agent',
           tabBarIcon: ({ color, size }) => <Ionicons name="sparkles-outline" size={size} color={color} />,
         }}
@@ -93,7 +93,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="memory"
         options={{
-          title: 'Price Memory',
+          title: 'Matters Now',
           tabBarLabel: 'Memory',
           tabBarIcon: ({ color, size }) => <Ionicons name="pricetag-outline" size={size} color={color} />,
         }}

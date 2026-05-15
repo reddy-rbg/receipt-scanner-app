@@ -1190,9 +1190,9 @@ export default function PriceMemoryScreen() {
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       >
         <View style={s.hero}>
-          <Text style={s.heroKicker}>AI Shopping Memory</Text>
+          <Text style={s.heroKicker}>See what matters now</Text>
           <Text style={s.heroTitle}>Price Memory</Text>
-          <Text style={s.heroSub}>Simple buying advice from your real receipt prices.</Text>
+          <Text style={s.heroSub}>Quick buy, save, and spending signals from your real receipt prices.</Text>
         </View>
 
         <View style={s.statsRow}>

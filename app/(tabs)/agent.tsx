@@ -68,7 +68,7 @@ export default function AgentScreen() {
   const [msgs, setMsgs]         = useState<Msg[]>([
     {
       role: 'agent',
-      text: 'Ask me anything about your receipts, spending, or prices.',
+      text: 'Ask me anything about your receipts, spending, prices, or what to buy next.',
     }
   ]);
   const [input, setInput]       = useState('');
@@ -381,7 +381,7 @@ export default function AgentScreen() {
         {/* Quick prompts - only show at start */}
         {msgs.length <= 1 && (
           <View style={s.quickSection}>
-            <Text style={[s.quickLabel, { color: C.text3 }]}>Try asking</Text>
+            <Text style={[s.quickLabel, { color: C.text3 }]}>Ask anything</Text>
             <View style={s.quickGrid}>
               {QUICK_PROMPTS.map((q, i) => (
                 <TouchableOpacity
