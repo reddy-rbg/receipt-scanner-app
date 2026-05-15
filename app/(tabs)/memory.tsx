@@ -340,6 +340,8 @@ export default function PriceMemoryScreen() {
   const [activeView, setActiveView] = useState<MemoryView>('today');
   const [checkItem, setCheckItem] = useState('');
   const [checkPrice, setCheckPrice] = useState('');
+  const [liveCheck, setLiveCheck] = useState<any>(null);
+  const [liveChecking, setLiveChecking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -419,6 +421,42 @@ export default function PriceMemoryScreen() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  }
+
+  async function runLivePriceCheck() {
+    if (!checkItem.trim() || !n(checkPrice)) {
+      Alert.alert('Enter item and price', 'Add the item name and today’s price to compare it with your receipts.');
+      return;
+    }
+    if (!user) return;
+
+    setLiveChecking(true);
+    setLiveCheck(null);
+    try {
+      const token = getUserToken();
+      const guestId = getGuestSessionId();
+      const isGuest = !!guestId || user.is_guest || user.isGuest || token === 'guest';
+      const headers: any = { 'Content-Type': 'application/json' };
+      if (!isGuest && token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`${API}/live-price-check`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          item_name: checkItem,
+          current_price: n(checkPrice),
+          session_id: isGuest ? (guestId || user.id) : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        throw new Error(data.detail || data.message || 'Could not compare this price.');
+      }
+      setLiveCheck(data);
+    } catch (e: any) {
+      Alert.alert('Live price check failed', e.message || 'Please try again.');
+    } finally {
+      setLiveChecking(false);
     }
   }
 
@@ -2097,6 +2135,15 @@ export default function PriceMemoryScreen() {
               />
             </View>
 
+            <TouchableOpacity
+              style={[s.liveCheckBtn, liveChecking && { opacity:0.55 }]}
+              onPress={runLivePriceCheck}
+              disabled={liveChecking}
+              activeOpacity={0.84}
+            >
+              <Text style={s.liveCheckBtnTxt}>{liveChecking ? 'Checking...' : 'Compare with receipt memory'}</Text>
+            </TouchableOpacity>
+
             {checkDecision && checkMatch ? (
               <View style={[
                 s.decisionBox,
@@ -2115,6 +2162,23 @@ export default function PriceMemoryScreen() {
               </View>
             ) : checkItem.trim() && checkPrice.trim() ? (
               <Text style={s.noMatchText}>No matching Price Memory item found yet.</Text>
+            ) : null}
+
+            {liveCheck?.decision ? (
+              <View style={[
+                s.liveResultBox,
+                liveCheck.decision.verdict === 'Buy' && s.decisionGood,
+                liveCheck.decision.verdict === 'Wait or compare' && s.decisionBad,
+              ]}>
+                <View style={s.decisionTop}>
+                  <Text style={s.decisionLabel}>{liveCheck.decision.verdict}</Text>
+                  <Text style={s.decisionPrice}>{money(liveCheck.current_price)}</Text>
+                </View>
+                <Text style={s.decisionText}>{liveCheck.decision.reason}</Text>
+                <Text style={s.decisionSub} numberOfLines={3}>
+                  Matched: {liveCheck.matched_item} - usual {money(liveCheck.receipt_memory?.usual_price)} - good deal {money(liveCheck.receipt_memory?.good_deal_price)} - avoid above {money(liveCheck.receipt_memory?.avoid_above_price)}
+                </Text>
+              </View>
             ) : null}
           </View>
         ) : null}
@@ -2645,7 +2709,10 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   checkBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   checkTitle:{ color:C.text, fontSize:18, fontWeight:'900', marginBottom:10 },
   checkInputs:{ flexDirection:'row', gap:8 },
+  liveCheckBtn:{ backgroundColor:C.accent, borderRadius:11, paddingVertical:11, alignItems:'center', marginTop:10 },
+  liveCheckBtnTxt:{ color:'#fff', fontSize:12, fontWeight:'900' },
   decisionBox:{ marginTop:12, borderWidth:1, borderRadius:12, padding:12 },
+  liveResultBox:{ marginTop:10, borderWidth:1, borderRadius:12, padding:12, backgroundColor:C.surface2, borderColor:C.border },
   decisionGood:{ backgroundColor:'rgba(74,222,128,0.10)', borderColor:'rgba(74,222,128,0.28)' },
   decisionBad:{ backgroundColor:'rgba(255,107,107,0.09)', borderColor:'rgba(255,107,107,0.28)' },
   decisionMid:{ backgroundColor:'rgba(251,191,36,0.09)', borderColor:'rgba(251,191,36,0.28)' },
