@@ -53,6 +53,8 @@ export default function PriceMemoryScreen() {
   const [items, setItems] = useState<PriceMemoryItem[]>([]);
   const [shown, setShown] = useState<PriceMemoryItem[]>([]);
   const [query, setQuery] = useState('');
+  const [checkItem, setCheckItem] = useState('');
+  const [checkPrice, setCheckPrice] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -114,6 +116,23 @@ export default function PriceMemoryScreen() {
   const avgAvoid = items.length
     ? items.reduce((sum, item) => sum + n(item.avoid_above_price), 0) / items.length
     : 0;
+  const checkMatch = checkItem.trim()
+    ? items
+        .map(item => ({
+          item,
+          score: item.item_name.toLowerCase().includes(checkItem.trim().toLowerCase()) ? 2 : 0,
+        }))
+        .filter(row => row.score > 0)
+        .sort((a, b) => b.score - a.score)[0]?.item
+    : null;
+  const currentPrice = n(checkPrice);
+  const checkDecision = checkMatch && currentPrice > 0
+    ? currentPrice <= n(checkMatch.good_deal_price)
+      ? { label:'Buy', tone:'good', text:`This is at or below your good-deal price of ${money(checkMatch.good_deal_price)}.` }
+      : currentPrice >= n(checkMatch.avoid_above_price)
+        ? { label:'Compare', tone:'bad', text:`This is above your avoid-above price of ${money(checkMatch.avoid_above_price)}.` }
+        : { label:'Normal', tone:'mid', text:`This is near your usual price of ${money(checkMatch.usual_price)}.` }
+    : null;
 
   return (
     <View style={s.screen}>
@@ -185,6 +204,51 @@ export default function PriceMemoryScreen() {
                   </View>
                 ))}
               </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {items.length > 0 ? (
+          <View style={s.checkBox}>
+            <Text style={s.planKicker}>Before You Buy</Text>
+            <Text style={s.checkTitle}>Check today's price</Text>
+            <View style={s.checkInputs}>
+              <TextInput
+                style={[s.search, { flex: 1.4, marginBottom: 0 }]}
+                value={checkItem}
+                onChangeText={setCheckItem}
+                placeholder="Item name"
+                placeholderTextColor={C.text3}
+                autoCorrect={false}
+              />
+              <TextInput
+                style={[s.search, { flex: 0.8, marginBottom: 0 }]}
+                value={checkPrice}
+                onChangeText={setCheckPrice}
+                placeholder="$ price"
+                placeholderTextColor={C.text3}
+                keyboardType="decimal-pad"
+              />
+            </View>
+
+            {checkDecision && checkMatch ? (
+              <View style={[
+                s.decisionBox,
+                checkDecision.tone === 'good' && s.decisionGood,
+                checkDecision.tone === 'bad' && s.decisionBad,
+                checkDecision.tone === 'mid' && s.decisionMid,
+              ]}>
+                <View style={s.decisionTop}>
+                  <Text style={s.decisionLabel}>{checkDecision.label}</Text>
+                  <Text style={s.decisionPrice}>{money(currentPrice)}</Text>
+                </View>
+                <Text style={s.decisionText}>{checkDecision.text}</Text>
+                <Text style={s.decisionSub} numberOfLines={2}>
+                  Matched: {checkMatch.item_name} · lowest {money(checkMatch.lowest_price)} · highest {money(checkMatch.highest_price)}
+                </Text>
+              </View>
+            ) : checkItem.trim() && checkPrice.trim() ? (
+              <Text style={s.noMatchText}>No matching Price Memory item found yet.</Text>
             ) : null}
           </View>
         ) : null}
@@ -304,6 +368,19 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   compareRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, paddingVertical:7, borderTopWidth:1, borderTopColor:C.border },
   compareItem:{ color:C.text2, fontSize:12, flex:1 },
   compareRange:{ color:C.gold, fontSize:11, fontWeight:'900' },
+  checkBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  checkTitle:{ color:C.text, fontSize:18, fontWeight:'900', marginBottom:10 },
+  checkInputs:{ flexDirection:'row', gap:8 },
+  decisionBox:{ marginTop:12, borderWidth:1, borderRadius:12, padding:12 },
+  decisionGood:{ backgroundColor:'rgba(74,222,128,0.10)', borderColor:'rgba(74,222,128,0.28)' },
+  decisionBad:{ backgroundColor:'rgba(255,107,107,0.09)', borderColor:'rgba(255,107,107,0.28)' },
+  decisionMid:{ backgroundColor:'rgba(251,191,36,0.09)', borderColor:'rgba(251,191,36,0.28)' },
+  decisionTop:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:6 },
+  decisionLabel:{ color:C.text, fontSize:18, fontWeight:'900' },
+  decisionPrice:{ color:C.accent, fontSize:16, fontWeight:'900' },
+  decisionText:{ color:C.text, fontSize:13, lineHeight:18 },
+  decisionSub:{ color:C.text2, fontSize:11, marginTop:6, lineHeight:16 },
+  noMatchText:{ color:C.text2, fontSize:12, marginTop:10 },
   searchWrap:{ flexDirection:'row', alignItems:'center', gap:8, marginBottom:14 },
   search:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, color:C.text, paddingHorizontal:14, paddingVertical:11, fontSize:14 },
   clearBtn:{ paddingHorizontal:12, paddingVertical:10, borderRadius:10, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border },
