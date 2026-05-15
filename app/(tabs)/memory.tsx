@@ -192,6 +192,49 @@ function dealInsight(item: PriceMemoryItem) {
   };
 }
 
+function monthlyWatch(snapshot: MonthlySnapshot) {
+  const topCategory = snapshot.topCategory?.label || 'your top category';
+  const topStore = snapshot.topStore || 'your top store';
+
+  if (snapshot.trendPct !== null && snapshot.trendPct >= 25) {
+    return {
+      label: 'Spending rising',
+      tone: 'warn',
+      text: `You are ${snapshot.trendPct.toFixed(0)}% above the previous scanned month. Start with ${topCategory} and ${topStore}.`,
+    };
+  }
+
+  if (snapshot.trendPct !== null && snapshot.trendPct <= -15) {
+    return {
+      label: 'Good control',
+      tone: 'good',
+      text: `You are ${Math.abs(snapshot.trendPct).toFixed(0)}% below the previous scanned month. Keep comparing repeat items before buying.`,
+    };
+  }
+
+  if (snapshot.topCategory && snapshot.topCategory.pct >= 45) {
+    return {
+      label: 'Category heavy',
+      tone: 'mid',
+      text: `${topCategory} is ${snapshot.topCategory.pct.toFixed(0)}% of this month. Check whether repeat items there have better stores or good-deal prices.`,
+    };
+  }
+
+  if (snapshot.topStorePct >= 50) {
+    return {
+      label: 'Store concentrated',
+      tone: 'mid',
+      text: `${topStore} is ${snapshot.topStorePct.toFixed(0)}% of this month. Compare high-swing items before the next trip.`,
+    };
+  }
+
+  return {
+    label: 'Normal pattern',
+    tone: 'good',
+    text: 'Your spending looks balanced across the receipts scanned so far.',
+  };
+}
+
 export default function PriceMemoryScreen() {
   const { colors: C } = useTheme();
   const s = createStyles(C);
@@ -506,6 +549,7 @@ export default function PriceMemoryScreen() {
         ? { label:'Compare', tone:'bad', text:`This is above your avoid-above price of ${money(checkMatch.avoid_above_price)}.` }
         : { label:'Normal', tone:'mid', text:`This is near your usual price of ${money(checkMatch.usual_price)}.` }
     : null;
+  const watch = monthly ? monthlyWatch(monthly) : null;
 
   return (
     <View style={s.screen}>
@@ -578,6 +622,18 @@ export default function PriceMemoryScreen() {
                 ? 'This is your first month with enough scanned receipt history.'
                 : `${Math.abs(monthly.trendPct).toFixed(0)}% ${monthly.trendPct >= 0 ? 'higher' : 'lower'} than the previous scanned month.`}
             </Text>
+
+            {watch ? (
+              <View style={[
+                s.watchBox,
+                watch.tone === 'good' && s.watchGood,
+                watch.tone === 'warn' && s.watchWarn,
+                watch.tone === 'mid' && s.watchMid,
+              ]}>
+                <Text style={s.watchLabel}>{watch.label}</Text>
+                <Text style={s.watchText}>{watch.text}</Text>
+              </View>
+            ) : null}
 
             {monthly.categories.length > 0 ? (
               <View style={s.categoryBlock}>
@@ -932,6 +988,12 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   monthTrack:{ height:8, borderRadius:99, backgroundColor:C.surface2, overflow:'hidden', borderWidth:1, borderColor:C.border },
   monthTrackFill:{ height:'100%', borderRadius:99, backgroundColor:C.gold },
   monthHint:{ color:C.text2, fontSize:11, lineHeight:16, marginTop:8 },
+  watchBox:{ marginTop:10, borderWidth:1, borderRadius:12, padding:11 },
+  watchGood:{ backgroundColor:'rgba(74,222,128,0.09)', borderColor:'rgba(74,222,128,0.24)' },
+  watchWarn:{ backgroundColor:'rgba(255,107,107,0.08)', borderColor:'rgba(255,107,107,0.24)' },
+  watchMid:{ backgroundColor:'rgba(251,191,36,0.08)', borderColor:'rgba(251,191,36,0.24)' },
+  watchLabel:{ color:C.text, fontSize:13, fontWeight:'900', marginBottom:4 },
+  watchText:{ color:C.text2, fontSize:12, lineHeight:17 },
   categoryBlock:{ marginTop:12, borderTopWidth:1, borderTopColor:C.border, paddingTop:12 },
   categoryHeader:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:8 },
   categoryTitle:{ color:C.text, fontSize:13, fontWeight:'900' },
