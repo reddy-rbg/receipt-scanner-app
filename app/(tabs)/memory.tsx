@@ -104,7 +104,7 @@ type MonthlySnapshot = {
 
 type MemoryFilter = 'all' | 'soon' | 'compare' | 'learning';
 type MemorySort = 'smart' | 'savings' | 'swing' | 'recent';
-type MemoryView = 'today' | 'overview' | 'monthly' | 'shopping' | 'insights' | 'items';
+type MemoryView = 'today' | 'spending' | 'items' | 'more';
 
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
@@ -1112,11 +1112,12 @@ export default function PriceMemoryScreen() {
     { label:'Avoid above', value:noBuyItems.length ? money(noBuyItems[0].avoid_above_price) : money(avgAvoid), tone:'bad' },
     { label:'Next basket', value:basketBuilder.length ? money(basketTotal) : money(planTotal), tone:'mid' },
   ];
-  const showOverview = activeView === 'today' || activeView === 'overview';
-  const showMonthly = activeView === 'monthly';
-  const showShopping = activeView === 'today' || activeView === 'shopping';
-  const showInsights = activeView === 'insights';
+  const showOverview = activeView === 'more';
+  const showMonthly = activeView === 'spending';
+  const showShopping = activeView === 'today';
+  const showInsights = activeView === 'more';
   const showItems = activeView === 'items';
+  const showMore = activeView === 'more';
   const shoppingContentCount = [
     actionCards.length,
     savingsMission.steps.length,
@@ -1138,19 +1139,17 @@ export default function PriceMemoryScreen() {
   ].filter(Boolean).length;
   const monthlyContentCount = monthly ? 1 + monthly.categories.length : 0;
   const viewChips: { key: MemoryView; label: string; count: number }[] = [
-    { key: 'today', label: 'Today', count: shoppingContentCount + 2 },
-    { key: 'overview', label: 'Overview', count: 4 },
-    { key: 'monthly', label: 'Monthly', count: monthlyContentCount },
-    { key: 'shopping', label: 'Shopping', count: shoppingContentCount },
-    { key: 'insights', label: 'Insights', count: insightContentCount },
+    { key: 'today', label: 'Today', count: Math.max(1, Math.min(5, shoppingContentCount)) },
+    { key: 'spending', label: 'Spending', count: monthlyContentCount },
     { key: 'items', label: 'Items', count: items.length },
+    { key: 'more', label: 'More', count: insightContentCount + dataQualityFlags.length + 2 },
   ];
   const tabEmpty = !loading && !error && items.length > 0
-    ? activeView === 'monthly' && monthlyContentCount === 0
+    ? activeView === 'spending' && monthlyContentCount === 0
       ? { title:'No monthly snapshot yet', text:'Scan receipts with dates and totals to build monthly spend analysis.' }
-      : activeView === 'shopping' && shoppingContentCount === 0
+      : activeView === 'today' && shoppingContentCount === 0
         ? { title:'No shopping actions yet', text:'Repeat purchases create buy-soon, avoid-above, and basket suggestions.' }
-        : activeView === 'insights' && insightContentCount === 0
+        : activeView === 'more' && insightContentCount === 0
           ? { title:'No advanced insights yet', text:'More repeat items will unlock store loyalty, price radar, and learning signals.' }
           : null
     : null;
@@ -1166,7 +1165,7 @@ export default function PriceMemoryScreen() {
         <View style={s.hero}>
           <Text style={s.heroKicker}>AI Shopping Memory</Text>
           <Text style={s.heroTitle}>Price Memory</Text>
-          <Text style={s.heroSub}>Your app learns the prices you actually paid and turns them into buy, compare, and avoid signals.</Text>
+          <Text style={s.heroSub}>Simple buying advice from your real receipt prices.</Text>
         </View>
 
         <View style={s.statsRow}>
@@ -1186,7 +1185,7 @@ export default function PriceMemoryScreen() {
 
         {aiBrief ? (
           <View style={s.briefBox}>
-            <Text style={s.briefKicker}>AI Brief</Text>
+            <Text style={s.briefKicker}>Today</Text>
             <Text style={s.briefTitle}>{aiBrief.title}</Text>
             <Text style={s.briefPrimary}>{aiBrief.primary}</Text>
             <Text style={s.briefSecondary}>{aiBrief.secondary}</Text>
@@ -1203,7 +1202,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {items.length > 0 ? (
+        {false && items.length > 0 ? (
           <View style={s.scoreBox}>
             {actionScoreboard.map(score => (
               <View key={score.label} style={s.scoreItem}>
@@ -1583,7 +1582,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && actionCards.length > 0 ? (
+        {showMore && actionCards.length > 0 ? (
           <View style={s.actionBox}>
             <View style={s.planHeader}>
               <View>
@@ -1623,8 +1622,8 @@ export default function PriceMemoryScreen() {
           <View style={s.missionBox}>
             <View style={s.planHeader}>
               <View>
-                <Text style={s.missionKicker}>Savings Mission</Text>
-                <Text style={s.planTitle}>This month's challenge</Text>
+                <Text style={s.missionKicker}>Top Saving Move</Text>
+                <Text style={s.planTitle}>Do this next</Text>
               </View>
               <View style={s.missionPill}>
                 <Text style={s.missionPillTxt}>{money(savingsMission.target)}</Text>
@@ -1639,7 +1638,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && noBuyItems.length > 0 ? (
+        {showMore && noBuyItems.length > 0 ? (
           <View style={s.noBuyBox}>
             <View style={s.planHeader}>
               <View>
@@ -1671,8 +1670,8 @@ export default function PriceMemoryScreen() {
           <View style={s.tripBox}>
             <View style={s.planHeader}>
               <View>
-                <Text style={s.tripKicker}>Store Trip Plan</Text>
-                <Text style={s.planTitle}>Group by best store</Text>
+                <Text style={s.tripKicker}>Best Store Plan</Text>
+                <Text style={s.planTitle}>Where to buy</Text>
               </View>
               <View style={s.tripPill}>
                 <Text style={s.tripPillTxt}>{storeTripPlan.length}</Text>
@@ -1699,7 +1698,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && (actionCards.length > 0 || storeTripPlan.length > 0 || returnWatch.length > 0) ? (
+        {showMore && (actionCards.length > 0 || storeTripPlan.length > 0 || returnWatch.length > 0) ? (
           <View style={s.householdBox}>
             <View style={s.planHeader}>
               <View style={{ flex:1 }}>
@@ -1716,7 +1715,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && returnWatch.length > 0 ? (
+        {showMore && returnWatch.length > 0 ? (
           <View style={s.returnBox}>
             <View style={s.planHeader}>
               <View>
@@ -1750,7 +1749,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && receiptAnomalies.length > 0 ? (
+        {showMore && receiptAnomalies.length > 0 ? (
           <View style={s.anomalyBox}>
             <View style={s.planHeader}>
               <View>
@@ -1774,7 +1773,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && rhythmItems.length > 0 ? (
+        {showMore && rhythmItems.length > 0 ? (
           <View style={s.rhythmBox}>
             <View style={s.planHeader}>
               <View>
@@ -1816,8 +1815,8 @@ export default function PriceMemoryScreen() {
           <View style={s.basketBox}>
             <View style={s.planHeader}>
               <View>
-                <Text style={s.basketKicker}>Smart Basket Builder</Text>
-                <Text style={s.planTitle}>Suggested next cart</Text>
+                <Text style={s.basketKicker}>Next Cart</Text>
+                <Text style={s.planTitle}>Suggested items</Text>
               </View>
               <View style={s.basketPill}>
                 <Text style={s.basketPillTxt}>{money(basketTotal)}</Text>
@@ -1838,7 +1837,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && items.length > 0 ? (
+        {showMore && items.length > 0 ? (
           <View style={s.planBox}>
             <View style={s.planHeader}>
               <View>
@@ -2017,7 +2016,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && alerts.length > 0 ? (
+        {showMore && alerts.length > 0 ? (
           <View style={s.autoAlertBox}>
             <View style={s.autoAlertTop}>
               <View style={{ flex:1 }}>
@@ -2069,7 +2068,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {showShopping && alerts.length > 0 ? (
+        {showMore && alerts.length > 0 ? (
           <View style={s.alertBox}>
             <View style={s.planHeader}>
               <View>
@@ -2115,7 +2114,7 @@ export default function PriceMemoryScreen() {
         {showShopping && items.length > 0 ? (
           <View style={s.checkBox}>
             <Text style={s.planKicker}>Before You Buy</Text>
-            <Text style={s.checkTitle}>Check today's price</Text>
+            <Text style={s.checkTitle}>Is this a good price?</Text>
             <View style={s.checkInputs}>
               <TextInput
                 style={[s.search, { flex: 1.4, marginBottom: 0 }]}
