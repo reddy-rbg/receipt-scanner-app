@@ -3,6 +3,7 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Share,
   ScrollView,
   StyleSheet,
   Text,
@@ -233,6 +234,28 @@ function monthlyWatch(snapshot: MonthlySnapshot) {
     tone: 'good',
     text: 'Your spending looks balanced across the receipts scanned so far.',
   };
+}
+
+function monthlyReportText(snapshot: MonthlySnapshot, watch: ReturnType<typeof monthlyWatch>) {
+  const categoryLines = snapshot.categories
+    .slice(0, 4)
+    .map(category => `- ${category.label}: ${money(category.total)} (${category.pct.toFixed(0)}%)`)
+    .join('\n');
+
+  return [
+    `ReceiptAI Monthly Snapshot - ${snapshot.label}`,
+    '',
+    `Total spent: ${money(snapshot.total)}`,
+    `Receipts: ${snapshot.receipts}`,
+    `Average trip: ${money(snapshot.average)}`,
+    `Savings found: ${money(snapshot.saved)}`,
+    `Top store: ${snapshot.topStore} (${money(snapshot.topStoreTotal)})`,
+    snapshot.topCategory ? `Top category: ${snapshot.topCategory.label} (${money(snapshot.topCategory.total)})` : '',
+    '',
+    `Spending watch: ${watch.label}`,
+    watch.text,
+    categoryLines ? `\nCategory breakdown:\n${categoryLines}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 export default function PriceMemoryScreen() {
@@ -505,6 +528,18 @@ export default function PriceMemoryScreen() {
     }
   }
 
+  async function shareMonthlyReport() {
+    if (!monthly || !watch) return;
+    try {
+      await Share.share({
+        title: `ReceiptAI ${monthly.label} report`,
+        message: monthlyReportText(monthly, watch),
+      });
+    } catch {
+      Alert.alert('Could not share report', 'Please try again.');
+    }
+  }
+
   const strongItems = items.filter(item => item.recommendation === 'may need soon').length;
   const compareItems = items.filter(item => item.recommendation === 'compare before buying').length;
   const learningItems = items.filter(item => item.recommendation === 'needs more history' || item.times_bought <= 1).length;
@@ -634,6 +669,10 @@ export default function PriceMemoryScreen() {
                 <Text style={s.watchText}>{watch.text}</Text>
               </View>
             ) : null}
+
+            <TouchableOpacity style={s.shareReportBtn} onPress={shareMonthlyReport} activeOpacity={0.82}>
+              <Text style={s.shareReportTxt}>Share monthly report</Text>
+            </TouchableOpacity>
 
             {monthly.categories.length > 0 ? (
               <View style={s.categoryBlock}>
@@ -994,6 +1033,8 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   watchMid:{ backgroundColor:'rgba(251,191,36,0.08)', borderColor:'rgba(251,191,36,0.24)' },
   watchLabel:{ color:C.text, fontSize:13, fontWeight:'900', marginBottom:4 },
   watchText:{ color:C.text2, fontSize:12, lineHeight:17 },
+  shareReportBtn:{ marginTop:10, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:11, paddingVertical:10, alignItems:'center' },
+  shareReportTxt:{ color:C.accent, fontSize:12, fontWeight:'900' },
   categoryBlock:{ marginTop:12, borderTopWidth:1, borderTopColor:C.border, paddingTop:12 },
   categoryHeader:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:8 },
   categoryTitle:{ color:C.text, fontSize:13, fontWeight:'900' },
