@@ -34,6 +34,22 @@ type PriceMemoryItem = {
   recommendation: string;
 };
 
+type ShoppingPlanItem = {
+  item_name: string;
+  usual_price: number;
+  good_deal_price: number;
+  avoid_above_price?: number;
+  cheapest_store?: string | null;
+  price_range?: number;
+};
+
+type ShoppingPlan = {
+  plan_items: ShoppingPlanItem[];
+  compare_items: ShoppingPlanItem[];
+  estimated_total: number;
+  estimated_savings: number;
+};
+
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
 
@@ -52,6 +68,7 @@ export default function PriceMemoryScreen() {
   const { user } = useAuth();
   const [items, setItems] = useState<PriceMemoryItem[]>([]);
   const [shown, setShown] = useState<PriceMemoryItem[]>([]);
+  const [plan, setPlan] = useState<ShoppingPlan | null>(null);
   const [query, setQuery] = useState('');
   const [checkItem, setCheckItem] = useState('');
   const [checkPrice, setCheckPrice] = useState('');
@@ -97,6 +114,7 @@ export default function PriceMemoryScreen() {
       const nextItems = data.items || [];
       setItems(nextItems);
       setShown(nextItems);
+      await loadShoppingPlan(headers, isGuest ? (guestId || user.id) : '');
     } catch (e: any) {
       setError(e.message || 'Could not load Price Memory.');
     } finally {
@@ -105,14 +123,37 @@ export default function PriceMemoryScreen() {
     }
   }
 
+  async function loadShoppingPlan(headers: any, guestId: string) {
+    try {
+      const url = guestId
+        ? `${API}/shopping-plan?session_id=${encodeURIComponent(guestId)}`
+        : `${API}/shopping-plan`;
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPlan({
+          plan_items: data.plan_items || [],
+          compare_items: data.compare_items || [],
+          estimated_total: n(data.estimated_total),
+          estimated_savings: n(data.estimated_savings),
+        });
+      }
+    } catch {
+      setPlan(null);
+    }
+  }
+
   const strongItems = items.filter(item => item.recommendation === 'may need soon').length;
   const compareItems = items.filter(item => item.recommendation === 'compare before buying').length;
-  const nextPlan = items.filter(item => item.recommendation === 'may need soon').slice(0, 5);
-  const comparePlan = items
+  const localNextPlan = items.filter(item => item.recommendation === 'may need soon').slice(0, 5);
+  const localComparePlan = items
     .filter(item => item.recommendation === 'compare before buying')
     .sort((a, b) => n(b.price_range) - n(a.price_range))
     .slice(0, 4);
-  const planTotal = nextPlan.reduce((sum, item) => sum + n(item.usual_price), 0);
+  const nextPlan = plan?.plan_items?.length ? plan.plan_items : localNextPlan;
+  const comparePlan = plan?.compare_items?.length ? plan.compare_items : localComparePlan;
+  const planTotal = plan ? plan.estimated_total : nextPlan.reduce((sum, item) => sum + n(item.usual_price), 0);
+  const planSavings = plan ? plan.estimated_savings : 0;
   const avgAvoid = items.length
     ? items.reduce((sum, item) => sum + n(item.avoid_above_price), 0) / items.length
     : 0;
@@ -174,6 +215,10 @@ export default function PriceMemoryScreen() {
                 <Text style={s.planTotalTxt}>{money(planTotal)}</Text>
               </View>
             </View>
+
+            {planSavings > 0 ? (
+              <Text style={s.planSavings}>Good-deal target could save about {money(planSavings)}.</Text>
+            ) : null}
 
             {nextPlan.length > 0 ? (
               <View style={s.planSection}>
@@ -358,6 +403,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   planTitle:{ color:C.text, fontSize:18, fontWeight:'900' },
   planTotalPill:{ backgroundColor:'rgba(74,222,128,0.10)', borderWidth:1, borderColor:'rgba(74,222,128,0.24)', borderRadius:12, paddingHorizontal:10, paddingVertical:7 },
   planTotalTxt:{ color:C.green, fontWeight:'900', fontSize:13 },
+  planSavings:{ color:C.green, fontSize:12, lineHeight:17, marginBottom:4 },
   planSection:{ marginTop:8 },
   planSectionTitle:{ color:C.text3, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.6, marginBottom:8 },
   planRow:{ flexDirection:'row', alignItems:'center', gap:10, paddingVertical:8, borderTopWidth:1, borderTopColor:C.border },
