@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   Share,
   ScrollView,
@@ -328,6 +330,7 @@ export default function PriceMemoryScreen() {
   const { colors: C } = useTheme();
   const s = createStyles(C);
   const { user } = useAuth();
+  const scrollRef = useRef<ScrollView | null>(null);
   const [items, setItems] = useState<PriceMemoryItem[]>([]);
   const [shown, setShown] = useState<PriceMemoryItem[]>([]);
   const [plan, setPlan] = useState<ShoppingPlan | null>(null);
@@ -347,6 +350,10 @@ export default function PriceMemoryScreen() {
   const [error, setError] = useState('');
   const [scheduledAlerts, setScheduledAlerts] = useState<Record<string, boolean>>({});
   const [autoAlertEnabled, setAutoAlertEnabled] = useState(false);
+
+  const keepBeforeBuyVisible = () => {
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 280);
+  };
 
   useFocusEffect(useCallback(() => { loadMemory(false); }, [user?.id, user?.guest_session_id]));
 
@@ -1156,11 +1163,18 @@ export default function PriceMemoryScreen() {
 
   return (
     <View style={s.screen}>
+      <KeyboardAvoidingView
+        style={s.keyboardWrap}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 86 : 0}
+      >
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={s.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadMemory(true)} tintColor={C.accent} />}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       >
         <View style={s.hero}>
           <Text style={s.heroKicker}>AI Shopping Memory</Text>
@@ -2123,6 +2137,7 @@ export default function PriceMemoryScreen() {
                 placeholder="Item name"
                 placeholderTextColor={C.text3}
                 autoCorrect={false}
+                onFocus={keepBeforeBuyVisible}
               />
               <TextInput
                 style={[s.search, { flex: 0.8, marginBottom: 0 }]}
@@ -2131,6 +2146,7 @@ export default function PriceMemoryScreen() {
                 placeholder="$ price"
                 placeholderTextColor={C.text3}
                 keyboardType="decimal-pad"
+                onFocus={keepBeforeBuyVisible}
               />
             </View>
 
@@ -2366,13 +2382,15 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
 
 const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   screen:{ flex:1, backgroundColor:C.bg },
-  content:{ padding:16, paddingBottom:40 },
+  keyboardWrap:{ flex:1 },
+  content:{ padding:16, paddingBottom:180 },
   hero:{ marginBottom:16 },
   heroKicker:{ color:C.accent, fontSize:11, fontWeight:'700', textTransform:'uppercase', letterSpacing:0.6, marginBottom:6 },
   heroTitle:{ color:C.text, fontSize:30, fontWeight:'900', letterSpacing:0 },
