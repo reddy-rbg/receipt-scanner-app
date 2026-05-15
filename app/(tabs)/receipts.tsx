@@ -317,6 +317,7 @@ export default function ReceiptsScreen() {
       setAll(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
       setShown(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
       setEditingItem(null);
+      Alert.alert('Saved', 'Item correction saved. Price Memory will use the corrected item.');
     } catch (e:any) {
       Alert.alert('Could not save', e.message || 'Please try again.');
     } finally {

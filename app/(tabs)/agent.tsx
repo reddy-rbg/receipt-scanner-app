@@ -36,6 +36,8 @@ const QUICK_PROMPTS = [
   { label: '📉 Spending graph', prompt: 'Show my monthly expenses spent analysis as a chart' },
   { label: '🧾 Buy this month', prompt: 'Give me this month items to purchase based on my receipts' },
   { label: '🔍 Compare prices', prompt: 'Compare my prices to current market prices and find where I overpaid' },
+  { label: 'Price memory', prompt: 'Show my price memory and avoid-above prices' },
+  { label: 'Good price?', prompt: 'Is this a good price based on my receipt history?' },
   { label: '🎯 Best deals', prompt: 'What were the best deals I got recently?' },
 ];
 
