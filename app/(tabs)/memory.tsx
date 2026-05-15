@@ -63,6 +63,8 @@ type PriceAlert = {
   store?: string | null;
 };
 
+type MemoryFilter = 'all' | 'soon' | 'compare' | 'learning';
+
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
 
@@ -127,6 +129,7 @@ export default function PriceMemoryScreen() {
   const [plan, setPlan] = useState<ShoppingPlan | null>(null);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [query, setQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<MemoryFilter>('all');
   const [checkItem, setCheckItem] = useState('');
   const [checkPrice, setCheckPrice] = useState('');
   const [loading, setLoading] = useState(true);
@@ -138,17 +141,23 @@ export default function PriceMemoryScreen() {
 
   useEffect(() => {
     const q = query.trim().toLowerCase();
-    if (!q) {
-      setShown(items);
-      return;
-    }
-    setShown(items.filter(item => [
-      item.item_name,
-      item.product_size,
-      item.cheapest_store,
-      item.recommendation,
-    ].filter(Boolean).join(' ').toLowerCase().includes(q)));
-  }, [query, items]);
+    const filtered = items.filter(item => {
+      const matchesQuery = !q || [
+        item.item_name,
+        item.product_size,
+        item.cheapest_store,
+        item.recommendation,
+      ].filter(Boolean).join(' ').toLowerCase().includes(q);
+
+      if (!matchesQuery) return false;
+      if (activeFilter === 'soon') return item.recommendation === 'may need soon';
+      if (activeFilter === 'compare') return item.recommendation === 'compare before buying';
+      if (activeFilter === 'learning') return item.recommendation === 'needs more history' || item.times_bought <= 1;
+      return true;
+    });
+
+    setShown(filtered);
+  }, [query, activeFilter, items]);
 
   async function loadMemory(isRefresh = false) {
     if (!user) return;
@@ -282,6 +291,13 @@ export default function PriceMemoryScreen() {
 
   const strongItems = items.filter(item => item.recommendation === 'may need soon').length;
   const compareItems = items.filter(item => item.recommendation === 'compare before buying').length;
+  const learningItems = items.filter(item => item.recommendation === 'needs more history' || item.times_bought <= 1).length;
+  const filterChips: { key: MemoryFilter; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: items.length },
+    { key: 'soon', label: 'Need soon', count: strongItems },
+    { key: 'compare', label: 'Compare', count: compareItems },
+    { key: 'learning', label: 'Learning', count: learningItems },
+  ];
   const localNextPlan = items.filter(item => item.recommendation === 'may need soon').slice(0, 5);
   const localComparePlan = items
     .filter(item => item.recommendation === 'compare before buying')
@@ -478,6 +494,30 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
+        {items.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.filterRow}
+            keyboardShouldPersistTaps="handled"
+          >
+            {filterChips.map(chip => {
+              const selected = activeFilter === chip.key;
+              return (
+                <TouchableOpacity
+                  key={chip.key}
+                  style={[s.filterChip, selected && s.filterChipActive]}
+                  onPress={() => setActiveFilter(chip.key)}
+                  activeOpacity={0.82}
+                >
+                  <Text style={[s.filterTxt, selected && s.filterTxtActive]}>{chip.label}</Text>
+                  <Text style={[s.filterCount, selected && s.filterCountActive]}>{chip.count}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        ) : null}
+
         <View style={s.searchWrap}>
           <TextInput
             style={s.search}
@@ -644,6 +684,13 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   decisionText:{ color:C.text, fontSize:13, lineHeight:18 },
   decisionSub:{ color:C.text2, fontSize:11, marginTop:6, lineHeight:16 },
   noMatchText:{ color:C.text2, fontSize:12, marginTop:10 },
+  filterRow:{ gap:8, paddingBottom:10 },
+  filterChip:{ flexDirection:'row', alignItems:'center', gap:7, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:12, paddingVertical:8 },
+  filterChipActive:{ backgroundColor:'rgba(124,106,255,0.14)', borderColor:'rgba(124,106,255,0.38)' },
+  filterTxt:{ color:C.text2, fontSize:12, fontWeight:'800' },
+  filterTxtActive:{ color:C.text },
+  filterCount:{ color:C.text3, fontSize:11, fontWeight:'900' },
+  filterCountActive:{ color:C.accent },
   searchWrap:{ flexDirection:'row', alignItems:'center', gap:8, marginBottom:14 },
   search:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, color:C.text, paddingHorizontal:14, paddingVertical:11, fontSize:14 },
   clearBtn:{ paddingHorizontal:12, paddingVertical:10, borderRadius:10, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border },
