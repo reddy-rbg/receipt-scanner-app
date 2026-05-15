@@ -601,6 +601,8 @@ export default function PriceMemoryScreen() {
   const strongItems = items.filter(item => item.recommendation === 'may need soon').length;
   const compareItems = items.filter(item => item.recommendation === 'compare before buying').length;
   const learningItems = items.filter(item => item.recommendation === 'needs more history' || item.times_bought <= 1).length;
+  const confidentItems = items.filter(item => item.times_bought >= 2 && n(item.price_range) > 0).length;
+  const confidencePct = items.length ? Math.round((confidentItems / items.length) * 100) : 0;
   const filterChips: { key: MemoryFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: items.length },
     { key: 'soon', label: 'Need soon', count: strongItems },
@@ -739,6 +741,27 @@ export default function PriceMemoryScreen() {
             <Text style={s.statLbl}>Compare</Text>
           </View>
         </View>
+
+        {items.length > 0 ? (
+          <View style={s.confidenceBox}>
+            <View style={s.confidenceTop}>
+              <View>
+                <Text style={s.confidenceKicker}>Price Confidence</Text>
+                <Text style={s.confidenceTitle}>
+                  {confidencePct >= 60 ? 'Strong memory' : confidencePct >= 30 ? 'Growing memory' : 'Still learning'}
+                </Text>
+              </View>
+              <Text style={s.confidencePct}>{confidencePct}%</Text>
+            </View>
+            <View style={s.confidenceTrack}>
+              <View style={[s.confidenceFill, { width: `${confidencePct}%` }]} />
+            </View>
+            <View style={s.confidenceStats}>
+              <Text style={s.confidenceText}>{confidentItems} repeat item{confidentItems === 1 ? '' : 's'} with price history</Text>
+              <Text style={s.confidenceText}>{learningItems} still learning</Text>
+            </View>
+          </View>
+        ) : null}
 
         {monthly ? (
           <View style={s.monthBox}>
@@ -1296,6 +1319,15 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   statBox:{ flex:1, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:12, padding:12 },
   statVal:{ color:C.accent, fontSize:22, fontWeight:'900' },
   statLbl:{ color:C.text2, fontSize:11, marginTop:2 },
+  confidenceBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  confidenceTop:{ flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:10 },
+  confidenceKicker:{ color:C.accent, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  confidenceTitle:{ color:C.text, fontSize:17, fontWeight:'900' },
+  confidencePct:{ color:C.green, fontSize:22, fontWeight:'900' },
+  confidenceTrack:{ height:8, borderRadius:99, backgroundColor:C.surface2, overflow:'hidden', borderWidth:1, borderColor:C.border },
+  confidenceFill:{ height:'100%', borderRadius:99, backgroundColor:C.green },
+  confidenceStats:{ flexDirection:'row', justifyContent:'space-between', gap:10, marginTop:8 },
+  confidenceText:{ color:C.text2, fontSize:11, lineHeight:16, flex:1 },
   monthBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   monthKicker:{ color:C.accent, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
   monthTotalPill:{ backgroundColor:'rgba(124,106,255,0.12)', borderWidth:1, borderColor:'rgba(124,106,255,0.26)', borderRadius:12, paddingHorizontal:10, paddingVertical:7 },
