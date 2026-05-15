@@ -50,6 +50,17 @@ type ShoppingPlan = {
   estimated_savings: number;
 };
 
+type PriceAlert = {
+  type: string;
+  severity: 'warning' | 'info' | 'tip' | string;
+  title: string;
+  message: string;
+  item_name?: string;
+  target_price?: number;
+  avoid_above_price?: number;
+  store?: string | null;
+};
+
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
 
@@ -69,6 +80,7 @@ export default function PriceMemoryScreen() {
   const [items, setItems] = useState<PriceMemoryItem[]>([]);
   const [shown, setShown] = useState<PriceMemoryItem[]>([]);
   const [plan, setPlan] = useState<ShoppingPlan | null>(null);
+  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [query, setQuery] = useState('');
   const [checkItem, setCheckItem] = useState('');
   const [checkPrice, setCheckPrice] = useState('');
@@ -115,6 +127,7 @@ export default function PriceMemoryScreen() {
       setItems(nextItems);
       setShown(nextItems);
       await loadShoppingPlan(headers, isGuest ? (guestId || user.id) : '');
+      await loadPriceAlerts(headers, isGuest ? (guestId || user.id) : '', nextItems);
     } catch (e: any) {
       setError(e.message || 'Could not load Price Memory.');
     } finally {
@@ -141,6 +154,51 @@ export default function PriceMemoryScreen() {
     } catch {
       setPlan(null);
     }
+  }
+
+  async function loadPriceAlerts(headers: any, guestId: string, fallbackItems: PriceMemoryItem[]) {
+    try {
+      const url = guestId
+        ? `${API}/price-alerts?session_id=${encodeURIComponent(guestId)}`
+        : `${API}/price-alerts`;
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAlerts(data.alerts || []);
+        return;
+      }
+    } catch {}
+
+    setAlerts(buildLocalAlerts(fallbackItems));
+  }
+
+  function buildLocalAlerts(sourceItems: PriceMemoryItem[]): PriceAlert[] {
+    const nextAlerts: PriceAlert[] = [];
+    sourceItems.slice(0, 80).forEach(item => {
+      if (item.recommendation === 'may need soon') {
+        nextAlerts.push({
+          type: 'may_need_soon',
+          severity: 'info',
+          title: `You may need ${item.item_name} soon`,
+          message: `Good deal is ${money(item.good_deal_price)}. Usual price is ${money(item.usual_price)}.`,
+          item_name: item.item_name,
+          target_price: item.good_deal_price,
+          store: item.cheapest_store,
+        });
+      }
+      if (n(item.price_range) >= 5 || n(item.volatility_pct) >= 25) {
+        nextAlerts.push({
+          type: 'price_swing',
+          severity: 'warning',
+          title: `Compare before buying ${item.item_name}`,
+          message: `Your price has ranged from ${money(item.lowest_price)} to ${money(item.highest_price)}.`,
+          item_name: item.item_name,
+          avoid_above_price: item.avoid_above_price,
+          store: item.cheapest_store,
+        });
+      }
+    });
+    return nextAlerts.slice(0, 10);
   }
 
   const strongItems = items.filter(item => item.recommendation === 'may need soon').length;
@@ -250,6 +308,35 @@ export default function PriceMemoryScreen() {
                 ))}
               </View>
             ) : null}
+          </View>
+        ) : null}
+
+        {alerts.length > 0 ? (
+          <View style={s.alertBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.alertKicker}>Price Alerts</Text>
+                <Text style={s.planTitle}>Watch before buying</Text>
+              </View>
+              <View style={s.alertCountPill}>
+                <Text style={s.alertCountTxt}>{alerts.length}</Text>
+              </View>
+            </View>
+            {alerts.slice(0, 5).map((alert, index) => (
+              <View key={`${alert.type}-${alert.item_name}-${index}`} style={s.alertRow}>
+                <View style={[
+                  s.alertDot,
+                  alert.severity === 'warning' && { backgroundColor: C.gold },
+                  alert.severity === 'info' && { backgroundColor: C.accent },
+                  alert.severity === 'tip' && { backgroundColor: C.green },
+                ]} />
+                <View style={{ flex:1 }}>
+                  <Text style={s.alertTitle}>{alert.title}</Text>
+                  <Text style={s.alertMsg}>{alert.message}</Text>
+                  {alert.store ? <Text style={s.alertStore}>Best known store: {alert.store}</Text> : null}
+                </View>
+              </View>
+            ))}
           </View>
         ) : null}
 
@@ -414,6 +501,15 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   compareRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, paddingVertical:7, borderTopWidth:1, borderTopColor:C.border },
   compareItem:{ color:C.text2, fontSize:12, flex:1 },
   compareRange:{ color:C.gold, fontSize:11, fontWeight:'900' },
+  alertBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  alertKicker:{ color:C.gold, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  alertCountPill:{ backgroundColor:'rgba(251,191,36,0.10)', borderWidth:1, borderColor:'rgba(251,191,36,0.24)', borderRadius:12, minWidth:34, paddingHorizontal:10, paddingVertical:7, alignItems:'center' },
+  alertCountTxt:{ color:C.gold, fontWeight:'900', fontSize:13 },
+  alertRow:{ flexDirection:'row', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
+  alertDot:{ width:9, height:9, borderRadius:5, backgroundColor:C.accent, marginTop:4 },
+  alertTitle:{ color:C.text, fontSize:13, fontWeight:'900', lineHeight:18 },
+  alertMsg:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:2 },
+  alertStore:{ color:C.accent, fontSize:11, fontWeight:'800', marginTop:4 },
   checkBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   checkTitle:{ color:C.text, fontSize:18, fontWeight:'900', marginBottom:10 },
   checkInputs:{ flexDirection:'row', gap:8 },
