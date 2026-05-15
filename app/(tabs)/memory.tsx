@@ -621,6 +621,32 @@ export default function PriceMemoryScreen() {
         : { label:'Normal', tone:'mid', text:`This is near your usual price of ${money(checkMatch.usual_price)}.` }
     : null;
   const watch = monthly ? monthlyWatch(monthly) : null;
+  const actionCards = [
+    nextPlan[0] ? {
+      label: 'Buy soon',
+      title: nextPlan[0].item_name,
+      text: `Look for ${money(nextPlan[0].good_deal_price)} or less${nextPlan[0].cheapest_store ? ` at ${nextPlan[0].cheapest_store}` : ''}.`,
+      tone: 'good',
+    } : null,
+    comparePlan[0] ? {
+      label: 'Compare',
+      title: comparePlan[0].item_name,
+      text: `Price swings about ${money(comparePlan[0].price_range)}. Check another store before buying.`,
+      tone: 'warn',
+    } : null,
+    savingsOpportunities[0] ? {
+      label: 'Save more',
+      title: savingsOpportunities[0].item.item_name,
+      text: `Best opportunity is about ${money(savingsOpportunities[0].perBuy)} per buy.`,
+      tone: 'good',
+    } : null,
+    watch && watch.tone === 'warn' ? {
+      label: 'Slow down',
+      title: 'Monthly pace',
+      text: watch.text,
+      tone: 'bad',
+    } : null,
+  ].filter(Boolean).slice(0, 3) as { label: string; title: string; text: string; tone: string }[];
 
   return (
     <View style={s.screen}>
@@ -765,6 +791,42 @@ export default function PriceMemoryScreen() {
                 ))}
               </View>
             ) : null}
+          </View>
+        ) : null}
+
+        {actionCards.length > 0 ? (
+          <View style={s.actionBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.actionKicker}>This Week Actions</Text>
+                <Text style={s.planTitle}>What to do next</Text>
+              </View>
+              <View style={s.actionCountPill}>
+                <Text style={s.actionCountTxt}>{actionCards.length}</Text>
+              </View>
+            </View>
+            {actionCards.map((action, index) => (
+              <View key={`${action.label}-${index}`} style={s.actionRow}>
+                <View style={[
+                  s.actionNumber,
+                  action.tone === 'good' && { backgroundColor:'rgba(74,222,128,0.14)', borderColor:'rgba(74,222,128,0.28)' },
+                  action.tone === 'warn' && { backgroundColor:'rgba(251,191,36,0.14)', borderColor:'rgba(251,191,36,0.28)' },
+                  action.tone === 'bad' && { backgroundColor:'rgba(255,107,107,0.12)', borderColor:'rgba(255,107,107,0.28)' },
+                ]}>
+                  <Text style={[
+                    s.actionNumberTxt,
+                    action.tone === 'good' && { color:C.green },
+                    action.tone === 'warn' && { color:C.gold },
+                    action.tone === 'bad' && { color:C.red },
+                  ]}>{index + 1}</Text>
+                </View>
+                <View style={{ flex:1 }}>
+                  <Text style={s.actionLabel}>{action.label}</Text>
+                  <Text style={s.actionTitle} numberOfLines={1}>{action.title}</Text>
+                  <Text style={s.actionText}>{action.text}</Text>
+                </View>
+              </View>
+            ))}
           </View>
         ) : null}
 
@@ -1151,6 +1213,16 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   categoryTrack:{ height:6, borderRadius:99, backgroundColor:C.surface2, overflow:'hidden' },
   categoryFill:{ height:'100%', borderRadius:99, backgroundColor:C.accent },
   categoryMeta:{ color:C.text3, fontSize:10, marginTop:4, fontWeight:'700' },
+  actionBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  actionKicker:{ color:C.gold, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  actionCountPill:{ backgroundColor:'rgba(251,191,36,0.10)', borderWidth:1, borderColor:'rgba(251,191,36,0.24)', borderRadius:12, minWidth:34, paddingHorizontal:10, paddingVertical:7, alignItems:'center' },
+  actionCountTxt:{ color:C.gold, fontWeight:'900', fontSize:13 },
+  actionRow:{ flexDirection:'row', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
+  actionNumber:{ width:28, height:28, borderRadius:99, borderWidth:1, alignItems:'center', justifyContent:'center', backgroundColor:C.surface2, borderColor:C.border },
+  actionNumberTxt:{ color:C.text, fontSize:12, fontWeight:'900' },
+  actionLabel:{ color:C.text3, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.5, marginBottom:2 },
+  actionTitle:{ color:C.text, fontSize:13, fontWeight:'900' },
+  actionText:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:3 },
   planBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   planHeader:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:12 },
   planKicker:{ color:C.green, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
