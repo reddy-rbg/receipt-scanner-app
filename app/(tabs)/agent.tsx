@@ -1,7 +1,9 @@
-import { useState, useRef, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTheme } from '../../stores/themeStore';
 import { getUserToken, getGuestSessionId } from '../../stores/authStore';
 import { useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import Voice from '@react-native-voice/voice';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
@@ -25,6 +27,8 @@ type Msg = {
   tools?: string[];
   loading?: boolean;
 };
+
+type VoiceMode = 'dictate' | 'wake' | null;
 
 const QUICK_PROMPTS = [
   { label: '💰 Spending summary', prompt: 'Give me a complete summary of my spending' },
@@ -51,14 +55,124 @@ export default function AgentScreen() {
   ]);
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>(null);
+  const [voiceText, setVoiceText] = useState('');
   const [sessionId]             = useState(`session_${Date.now()}`);
   const scrollRef               = useRef<ScrollView>(null);
+  const voiceModeRef            = useRef<VoiceMode>(null);
+  const wakeRestartRef          = useRef<any>(null);
 
   useFocusEffect(useCallback(() => {}, []));
 
   function scrollToBottom() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }
+
+  function cleanWakeCommand(text: string) {
+    return text
+      .replace(/hey\s+receipt\s*ai/ig, '')
+      .replace(/hey\s+receiptai/ig, '')
+      .replace(/receipt\s*ai/ig, '')
+      .trim();
+  }
+
+  function voiceUnavailable() {
+    Alert.alert(
+      'Voice build required',
+      'Voice recognition needs a development or production build with the native voice module. It will not work inside Expo Go.'
+    );
+  }
+
+  async function stopVoice() {
+    if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current);
+    wakeRestartRef.current = null;
+    voiceModeRef.current = null;
+    setVoiceMode(null);
+    setVoiceText('');
+    try {
+      await Voice.stop();
+      await Voice.cancel();
+    } catch {}
+  }
+
+  async function startVoice(mode: Exclude<VoiceMode, null>) {
+    if (loading) return;
+    try {
+      const available = await Voice.isAvailable();
+      if (!available) {
+        voiceUnavailable();
+        return;
+      }
+      if (voiceModeRef.current) {
+        const currentMode = voiceModeRef.current;
+        await stopVoice();
+        if (currentMode === mode) return;
+      }
+      voiceModeRef.current = mode;
+      setVoiceMode(mode);
+      setVoiceText(mode === 'wake' ? 'Say "Hey ReceiptAI" then your question.' : 'Listening...');
+      await Voice.start('en-US');
+    } catch (e: any) {
+      setVoiceMode(null);
+      voiceModeRef.current = null;
+      if (String(e?.message || e).toLowerCase().includes('native')) voiceUnavailable();
+      else Alert.alert('Voice error', 'Could not start voice recognition. Please try again.');
+    }
+  }
+
+  async function restartWakeListening() {
+    if (voiceModeRef.current !== 'wake') return;
+    try {
+      await Voice.start('en-US');
+    } catch {
+      voiceModeRef.current = null;
+      setVoiceMode(null);
+    }
+  }
+
+  function handleSpeechText(text: string, isFinal = false) {
+    const spoken = text.trim();
+    if (!spoken) return;
+    setVoiceText(spoken);
+
+    if (voiceModeRef.current === 'wake') {
+      const lower = spoken.toLowerCase();
+      const heardWake = lower.includes('hey receiptai') || lower.includes('hey receipt ai') || lower.includes('receipt ai');
+      if (!heardWake) return;
+      const command = cleanWakeCommand(spoken);
+      if (command) {
+        stopVoice();
+        sendMessage(command);
+      } else {
+        setVoiceText('Wake word heard. Ask your question now.');
+      }
+      return;
+    }
+
+    setInput(spoken);
+    if (isFinal) stopVoice();
+  }
+
+  useEffect(() => {
+    Voice.onSpeechPartialResults = e => handleSpeechText((e.value || [])[0] || '');
+    Voice.onSpeechResults = e => handleSpeechText((e.value || [])[0] || '', true);
+    Voice.onSpeechError = () => {
+      if (voiceModeRef.current === 'wake') {
+        wakeRestartRef.current = setTimeout(restartWakeListening, 700);
+      } else {
+        stopVoice();
+      }
+    };
+    Voice.onSpeechEnd = () => {
+      if (voiceModeRef.current === 'wake') {
+        wakeRestartRef.current = setTimeout(restartWakeListening, 700);
+      }
+    };
+    return () => {
+      if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current);
+      Voice.destroy().then(() => Voice.removeAllListeners()).catch(() => {});
+    };
+  }, []);
 
   async function sendMessage(text: string) {
     const message = text.trim();
@@ -200,12 +314,27 @@ export default function AgentScreen() {
         <View style={s.agentHeaderLeft}>
           <View style={[s.agentDot, { backgroundColor: C.green }]} />
           <Text style={[s.agentHeaderTxt, { color: C.text2 }]}>
-            Ready
+            {voiceMode === 'wake' ? 'Listening for Hey ReceiptAI' : voiceMode === 'dictate' ? 'Voice listening' : 'Ready'}
           </Text>
         </View>
-        <TouchableOpacity onPress={clearConversation}>
-          <Text style={{ color: C.accent, fontSize: 12 }}>Clear</Text>
-        </TouchableOpacity>
+        <View style={s.headerActions}>
+          <TouchableOpacity
+            style={[
+              s.wakeBtn,
+              { borderColor: C.border, backgroundColor: voiceMode === 'wake' ? 'rgba(74,222,128,0.12)' : C.surface2 },
+            ]}
+            onPress={() => voiceMode === 'wake' ? stopVoice() : startVoice('wake')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name={voiceMode === 'wake' ? 'ear' : 'ear-outline'} size={14} color={voiceMode === 'wake' ? C.green : C.accent} />
+            <Text style={[s.wakeTxt, { color: voiceMode === 'wake' ? C.green : C.accent }]}>
+              Hey ReceiptAI
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={clearConversation}>
+            <Text style={{ color: C.accent, fontSize: 12 }}>Clear</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Messages */}
@@ -253,6 +382,17 @@ export default function AgentScreen() {
           maxLength={500}
         />
         <TouchableOpacity
+          style={[
+            s.micBtn,
+            { backgroundColor: voiceMode === 'dictate' ? C.green : C.surface2, borderColor: C.border },
+          ]}
+          onPress={() => voiceMode === 'dictate' ? stopVoice() : startVoice('dictate')}
+          disabled={loading}
+          activeOpacity={0.85}
+        >
+          <Ionicons name={voiceMode === 'dictate' ? 'mic' : 'mic-outline'} size={20} color={voiceMode === 'dictate' ? '#06120b' : C.accent} />
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[s.sendBtn, { backgroundColor: C.accent }, (!input.trim() || loading) && { opacity: 0.35 }]}
           onPress={() => sendMessage(input)}
           disabled={!input.trim() || loading}
@@ -264,6 +404,16 @@ export default function AgentScreen() {
           }
         </TouchableOpacity>
       </View>
+      {voiceMode ? (
+        <View style={[s.voiceHint, { backgroundColor: C.surface2, borderColor: C.border }]}>
+          <Text style={[s.voiceHintTxt, { color: C.text2 }]} numberOfLines={1}>
+            {voiceText || 'Listening...'}
+          </Text>
+          <TouchableOpacity onPress={stopVoice}>
+            <Text style={{ color: C.accent, fontSize: 12, fontWeight: '800' }}>Stop</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -272,8 +422,11 @@ const s = StyleSheet.create({
   screen:       { flex: 1 },
   agentHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1 },
   agentHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  headerActions:{ flexDirection: 'row', alignItems: 'center', gap: 10 },
   agentDot:     { width: 6, height: 6, borderRadius: 3 },
   agentHeaderTxt: { fontSize: 11 },
+  wakeBtn:      { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: 99, paddingHorizontal: 9, paddingVertical: 5 },
+  wakeTxt:      { fontSize: 10, fontWeight: '800' },
   chat:         { flex: 1 },
   chatContent:  { padding: 16, paddingBottom: 8 },
   quickSection: { marginBottom: 20 },
@@ -290,8 +443,11 @@ const s = StyleSheet.create({
   bubbleTxt:    { fontSize: 14, lineHeight: 21 },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
-  inputBar:     { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 10 },
+  inputBar:     { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 8 },
   input:        { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, paddingHorizontal: 14, fontSize: 14, maxHeight: 100 },
+  micBtn:       { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   sendBtn:      { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   sendIcon:     { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 },
+  voiceHint:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, paddingHorizontal: 16, paddingVertical: 8, gap: 10 },
+  voiceHintTxt: { flex: 1, fontSize: 12 },
 });
