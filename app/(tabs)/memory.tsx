@@ -645,6 +645,18 @@ export default function PriceMemoryScreen() {
     .slice(0, 4);
   const nextPlan = plan?.plan_items?.length ? plan.plan_items : localNextPlan;
   const comparePlan = plan?.compare_items?.length ? plan.compare_items : localComparePlan;
+  const storeTripPlan = Object.values([...nextPlan, ...comparePlan].reduce((acc, item) => {
+    const store = item.cheapest_store?.trim() || 'Compare nearby stores';
+    const key = normalizeSearchText(`${store}-${item.item_name}`);
+    if (acc.seen[key]) return acc;
+    acc.seen[key] = true;
+    acc.stores[store] = acc.stores[store] || { store, items: [] as ShoppingPlanItem[], total: 0 };
+    acc.stores[store].items.push(item);
+    acc.stores[store].total += n(item.good_deal_price || item.usual_price);
+    return acc;
+  }, { stores: {} as Record<string, { store: string; items: ShoppingPlanItem[]; total: number }>, seen: {} as Record<string, boolean> }).stores)
+    .sort((a, b) => b.items.length - a.items.length || b.total - a.total)
+    .slice(0, 3);
   const planTotal = plan ? plan.estimated_total : nextPlan.reduce((sum, item) => sum + n(item.usual_price), 0);
   const planSavings = plan ? plan.estimated_savings : 0;
   const avgAvoid = items.length
@@ -876,6 +888,38 @@ export default function PriceMemoryScreen() {
                   <Text style={s.actionTitle} numberOfLines={1}>{action.title}</Text>
                   <Text style={s.actionText}>{action.text}</Text>
                 </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {storeTripPlan.length > 0 ? (
+          <View style={s.tripBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.tripKicker}>Store Trip Plan</Text>
+                <Text style={s.planTitle}>Group by best store</Text>
+              </View>
+              <View style={s.tripPill}>
+                <Text style={s.tripPillTxt}>{storeTripPlan.length}</Text>
+              </View>
+            </View>
+            {storeTripPlan.map((store, index) => (
+              <View key={`${store.store}-${index}`} style={s.tripStore}>
+                <View style={s.tripStoreTop}>
+                  <View style={{ flex:1 }}>
+                    <Text style={s.tripStoreName} numberOfLines={1}>{store.store}</Text>
+                    <Text style={s.tripStoreMeta}>
+                      {store.items.length} item{store.items.length === 1 ? '' : 's'} · good-deal target {money(store.total)}
+                    </Text>
+                  </View>
+                </View>
+                {store.items.slice(0, 3).map((item, itemIndex) => (
+                  <View key={`${store.store}-${item.item_name}-${itemIndex}`} style={s.tripItemRow}>
+                    <Text style={s.tripItemName} numberOfLines={1}>{item.item_name}</Text>
+                    <Text style={s.tripItemPrice}>{money(item.good_deal_price || item.usual_price)}</Text>
+                  </View>
+                ))}
               </View>
             ))}
           </View>
@@ -1306,6 +1350,17 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   actionLabel:{ color:C.text3, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.5, marginBottom:2 },
   actionTitle:{ color:C.text, fontSize:13, fontWeight:'900' },
   actionText:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:3 },
+  tripBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
+  tripKicker:{ color:C.accent, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  tripPill:{ backgroundColor:'rgba(124,106,255,0.12)', borderWidth:1, borderColor:'rgba(124,106,255,0.26)', borderRadius:12, minWidth:34, paddingHorizontal:10, paddingVertical:7, alignItems:'center' },
+  tripPillTxt:{ color:C.accent, fontWeight:'900', fontSize:13 },
+  tripStore:{ paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
+  tripStoreTop:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:8 },
+  tripStoreName:{ color:C.text, fontSize:14, fontWeight:'900' },
+  tripStoreMeta:{ color:C.text2, fontSize:11, marginTop:3 },
+  tripItemRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, paddingVertical:4 },
+  tripItemName:{ color:C.text2, fontSize:12, flex:1 },
+  tripItemPrice:{ color:C.green, fontSize:12, fontWeight:'900' },
   planBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   planHeader:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:12 },
   planKicker:{ color:C.green, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
