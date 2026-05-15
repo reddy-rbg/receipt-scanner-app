@@ -64,6 +64,7 @@ type PriceAlert = {
 };
 
 type MemoryFilter = 'all' | 'soon' | 'compare' | 'learning';
+type MemorySort = 'smart' | 'savings' | 'swing' | 'recent';
 
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
@@ -130,6 +131,7 @@ export default function PriceMemoryScreen() {
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<MemoryFilter>('all');
+  const [activeSort, setActiveSort] = useState<MemorySort>('smart');
   const [checkItem, setCheckItem] = useState('');
   const [checkPrice, setCheckPrice] = useState('');
   const [loading, setLoading] = useState(true);
@@ -156,8 +158,28 @@ export default function PriceMemoryScreen() {
       return true;
     });
 
-    setShown(filtered);
-  }, [query, activeFilter, items]);
+    const sorted = [...filtered].sort((a, b) => {
+      if (activeSort === 'savings') {
+        return n(b.usual_price) - n(b.good_deal_price) - (n(a.usual_price) - n(a.good_deal_price));
+      }
+      if (activeSort === 'swing') {
+        return n(b.price_range) - n(a.price_range);
+      }
+      if (activeSort === 'recent') {
+        return new Date(b.last_bought_date || 0).getTime() - new Date(a.last_bought_date || 0).getTime();
+      }
+
+      const priority = (item: PriceMemoryItem) => {
+        if (item.recommendation === 'may need soon') return 4;
+        if (item.recommendation === 'compare before buying') return 3;
+        if (n(item.price_range) >= 5 || n(item.volatility_pct) >= 25) return 2;
+        return 1;
+      };
+      return priority(b) - priority(a) || n(b.price_range) - n(a.price_range);
+    });
+
+    setShown(sorted);
+  }, [query, activeFilter, activeSort, items]);
 
   async function loadMemory(isRefresh = false) {
     if (!user) return;
@@ -297,6 +319,12 @@ export default function PriceMemoryScreen() {
     { key: 'soon', label: 'Need soon', count: strongItems },
     { key: 'compare', label: 'Compare', count: compareItems },
     { key: 'learning', label: 'Learning', count: learningItems },
+  ];
+  const sortChips: { key: MemorySort; label: string }[] = [
+    { key: 'smart', label: 'Smart order' },
+    { key: 'savings', label: 'Best savings' },
+    { key: 'swing', label: 'Biggest swing' },
+    { key: 'recent', label: 'Recent' },
   ];
   const localNextPlan = items.filter(item => item.recommendation === 'may need soon').slice(0, 5);
   const localComparePlan = items
@@ -495,27 +523,50 @@ export default function PriceMemoryScreen() {
         ) : null}
 
         {items.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={s.filterRow}
-            keyboardShouldPersistTaps="handled"
-          >
-            {filterChips.map(chip => {
-              const selected = activeFilter === chip.key;
-              return (
-                <TouchableOpacity
-                  key={chip.key}
-                  style={[s.filterChip, selected && s.filterChipActive]}
-                  onPress={() => setActiveFilter(chip.key)}
-                  activeOpacity={0.82}
-                >
-                  <Text style={[s.filterTxt, selected && s.filterTxtActive]}>{chip.label}</Text>
-                  <Text style={[s.filterCount, selected && s.filterCountActive]}>{chip.count}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+          <>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.filterRow}
+              keyboardShouldPersistTaps="handled"
+            >
+              {filterChips.map(chip => {
+                const selected = activeFilter === chip.key;
+                return (
+                  <TouchableOpacity
+                    key={chip.key}
+                    style={[s.filterChip, selected && s.filterChipActive]}
+                    onPress={() => setActiveFilter(chip.key)}
+                    activeOpacity={0.82}
+                  >
+                    <Text style={[s.filterTxt, selected && s.filterTxtActive]}>{chip.label}</Text>
+                    <Text style={[s.filterCount, selected && s.filterCountActive]}>{chip.count}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.sortRow}
+              keyboardShouldPersistTaps="handled"
+            >
+              {sortChips.map(chip => {
+                const selected = activeSort === chip.key;
+                return (
+                  <TouchableOpacity
+                    key={chip.key}
+                    style={[s.sortChip, selected && s.sortChipActive]}
+                    onPress={() => setActiveSort(chip.key)}
+                    activeOpacity={0.82}
+                  >
+                    <Text style={[s.sortTxt, selected && s.sortTxtActive]}>{chip.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </>
         ) : null}
 
         <View style={s.searchWrap}>
@@ -691,6 +742,11 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   filterTxtActive:{ color:C.text },
   filterCount:{ color:C.text3, fontSize:11, fontWeight:'900' },
   filterCountActive:{ color:C.accent },
+  sortRow:{ gap:8, paddingBottom:12 },
+  sortChip:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:9, paddingHorizontal:11, paddingVertical:7 },
+  sortChipActive:{ backgroundColor:'rgba(74,222,128,0.10)', borderColor:'rgba(74,222,128,0.28)' },
+  sortTxt:{ color:C.text2, fontSize:11, fontWeight:'800' },
+  sortTxtActive:{ color:C.green },
   searchWrap:{ flexDirection:'row', alignItems:'center', gap:8, marginBottom:14 },
   search:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, color:C.text, paddingHorizontal:14, paddingVertical:11, fontSize:14 },
   clearBtn:{ paddingHorizontal:12, paddingVertical:10, borderRadius:10, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border },
