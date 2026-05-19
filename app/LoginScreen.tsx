@@ -43,6 +43,25 @@ function PasswordStrengthBar({ password, colors: C }: { password: string; colors
   );
 }
 
+function friendlyAuthError(message: string) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
+  if (!text) return 'Something went wrong. Please try again.';
+  if (lower.includes('application not found')) {
+    return 'We could not complete that request. Please check your email and password, then try again.';
+  }
+  if (lower.includes('invalid login') || lower.includes('invalid credentials') || lower.includes('authentication failed')) {
+    return 'Email or password is incorrect.';
+  }
+  if (lower.includes('email not confirmed')) {
+    return 'Please confirm your email before signing in.';
+  }
+  if (lower.includes('rate') || lower.includes('too many')) {
+    return 'Too many attempts. Please wait a few minutes and try again.';
+  }
+  return text;
+}
+
 export default function LoginScreen() {
   const { colors: C } = useTheme();
   const s = createStyles(C);
@@ -87,7 +106,7 @@ export default function LoginScreen() {
         const detail = Array.isArray(data.detail)
           ? data.detail.map((d: any) => d?.msg || String(d)).join('\n')
           : data.detail || data.message || raw;
-        setError(detail || 'Authentication failed.');
+        setError(friendlyAuthError(detail || 'Authentication failed.'));
         return;
       }
 
@@ -145,7 +164,7 @@ export default function LoginScreen() {
       let data: any = {};
       try { data = raw ? JSON.parse(raw) : {}; } catch { data = { detail: raw }; }
       if (!res.ok) {
-        setError(data.detail || data.message || 'Could not send reset email.');
+        setError(friendlyAuthError(data.detail || data.message || 'Could not send reset email.'));
         return;
       }
       Alert.alert(
@@ -269,7 +288,7 @@ export default function LoginScreen() {
 
         {error!=='' && (
           <View style={s.errorBox}>
-            <Text style={s.errorTxt}>  {error}</Text>
+            <Text style={s.errorTxt}>{error}</Text>
           </View>
         )}
 
@@ -348,8 +367,8 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   inputWrap:{ marginBottom:14 },
   inputLabel:{ color:C.text2, fontSize:12, marginBottom:6, fontWeight:'500' },
   input:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, padding:14, paddingHorizontal:16, color:C.text, fontSize:14, width:'100%' },
-  eyeBtn:{ position:'absolute', right:14, top:14 },
-  eyeText:{ fontSize:18 },
+  eyeBtn:{ position:'absolute', right:12, top:13, paddingHorizontal:6, paddingVertical:2 },
+  eyeText:{ color:C.accent, fontSize:12, fontWeight:'900' },
   recoveryRow:{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:-4, marginBottom:12 },
   recoveryLink:{ color:C.accent, fontSize:12, fontWeight:'800' },
   passwordRules:{ backgroundColor:C.surface2, borderRadius:12, padding:14, marginTop:4, marginBottom:8, borderWidth:1, borderColor:C.border },
