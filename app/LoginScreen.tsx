@@ -62,6 +62,19 @@ function friendlyAuthError(message: string) {
   return text;
 }
 
+function friendlyRecoveryError(message: string) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
+  if (lower.includes('application not found')) {
+    return 'Password reset is not available right now. Please try again later.';
+  }
+  if (lower.includes('rate') || lower.includes('too many')) {
+    return 'Too many reset attempts. Please wait a few minutes and try again.';
+  }
+  if (!text) return 'Could not send reset email. Please try again.';
+  return text;
+}
+
 export default function LoginScreen() {
   const { colors: C } = useTheme();
   const s = createStyles(C);
@@ -164,7 +177,7 @@ export default function LoginScreen() {
       let data: any = {};
       try { data = raw ? JSON.parse(raw) : {}; } catch { data = { detail: raw }; }
       if (!res.ok) {
-        setError(friendlyAuthError(data.detail || data.message || 'Could not send reset email.'));
+        setError(friendlyRecoveryError(data.detail || data.message || 'Could not send reset email.'));
         return;
       }
       Alert.alert(
