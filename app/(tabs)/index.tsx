@@ -3,6 +3,7 @@ import { getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import {
   ActivityIndicator, Alert,
   Image,
@@ -67,7 +68,7 @@ export default function ScanScreen(){
   const [duplicate,setDuplicate] = useState('');
   const [stats,setStats]         = useState({receipts:0,spent:0,saved:0});
 
-  // ── Re-check login every time this screen is focused ──
+  // Re-check login every time this screen is focused
   // This fixes the issue where sign out doesn't update the scan screen
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
@@ -212,22 +213,15 @@ export default function ScanScreen(){
       <View style={s.heroCard}>
         <View style={s.heroTop}>
           <View style={s.heroMark}>
-            <Text style={s.heroMarkText}>AI</Text>
+            <Ionicons name="receipt-outline" size={22} color={C.accent} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={s.heroKicker}>Receipt scanner</Text>
-            <Text style={s.heroTitle}>Turn receipts into shopping memory.</Text>
+            <Text style={s.heroKicker}>ReceiptAI</Text>
+            <Text style={s.heroTitle}>Scan receipt</Text>
           </View>
-        </View>
-        <Text style={s.heroSub}>
-          Scan once, then let ReceiptAI remember prices, stores, categories, and savings.
-        </Text>
-        <View style={s.heroSteps}>
-          {['Scan', 'Learn', 'Save'].map(step => (
-            <View key={step} style={s.heroStep}>
-              <Text style={s.heroStepText}>{step}</Text>
-            </View>
-          ))}
+          <View style={s.heroBadge}>
+            <Text style={s.heroBadgeText}>Ready</Text>
+          </View>
         </View>
       </View>
 
@@ -263,14 +257,16 @@ export default function ScanScreen(){
       {/* SCAN CARD */}
       <View style={s.card}>
         <View style={s.cardRow}>
-          <View style={[s.cardIcon,{backgroundColor:'rgba(124,106,255,0.18)'}]}><Text>📷</Text></View>
+          <View style={s.cardIconClean}>
+            <Ionicons name="scan-outline" size={17} color={C.accent} />
+          </View>
           <Text style={s.cardTitle}>Scan Receipt</Text>
         </View>
 
-        {/* ── LOGIN GATE ── */}
+        {/*  LOGIN GATE  */}
         {!isLoggedIn ? (
           <View style={s.loginGate}>
-            <Text style={s.loginGateEmoji}>🔒</Text>
+            <Text style={s.loginGateEmoji}></Text>
             <Text style={s.loginGateTitle}>Sign in to scan receipts</Text>
             <Text style={s.loginGateDesc}>
               Create a free account or start a 24-hour trial to scan receipts, track prices and save money.
@@ -280,16 +276,18 @@ export default function ScanScreen(){
               onPress={()=>Alert.alert('Sign In Required','Go to the Profile tab to sign in or start your free 24-hour trial.')}
               activeOpacity={0.85}
             >
-              <Text style={s.btnPriTxt}>Go to Profile → Sign In</Text>
+              <Text style={s.btnPriTxt}>Go to Profile  Sign In</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          /* ── SCANNER ── */
+          /*  SCANNER  */
           <>
             <TouchableOpacity style={s.uploadZone} onPress={pickImage} activeOpacity={0.8}>
-              <Text style={s.uploadEmoji}>📄</Text>
+              <View style={s.uploadIcon}>
+                <Ionicons name="document-text-outline" size={34} color={C.text} />
+              </View>
               <Text style={s.uploadTitle}>Tap to select a receipt</Text>
-              <Text style={s.uploadSub}>JPG · PNG · WEBP · PDF</Text>
+              <Text style={s.uploadSub}>JPG / PNG / WEBP / PDF</Text>
               <View style={s.fmtRow}>
                 {['JPG','PNG','WEBP','PDF'].map(f=>(
                   <View key={f} style={s.fmtPill}><Text style={s.fmtText}>{f}</Text></View>
@@ -300,20 +298,23 @@ export default function ScanScreen(){
             {uri && !isPDF && <Image source={{uri}} style={s.preview} resizeMode="contain"/>}
             {uri && isPDF && (
               <View style={s.pdfPreview}>
-                <Text style={s.pdfPreviewText}>📄  {uri.split('/').pop()}</Text>
+                <Text style={s.pdfPreviewText}>  {uri.split('/').pop()}</Text>
                 <Text style={s.pdfPreviewSub}>PDF ready to scan</Text>
               </View>
             )}
 
             <View style={s.btnRow}>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickImage} activeOpacity={0.8}>
-                <Text style={s.btnSecTxt}>📁  Gallery</Text>
+                <Ionicons name="images-outline" size={18} color={C.text} />
+                <Text style={s.btnSecTxt}>Gallery</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={takePhoto} activeOpacity={0.8}>
-                <Text style={s.btnSecTxt}>📸  Camera</Text>
+                <Ionicons name="camera-outline" size={18} color={C.text} />
+                <Text style={s.btnSecTxt}>Camera</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickPDF} activeOpacity={0.8}>
-                <Text style={s.btnSecTxt}>📄  PDF</Text>
+                <Ionicons name="document-outline" size={18} color={C.text} />
+                <Text style={s.btnSecTxt}>PDF</Text>
               </TouchableOpacity>
             </View>
 
@@ -326,7 +327,7 @@ export default function ScanScreen(){
               >
                 {loading
                   ?<ActivityIndicator color="#fff" size="small"/>
-                  :<Text style={s.btnPriTxt}>✦  Scan Receipt</Text>
+                  :<Text style={s.btnPriTxt}>Scan Receipt</Text>
                 }
               </TouchableOpacity>
             )}
@@ -337,7 +338,7 @@ export default function ScanScreen(){
       {/* DUPLICATE WARNING */}
       {duplicate!==''&&(
         <View style={s.warnBox}>
-          <Text style={s.warnText}>⚠  {duplicate}</Text>
+          <Text style={s.warnText}>  {duplicate}</Text>
         </View>
       )}
 
@@ -348,7 +349,7 @@ export default function ScanScreen(){
             <Text style={s.resultKicker}>Scan complete</Text>
             <Text style={s.resultStore}>{result.store||'Unknown Store'}</Text>
             <Text style={s.resultMeta}>
-              {[result.date&&`📅 ${result.date}${result.time?' '+result.time:''}`,result.address&&`📍 ${result.address}`].filter(Boolean).join('  ·  ')}
+              {[result.date&&` ${result.date}${result.time?' '+result.time:''}`,result.address&&` ${result.address}`].filter(Boolean).join('    ')}
             </Text>
           </View>
 
@@ -386,7 +387,7 @@ export default function ScanScreen(){
                 qtyLabel=`${qty} ${unit}`;
                 if(up>0) unitLabel=`@ $${up.toFixed(2)}/${unit}`;
               }else if(qty>1){
-                qtyLabel=`×${qty}`;
+                qtyLabel=`${qty}`;
                 if(up>0) unitLabel=`@ $${up.toFixed(2)} each`;
               }
               return(
@@ -417,12 +418,12 @@ export default function ScanScreen(){
 
           {n(result.total_savings)>0&&(
             <View style={s.savingsBanner}>
-              <Text style={s.savingsText}>🎉  You saved ${n(result.total_savings).toFixed(2)} on this trip!</Text>
+              <Text style={s.savingsText}>  You saved ${n(result.total_savings).toFixed(2)} on this trip!</Text>
             </View>
           )}
 
           <TouchableOpacity style={[s.btn,s.btnSec,{margin:16,marginTop:12}]} onPress={resetScan}>
-            <Text style={s.btnSecTxt}>↩  Scan Another Receipt</Text>
+            <Text style={s.btnSecTxt}>  Scan Another Receipt</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -433,17 +434,17 @@ export default function ScanScreen(){
 const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   heroCard:{
     backgroundColor:C.surface,
-    borderRadius:22,
+    borderRadius:20,
     borderWidth:1,
     borderColor:C.border,
-    padding:18,
-    marginBottom:16,
+    padding:16,
+    marginBottom:14,
   },
-  heroTop:{ flexDirection:'row', alignItems:'center', gap:12, marginBottom:12 },
+  heroTop:{ flexDirection:'row', alignItems:'center', gap:12 },
   heroMark:{
-    width:48,
-    height:48,
-    borderRadius:16,
+    width:44,
+    height:44,
+    borderRadius:14,
     backgroundColor:'rgba(124,106,255,0.18)',
     borderWidth:1,
     borderColor:'rgba(124,106,255,0.38)',
@@ -453,10 +454,8 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   heroMarkText:{ color:C.accent, fontSize:14, fontWeight:'900', letterSpacing:0 },
   heroKicker:{ color:C.accent3, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.8, marginBottom:4 },
   heroTitle:{ color:C.text, fontSize:24, lineHeight:29, fontWeight:'900', letterSpacing:0 },
-  heroSub:{ color:C.text2, fontSize:13, lineHeight:20, marginBottom:14 },
-  heroSteps:{ flexDirection:'row', gap:8 },
-  heroStep:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, paddingVertical:9, alignItems:'center' },
-  heroStepText:{ color:C.text, fontSize:12, fontWeight:'900' },
+  heroBadge:{ backgroundColor:'rgba(74,222,128,0.10)', borderWidth:1, borderColor:'rgba(74,222,128,0.24)', borderRadius:99, paddingHorizontal:11, paddingVertical:5 },
+  heroBadgeText:{ color:C.green, fontSize:11, fontWeight:'900' },
   profileBadge:{
     flexDirection:'row',
     alignItems:'center',
@@ -503,14 +502,16 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   statVal:{fontSize:22,fontWeight:'900',letterSpacing:0},
   card:{backgroundColor:C.surface,borderRadius:20,borderWidth:1,borderColor:C.border,padding:20,marginBottom:16},
   cardRow:{flexDirection:'row',alignItems:'center',gap:10,marginBottom:16},
-  cardIcon:{width:30,height:30,borderRadius:9,alignItems:'center',justifyContent:'center'},
+  cardIcon:{display:'none'},
+  cardIconClean:{width:30,height:30,borderRadius:9,alignItems:'center',justifyContent:'center',backgroundColor:'rgba(124,106,255,0.18)'},
   cardTitle:{color:C.text,fontSize:15,fontWeight:'700'},
   loginGate:{alignItems:'center',padding:20,gap:12},
   loginGateEmoji:{fontSize:48},
   loginGateTitle:{color:C.text,fontSize:18,fontWeight:'700',textAlign:'center'},
   loginGateDesc:{color:C.text2,fontSize:13,textAlign:'center',lineHeight:20},
   uploadZone:{borderWidth:1.5,borderColor:'rgba(124,106,255,0.3)',borderStyle:'dashed',borderRadius:14,padding:28,alignItems:'center',backgroundColor:'rgba(124,106,255,0.03)'},
-  uploadEmoji:{fontSize:34,marginBottom:8},
+  uploadEmoji:{display:'none'},
+  uploadIcon:{width:54,height:54,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:'rgba(255,255,255,0.04)',borderWidth:1,borderColor:C.border,marginBottom:12},
   uploadTitle:{color:C.text,fontSize:14,fontWeight:'600',marginBottom:4},
   uploadSub:{color:C.text2,fontSize:12,marginBottom:10},
   fmtRow:{flexDirection:'row',gap:6},
@@ -524,8 +525,8 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   btn:{borderRadius:12,padding:14,alignItems:'center',marginTop:10},
   btnPri:{backgroundColor:C.accent,shadowColor:C.accent,shadowOpacity:0.4,shadowRadius:12},
   btnPriTxt:{color:'#fff',fontSize:15,fontWeight:'600'},
-  btnSec:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border},
-  btnSecTxt:{color:C.text,fontSize:12,fontWeight:'500'},
+  btnSec:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:7},
+  btnSecTxt:{color:C.text,fontSize:12,fontWeight:'700'},
   warnBox:{backgroundColor:'rgba(251,191,36,0.08)',borderWidth:1,borderColor:'rgba(251,191,36,0.25)',borderRadius:12,padding:14,marginBottom:12},
   warnText:{color:'#fbbf24',fontSize:13},
   resultCard:{backgroundColor:C.surface2,borderRadius:18,overflow:'hidden',borderWidth:1,borderColor:'rgba(106,255,212,0.2)',marginBottom:16},

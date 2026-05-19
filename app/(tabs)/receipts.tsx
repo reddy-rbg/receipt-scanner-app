@@ -40,16 +40,16 @@ const FILTER_TABS = [
 ];
 
 const CATEGORIES: ReceiptCategory[] = [
-  { key:'food',       label:'Food & Grocery',       icon:'🛒' },
-  { key:'restaurant', label:'Restaurants',          icon:'🍽️' },
-  { key:'garden',     label:'Gardening & Hardware', icon:'🌿' },
-  { key:'medical',    label:'Hospital & Medical',   icon:'🏥' },
-  { key:'pharmacy',   label:'Pharmacy & Health',    icon:'💊' },
-  { key:'bank',       label:'Bank & Finance',       icon:'🏦' },
-  { key:'fuel',       label:'Fuel & Auto',          icon:'⛽' },
-  { key:'home',       label:'Home & Household',     icon:'🏠' },
-  { key:'shopping',   label:'Retail Shopping',      icon:'🛍️' },
-  { key:'other',      label:'Other',                icon:'🧾' },
+  { key:'food',       label:'Food & Grocery',       icon:'' },
+  { key:'restaurant', label:'Restaurants',          icon:'' },
+  { key:'garden',     label:'Gardening & Hardware', icon:'' },
+  { key:'medical',    label:'Hospital & Medical',   icon:'' },
+  { key:'pharmacy',   label:'Pharmacy & Health',    icon:'' },
+  { key:'bank',       label:'Bank & Finance',       icon:'' },
+  { key:'fuel',       label:'Fuel & Auto',          icon:'' },
+  { key:'home',       label:'Home & Household',     icon:'' },
+  { key:'shopping',   label:'Retail Shopping',      icon:'' },
+  { key:'other',      label:'Other',                icon:'' },
 ];
 
 function receiptSearchText(receipt: Receipt) {
@@ -117,7 +117,7 @@ const SORTS = [
   {label:'Oldest first',val:'oldest'},
   {label:'Highest total',val:'highest'},
   {label:'Lowest total',val:'lowest'},
-  {label:'Store A–Z',val:'store'},
+  {label:'Store AZ',val:'store'},
   {label:'Most savings',val:'savings'},
 ];
 
@@ -214,7 +214,7 @@ export default function ReceiptsScreen() {
 
   const onRefresh = useCallback(() => { setRefreshing(true); load(); }, []);
 
-  // ── FILTER FUNCTIONS ──
+  // FILTER FUNCTIONS
   function applySort(recs: Receipt[], s: string) {
     const r = [...recs];
     switch (s) {
@@ -244,7 +244,7 @@ export default function ReceiptsScreen() {
   function filterByCategory(value = category) {
     const selectedCategory = CATEGORIES.find(c => c.key === value) || CATEGORIES[CATEGORIES.length - 1];
     const r = all.filter(x => getReceiptCategory(x).key === selectedCategory.key);
-    showResults(r, `${selectedCategory.icon} ${selectedCategory.label}`);
+    showResults(r, selectedCategory.label);
   }
 
   function filterById() {
@@ -274,7 +274,7 @@ export default function ReceiptsScreen() {
     try {
       const res  = await fetch(`${API}/receipts/date?from_date=${fromD}&to_date=${toD}T23:59:59`);
       const data = await res.json();
-      showResults(data.receipts || [], `${fromD} → ${toD}`);
+      showResults(data.receipts || [], `${fromD}  ${toD}`);
     } catch {}
   }
 
@@ -357,7 +357,7 @@ export default function ReceiptsScreen() {
     }
   }
 
-  // ── FILTER PANEL CONTENT ──
+  // FILTER PANEL CONTENT
   function renderFilterPanel() {
     switch (activeTab) {
       case 'store':
@@ -459,7 +459,7 @@ export default function ReceiptsScreen() {
       default:
         return (
           <TouchableOpacity style={[s.filterBtn,{alignSelf:'flex-start'}]} onPress={load}>
-            <Text style={s.filterBtnTxt}>↻  Refresh</Text>
+            <Text style={s.filterBtnTxt}>  Refresh</Text>
           </TouchableOpacity>
         );
     }
@@ -472,7 +472,7 @@ export default function ReceiptsScreen() {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
     >
 
-      {/* ── TOP SECTION (fixed) ── */}
+      {/*  TOP SECTION (fixed)  */}
       <View style={s.top}>
         <View style={s.hero}>
           <Text style={s.heroKicker}>Receipt Library</Text>
@@ -554,7 +554,7 @@ export default function ReceiptsScreen() {
         {/* Results info */}
         {filterInfo !== '' && (
           <View style={s.infoRow}>
-            <Text style={s.infoTxt}><Text style={{color:C.text,fontWeight:'600'}}>{shown.length}</Text> receipt{shown.length!==1?'s':''} · {filterInfo}</Text>
+            <Text style={s.infoTxt}><Text style={{color:C.text,fontWeight:'600'}}>{shown.length}</Text> receipt{shown.length!==1?'s':''}  {filterInfo}</Text>
             <TouchableOpacity onPress={load}><Text style={s.clearTxt}>Clear</Text></TouchableOpacity>
           </View>
         )}
@@ -562,7 +562,7 @@ export default function ReceiptsScreen() {
         <Text style={s.countLbl}>{shown.length} receipt{shown.length!==1?'s':''}</Text>
       </View>
 
-      {/* ── LIST (fills remaining space) ── */}
+      {/*  LIST (fills remaining space)  */}
       {loading ? (
         <View style={s.loadingWrap}>
           <ActivityIndicator color={C.accent} size="large"/>
@@ -594,7 +594,7 @@ export default function ReceiptsScreen() {
                 </View>
                 <Text style={s.storeName}>{r.store}</Text>
                 <Text style={s.meta} numberOfLines={2}>
-                  {[r.date, r.time, r.address].filter(Boolean).join(' · ')}
+                  {[r.date, r.time, r.address].filter(Boolean).join('  ')}
                 </Text>
               </View>
               <View style={{alignItems:'flex-end',flexShrink:0}}>
@@ -605,12 +605,12 @@ export default function ReceiptsScreen() {
                   </View>
                 )}
               </View>
-              <Text style={s.arrow}>›</Text>
+              <Text style={s.arrow}></Text>
             </TouchableOpacity>
           )}
           ListEmptyComponent={
             <View style={s.empty}>
-              <Text style={s.emptyEmoji}>🔍</Text>
+              <Text style={s.emptyEmoji}></Text>
               <Text style={s.emptyTitle}>{filterInfo ? 'No matching receipts' : 'No receipts yet'}</Text>
               <Text style={s.emptyTxt}>
                 {filterInfo
@@ -635,7 +635,7 @@ export default function ReceiptsScreen() {
         />
       )}
 
-      {/* ── DETAIL MODAL ── */}
+      {/*  DETAIL MODAL  */}
       <Modal visible={!!selected} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelected(null)}>
         <View style={s.modal}>
           <View style={s.modalHeader}>
@@ -647,17 +647,17 @@ export default function ReceiptsScreen() {
                 </View>
               ) : null}
               <Text style={s.modalMeta}>
-                {[selected?.id&&`#${selected.id}`, selected?.date, selected?.time, selected?.address].filter(Boolean).join('  ·  ')}
+                {[selected?.id&&`#${selected.id}`, selected?.date, selected?.time, selected?.address].filter(Boolean).join('    ')}
               </Text>
             </View>
             <TouchableOpacity onPress={() => setSelected(null)} style={s.closeBtn}>
-              <Text style={s.closeBtnTxt}>✕</Text>
+              <Text style={s.closeBtnTxt}></Text>
             </TouchableOpacity>
           </View>
 
           {deleted ? (
             <View style={s.deletedBox}>
-              <Text style={{fontSize:48,marginBottom:14}}>🗑</Text>
+              <Text style={{fontSize:48,marginBottom:14}}></Text>
               <Text style={s.deletedTitle}>Receipt Deleted</Text>
               <Text style={s.deletedSub}>Permanently removed.</Text>
             </View>
@@ -707,7 +707,7 @@ export default function ReceiptsScreen() {
                       {item.code ? <Text style={s.mCode}>{item.code}</Text> : null}
                       <Text style={s.mName}>{item.name}</Text>
                       {item.corrected_by_user ? <Text style={s.correctedTxt}>Corrected</Text> : null}
-                      {item.quantity>1&&item.unit_price ? <Text style={s.mDetail}>{item.quantity} × ${n(item.unit_price).toFixed(2)}</Text> : null}
+                      {item.quantity>1&&item.unit_price ? <Text style={s.mDetail}>{item.quantity}  ${n(item.unit_price).toFixed(2)}</Text> : null}
                     </View>
                     <View style={{ alignItems:'flex-end', gap:6 }}>
                       <Text style={[s.mPrice,{color:neg?C.green:C.text}]}>{ps}</Text>
@@ -732,14 +732,14 @@ export default function ReceiptsScreen() {
 
               {n(selected?.total_savings)>0 && (
                 <View style={s.savingsBanner}>
-                  <Text style={s.savingsBannerTxt}>🎉  You saved ${selected!.total_savings!.toFixed(2)} on this trip!</Text>
+                  <Text style={s.savingsBannerTxt}>  You saved ${selected!.total_savings!.toFixed(2)} on this trip!</Text>
                 </View>
               )}
               {selected?.payment_method ? <Text style={s.payment}>Paid with {selected.payment_method}</Text> : null}
 
               {!deleteMode && (
                 <TouchableOpacity style={s.deleteBtn} onPress={() => setDeleteMode(true)}>
-                  <Text style={s.deleteBtnTxt}>🗑  Delete Receipt</Text>
+                  <Text style={s.deleteBtnTxt}>  Delete Receipt</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>

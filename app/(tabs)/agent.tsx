@@ -63,19 +63,26 @@ type Msg = {
 type VoiceMode = 'dictate' | 'wake' | null;
 
 const QUICK_PROMPTS = [
-  { label: '💰 Spending summary', prompt: 'Give me a complete summary of my spending' },
-  { label: '🏪 Best store', prompt: 'Which store gives me the best value for money?' },
-  { label: '📈 Price trends', prompt: 'Show me price trends for items I buy regularly' },
-  { label: '🛒 Shopping plan', prompt: 'Help me plan my next grocery shopping trip to save money' },
-  { label: '💡 Save money', prompt: 'What are the top 3 ways I can save money based on my receipts?' },
-  { label: '📊 Monthly report', prompt: 'Give me a monthly spending report with store breakdown' },
-  { label: '📉 Spending graph', prompt: 'Show my monthly expenses spent analysis as a chart' },
-  { label: '🧾 Buy this month', prompt: 'Give me this month items to purchase based on my receipts' },
-  { label: '🔍 Compare prices', prompt: 'Compare my prices to current market prices and find where I overpaid' },
+  { label: ' Spending summary', prompt: 'Give me a complete summary of my spending' },
+  { label: ' Best store', prompt: 'Which store gives me the best value for money?' },
+  { label: ' Price trends', prompt: 'Show me price trends for items I buy regularly' },
+  { label: ' Shopping plan', prompt: 'Help me plan my next grocery shopping trip to save money' },
+  { label: ' Save money', prompt: 'What are the top 3 ways I can save money based on my receipts?' },
+  { label: ' Monthly report', prompt: 'Give me a monthly spending report with store breakdown' },
+  { label: ' Spending graph', prompt: 'Show my monthly expenses spent analysis as a chart' },
+  { label: ' Buy this month', prompt: 'Give me this month items to purchase based on my receipts' },
+  { label: ' Compare prices', prompt: 'Compare my prices to current market prices and find where I overpaid' },
   { label: 'Price memory', prompt: 'Show my price memory and avoid-above prices' },
   { label: 'Good price?', prompt: 'Is this a good price based on my receipt history?' },
-  { label: '🎯 Best deals', prompt: 'What were the best deals I got recently?' },
+  { label: ' Best deals', prompt: 'What were the best deals I got recently?' },
 ];
+
+function cleanPromptLabel(label: string) {
+  return label
+    .replace(/^[^\w?]+/u, '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
+}
 
 export default function AgentScreen() {
   const { colors: C } = useTheme();
@@ -293,7 +300,7 @@ export default function AgentScreen() {
           } catch {}
           setMsgs([{
             role: 'agent',
-            text: '✨ Fresh start! Ask me anything about your receipts and spending.',
+            text: ' Fresh start! Ask me anything about your receipts and spending.',
           }]);
         }
       }
@@ -307,7 +314,7 @@ export default function AgentScreen() {
       return (
         <View key={index} style={s.msgRow}>
           <View style={[s.agentAvatar, { backgroundColor: 'rgba(124,106,255,0.15)' }]}>
-            <Text style={{ color: C.accent, fontSize: 12 }}>✦</Text>
+            <Text style={{ color: C.accent, fontSize: 12 }}></Text>
           </View>
           <View style={[s.bubble, s.agentBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -335,7 +342,7 @@ export default function AgentScreen() {
     return (
       <View key={index} style={s.msgRow}>
         <View style={[s.agentAvatar, { backgroundColor: 'rgba(124,106,255,0.15)' }]}>
-          <Text style={{ color: C.accent, fontSize: 12 }}>✦</Text>
+          <Text style={{ color: C.accent, fontSize: 12 }}></Text>
         </View>
         <View style={{ flex: 1 }}>
           <View style={[s.bubble, s.agentBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
@@ -396,10 +403,10 @@ export default function AgentScreen() {
                 <Ionicons name="sparkles" size={18} color={C.accent} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[s.agentIntroKicker, { color: C.accent3 }]}>AI shopping agent</Text>
-                <Text style={[s.agentIntroTitle, { color: C.text }]}>Ask in your own words.</Text>
+                <Text style={[s.agentIntroKicker, { color: C.accent3 }]}>AI Agent</Text>
+                <Text style={[s.agentIntroTitle, { color: C.text }]}>Ask anything</Text>
                 <Text style={[s.agentIntroText, { color: C.text2 }]}>
-                  Compare prices, review spending, plan the next trip, or find what changed.
+                  Prices, spending, stores, savings, and shopping plans.
                 </Text>
               </View>
             </View>
@@ -412,7 +419,7 @@ export default function AgentScreen() {
                   onPress={() => sendMessage(q.prompt)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[s.quickChipTxt, { color: C.text2 }]}>{q.label}</Text>
+                  <Text style={[s.quickChipTxt, { color: C.text2 }]}>{cleanPromptLabel(q.label)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -455,7 +462,7 @@ export default function AgentScreen() {
         >
           {loading
             ? <ActivityIndicator size="small" color="#fff" />
-            : <Text style={s.sendIcon}>↑</Text>
+            : <Text style={s.sendIcon}></Text>
           }
         </TouchableOpacity>
       </View>

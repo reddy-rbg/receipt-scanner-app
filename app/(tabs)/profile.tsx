@@ -6,6 +6,7 @@ import {
   ActivityIndicator, TextInput, Alert, Modal, Switch,
   Linking, Share,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 const API = 'https://web-production-3605f4.up.railway.app';
 
@@ -41,8 +42,8 @@ function PasswordStrengthBar({ password }: { password: string }) {
         ))}
       </View>
       {strength < 4
-        ? <Text style={{ fontSize:11, color:FALLBACK_COLORS.text3 }}>Missing: {errors.join(' · ')}</Text>
-        : <Text style={{ fontSize:11, color:FALLBACK_COLORS.green }}>✓ Strong password</Text>
+        ? <Text style={{ fontSize:11, color:FALLBACK_COLORS.text3 }}>Missing: {errors.join('  ')}</Text>
+        : <Text style={{ fontSize:11, color:FALLBACK_COLORS.green }}> Strong password</Text>
       }
     </View>
   );
@@ -126,7 +127,7 @@ export default function ProfileScreen() {
       const data = await res.json();
       if (!res.ok) { setAuthError(data.detail || 'Authentication failed.'); return; }
 
-      // ✅ Save token globally for scan screen
+      //  Save token globally for scan screen
       
 
       await saveUser({
@@ -186,7 +187,7 @@ export default function ProfileScreen() {
       const update = await Updates.checkForUpdateAsync();
       if (update.isAvailable) {
         setUpdateAvailable(true);
-        Alert.alert('🎉 Update Available!', 'Install the latest version now?', [
+        Alert.alert('Update Available', 'Install the latest version now?', [
           { text:'Later', style:'cancel' },
           { text:'Update Now', onPress: async () => {
             await Updates.fetchUpdateAsync();
@@ -194,10 +195,10 @@ export default function ProfileScreen() {
           }}
         ]);
       } else {
-        Alert.alert('✓ Up to date', 'You have the latest version of ReceiptAI!');
+        Alert.alert(' Up to date', 'You have the latest version of ReceiptAI!');
       }
     } catch {
-      Alert.alert('✓ Up to date', 'You have the latest version of ReceiptAI!');
+      Alert.alert(' Up to date', 'You have the latest version of ReceiptAI!');
     } finally {
       setUpdateLoading(false);
     }
@@ -205,14 +206,14 @@ export default function ProfileScreen() {
 
   async function handleShare() {
     try {
-      await Share.share({ message:'📱 Check out ReceiptAI — scan receipts, track prices, and save money on groceries!', title:'ReceiptAI' });
+      await Share.share({ message:' Check out ReceiptAI  scan receipts, track prices, and save money on groceries!', title:'ReceiptAI' });
     } catch {}
   }
 
   function handleHelpSupport() {
     Alert.alert('Help & Support', 'How can we help?', [
       { text:'Cancel', style:'cancel' },
-      { text:'📧 Email Support', onPress:() => Linking.openURL('mailto:support@receiptai.app') },
+      { text:' Email Support', onPress:() => Linking.openURL('mailto:support@receiptai.app') },
     ]);
   }
 
@@ -220,25 +221,25 @@ export default function ProfileScreen() {
   const profileName = user?.name || user?.email?.split('@')[0] || 'User';
   const profileEmail = user?.email || '';
 
-  // ── PROFILE SCREEN ──
+  // PROFILE SCREEN
   return (
     <ScrollView style={s.scroll} contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
 
       {/* Avatar */}
       <View style={s.avatarSection}>
         <View style={s.avatar}>
-          <Text style={s.avatarText}>{isGuest ? '👤' : profileName[0]?.toUpperCase() || '✦'}</Text>
+          <Text style={s.avatarText}>{isGuest ? 'G' : profileName[0]?.toUpperCase() || 'A'}</Text>
         </View>
         <Text style={s.userName}>{isGuest ? 'Guest User' : profileName}</Text>
         <Text style={s.userEmail}>{isGuest ? 'Guest Mode' : profileEmail}</Text>
         {isGuest && (
           <TouchableOpacity style={s.upgradeBtn} onPress={ async ()=>{ await clearUser(); }}>
-            <Text style={s.upgradeBtnText}>✦ Create account for full access</Text>
+            <Text style={s.upgradeBtnText}>Create account for full access</Text>
           </TouchableOpacity>
         )}
         <View style={s.statusBadge}>
           <View style={s.statusDot}/>
-          <Text style={s.statusText}>{isGuest ? 'Guest Mode' : 'Verified Account 🔒'}</Text>
+          <Text style={s.statusText}>{isGuest ? 'Guest Mode' : 'Verified Account'}</Text>
         </View>
       </View>
 
@@ -250,10 +251,10 @@ export default function ProfileScreen() {
           </View>
         </View>
         <Text style={s.profileInsightTitle}>
-          {isGuest ? 'Try the memory before creating an account.' : 'Your receipts are becoming a smarter price history.'}
+          {isGuest ? 'Guest trial active' : 'Account ready'}
         </Text>
         <Text style={s.profileInsightText}>
-          ReceiptAI uses your scans to organize stores, spending, savings, and the items worth checking before you buy again.
+          Manage privacy, appearance, notifications, and account settings.
         </Text>
       </View>
 
@@ -286,61 +287,61 @@ export default function ProfileScreen() {
       <View style={s.menuCard}>
         <Text style={s.menuSection}>Notifications</Text>
         <TouchableOpacity style={s.menuItem} onPress={()=>setActiveModal('notifications')}>
-          <View style={[s.menuIcon,{ backgroundColor:C.accent+'22' }]}><Text>🔔</Text></View>
+          <View style={[s.menuIcon,{ backgroundColor:C.accent+'22' }]}><Ionicons name="notifications-outline" size={18} color={C.accent} /></View>
           <Text style={s.menuLabel}>Notifications</Text>
-          <Text style={s.menuArrow}>›</Text>
+          <Text style={s.menuArrow}>{'>'}</Text>
         </TouchableOpacity>
 
         <Text style={[s.menuSection,{ marginTop:16 }]}>Privacy</Text>
         <TouchableOpacity style={s.menuItem} onPress={()=>setActiveModal('privacy')} disabled={isGuest}>
-          <View style={[s.menuIcon,{ backgroundColor:C.accent2+'22' }]}><Text>🔒</Text></View>
+          <View style={[s.menuIcon,{ backgroundColor:C.accent2+'22' }]}><Ionicons name="shield-checkmark-outline" size={18} color={C.accent2} /></View>
           <Text style={[s.menuLabel, isGuest&&{color:C.text3}]}>Privacy & Security</Text>
-          <Text style={s.menuArrow}>{isGuest?'🔒':'›'}</Text>
+          <Text style={s.menuArrow}>{isGuest ? 'Locked' : '>'}</Text>
         </TouchableOpacity>
 
         <Text style={[s.menuSection,{ marginTop:16 }]}>Preferences</Text>
         <TouchableOpacity style={s.menuItem} onPress={()=>setActiveModal('appearance')}>
-          <View style={[s.menuIcon,{ backgroundColor:C.accent3+'22' }]}><Text>🎨</Text></View>
+          <View style={[s.menuIcon,{ backgroundColor:C.accent3+'22' }]}><Ionicons name="color-palette-outline" size={18} color={C.accent3} /></View>
           <Text style={s.menuLabel}>Appearance</Text>
-          <Text style={s.menuArrow}>›</Text>
+          <Text style={s.menuArrow}>{'>'}</Text>
         </TouchableOpacity>
 
         <Text style={[s.menuSection,{ marginTop:16 }]}>Support</Text>
         <TouchableOpacity style={s.menuItem} onPress={handleHelpSupport}>
-          <View style={[s.menuIcon,{ backgroundColor:C.gold+'22' }]}><Text>❓</Text></View>
+          <View style={[s.menuIcon,{ backgroundColor:C.gold+'22' }]}><Ionicons name="help-circle-outline" size={18} color={C.gold} /></View>
           <Text style={s.menuLabel}>Help & Support</Text>
-          <Text style={s.menuArrow}>›</Text>
+          <Text style={s.menuArrow}>{'>'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={s.menuItem} onPress={()=>{ setRating(0); setShowRating(true); }}>
-          <View style={[s.menuIcon,{ backgroundColor:C.green+'22' }]}><Text>⭐</Text></View>
+          <View style={[s.menuIcon,{ backgroundColor:C.green+'22' }]}><Ionicons name="star-outline" size={18} color={C.green} /></View>
           <Text style={s.menuLabel}>Rate ReceiptAI</Text>
-          <Text style={s.menuArrow}>›</Text>
+          <Text style={s.menuArrow}>{'>'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={s.menuItem} onPress={handleShare}>
-          <View style={[s.menuIcon,{ backgroundColor:C.text2+'22' }]}><Text>📤</Text></View>
+          <View style={[s.menuIcon,{ backgroundColor:C.text2+'22' }]}><Ionicons name="share-outline" size={18} color={C.text2} /></View>
           <Text style={s.menuLabel}>Share App</Text>
-          <Text style={s.menuArrow}>›</Text>
+          <Text style={s.menuArrow}>{'>'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={[s.menuItem,{borderBottomWidth:0}]} onPress={checkForUpdates} disabled={updateLoading}>
           <View style={[s.menuIcon,{ backgroundColor:'rgba(74,222,128,0.18)' }]}>
-            <Text>{updateLoading?'⏳':updateAvailable?'🔴':'✅'}</Text>
+            <Ionicons name={updateAvailable ? 'cloud-download-outline' : 'checkmark-circle-outline'} size={18} color={C.green} />
           </View>
           <Text style={[s.menuLabel, updateAvailable&&{color:C.green}]}>
             {updateLoading?'Checking...':updateAvailable?'Update Available!':'Check for Updates'}
           </Text>
           {updateLoading
             ? <ActivityIndicator size="small" color={C.accent}/>
-            : <Text style={s.menuArrow}>›</Text>
+            : <Text style={s.menuArrow}>{'>'}</Text>
           }
         </TouchableOpacity>
       </View>
 
       {isGuest ? (
         <TouchableOpacity style={s.authBtn} onPress={ async ()=>{ await clearUser(); }} activeOpacity={0.85}>
-          <Text style={s.authBtnText}>✦  Create Free Account</Text>
+          <Text style={s.authBtnText}>Create Free Account</Text>
         </TouchableOpacity>
       ) : (
         <TouchableOpacity style={s.signOutBtn} onPress={handleSignOut}>
@@ -350,13 +351,13 @@ export default function ProfileScreen() {
 
       {!isGuest && (
         <TouchableOpacity style={s.deleteAccountBtn} onPress={()=>{ setActiveModal('deleteAccount'); setDeleteEmail(''); setDeletePassword(''); setDeleteError(''); }}>
-          <Text style={s.deleteAccountText}>🗑  Delete My Account</Text>
+          <Text style={s.deleteAccountText}>Delete My Account</Text>
         </TouchableOpacity>
       )}
 
-      <Text style={s.version}>ReceiptAI v1.0  ·  Your data is always private 🔒</Text>
+      <Text style={s.version}>ReceiptAI v1.0 | Private by default</Text>
 
-      {/* ── RATING MODAL ── */}
+      {/*  RATING MODAL  */}
       <Modal visible={showRating} animationType="fade" transparent onRequestClose={()=>setShowRating(false)}>
         <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.75)', alignItems:'center', justifyContent:'center', padding:24 }}>
           <View style={{ backgroundColor:C.surface, borderRadius:24, padding:28, width:'100%', alignItems:'center', borderWidth:1, borderColor:C.border }}>
@@ -367,14 +368,14 @@ export default function ProfileScreen() {
             <View style={{ flexDirection:'row', gap:10, marginBottom:16 }}>
               {[1,2,3,4,5].map(star => (
                 <TouchableOpacity key={star} onPress={()=>setRating(star)} activeOpacity={0.7}>
-                  <Text style={{ fontSize:44, opacity: star <= rating ? 1 : 0.25 }}>⭐</Text>
+                  <Ionicons name={star <= rating ? 'star' : 'star-outline'} size={38} color={C.gold} style={{ opacity: star <= rating ? 1 : 0.35 }} />
                 </TouchableOpacity>
               ))}
             </View>
 
             {/* Rating label */}
             <Text style={{ fontSize:14, color:C.accent, fontWeight:'600', marginBottom:24, minHeight:20 }}>
-              {rating===1?'Poor 😞':rating===2?'Fair 😐':rating===3?'Good 🙂':rating===4?'Great 😊':rating===5?'Excellent! 🎉':'Tap a star to rate'}
+              {rating===1?'Poor':rating===2?'Fair':rating===3?'Good':rating===4?'Great':rating===5?'Excellent':'Tap a star to rate'}
             </Text>
 
             {/* Buttons */}
@@ -392,7 +393,7 @@ export default function ProfileScreen() {
                   setShowRating(false);
                   setTimeout(()=>{
                     Alert.alert(
-                      rating>=4 ? 'Thank you! 🎉' : 'Thank you!',
+                      'Thank you',
                       rating>=4 ? 'We love building ReceiptAI for you!' : 'We appreciate your feedback and will keep improving!'
                     );
                   }, 300);
@@ -406,12 +407,12 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      {/* ── NOTIFICATIONS MODAL ── */}
+      {/*  NOTIFICATIONS MODAL  */}
       <Modal visible={activeModal==='notifications'} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setActiveModal(null)}>
         <View style={s.modal}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>🔔  Notifications</Text>
-            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}>✕</Text></TouchableOpacity>
+            <Text style={s.modalTitle}>  Notifications</Text>
+            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}></Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={s.modalBody}>
             <Text style={s.settingSection}>Push Notifications</Text>
@@ -494,12 +495,12 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      {/* ── PRIVACY MODAL ── */}
+      {/*  PRIVACY MODAL  */}
       <Modal visible={activeModal==='privacy'} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setActiveModal(null)}>
         <View style={s.modal}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>🔒  Privacy & Security</Text>
-            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}>✕</Text></TouchableOpacity>
+            <Text style={s.modalTitle}>  Privacy & Security</Text>
+            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}></Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={s.modalBody}>
             <Text style={s.settingSection}>Account</Text>
@@ -510,37 +511,37 @@ export default function ProfileScreen() {
             <View style={s.infoRow}>
               <Text style={s.infoLabel}>Member since</Text>
               <Text style={s.infoValue}>
-                {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US',{ month:'long', year:'numeric' }) : '—'}
+                {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-US',{ month:'long', year:'numeric' }) : ''}
               </Text>
             </View>
             <View style={[s.infoRow,{ borderBottomWidth:0 }]}>
               <Text style={s.infoLabel}>Account status</Text>
-              <Text style={[s.infoValue,{ color:C.green }]}>● Active</Text>
+              <Text style={[s.infoValue,{ color:C.green }]}> Active</Text>
             </View>
 
             <Text style={[s.settingSection,{ marginTop:24 }]}>Your Data</Text>
             <TouchableOpacity style={s.privacyLink} onPress={()=>Alert.alert('Privacy Policy','All your receipts are private and only accessible by you. We never share or sell your personal data.')}>
               <Text style={s.privacyLinkText}>Data Privacy Policy</Text>
-              <Text style={s.menuArrow}>›</Text>
+              <Text style={s.menuArrow}></Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.privacyLink} onPress={()=>Alert.alert('Export Data','Data export feature coming soon!')}>
               <Text style={s.privacyLinkText}>Export My Data</Text>
-              <Text style={s.menuArrow}>›</Text>
+              <Text style={s.menuArrow}></Text>
             </TouchableOpacity>
             <TouchableOpacity style={[s.privacyLink,{ borderBottomWidth:0 }]} onPress={()=>{ setActiveModal('deleteAccount'); setDeleteEmail(''); setDeletePassword(''); setDeleteError(''); }}>
               <Text style={[s.privacyLinkText,{ color:C.red }]}>Delete My Account</Text>
-              <Text style={s.menuArrow}>›</Text>
+              <Text style={s.menuArrow}></Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
       </Modal>
 
-      {/* ── APPEARANCE MODAL ── */}
+      {/*  APPEARANCE MODAL  */}
       <Modal visible={activeModal==='appearance'} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setActiveModal(null)}>
         <View style={s.modal}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>🎨  Appearance</Text>
-            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}>✕</Text></TouchableOpacity>
+            <Text style={s.modalTitle}>  Appearance</Text>
+            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}></Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={s.modalBody}>
             <Text style={s.settingSection}>Theme Mode</Text>
@@ -548,8 +549,8 @@ export default function ProfileScreen() {
 
             <View style={{ flexDirection:'row', gap:12 }}>
               {[
-                { label:'Dark', emoji:'🌙', value:'dark' as const },
-                { label:'Light', emoji:'☀️', value:'light' as const },
+                { label:'Dark', icon:'moon-outline' as const, value:'dark' as const },
+                { label:'Light', icon:'sunny-outline' as const, value:'light' as const },
               ].map((t) => (
                 <TouchableOpacity
                   key={t.value}
@@ -562,7 +563,7 @@ export default function ProfileScreen() {
                   onPress={() => setTheme(t.value)}
                   activeOpacity={0.8}
                 >
-                  <Text style={{ fontSize:32, marginBottom:8 }}>{t.emoji}</Text>
+                  <Ionicons name={t.icon} size={30} color={theme===t.value ? C.accent : C.text2} style={{ marginBottom:8 }} />
                   <Text style={{ color: theme===t.value ? C.accent : C.text2, fontWeight:'700', fontSize:14 }}>
                     {t.label}
                   </Text>
@@ -578,21 +579,21 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      {/* ── DELETE ACCOUNT MODAL ── */}
+      {/*  DELETE ACCOUNT MODAL  */}
       <Modal visible={activeModal==='deleteAccount'} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setActiveModal(null)}>
         <View style={s.modal}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>🗑  Delete Account</Text>
-            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}>✕</Text></TouchableOpacity>
+            <Text style={s.modalTitle}>  Delete Account</Text>
+            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}></Text></TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={s.modalBody}>
             <View style={s.deleteWarning}>
-              <Text style={s.deleteWarningTitle}>⚠️  This cannot be undone</Text>
+              <Text style={s.deleteWarningTitle}>  This cannot be undone</Text>
               <Text style={s.deleteWarningText}>Deleting your account will permanently remove:</Text>
               <View style={{ gap:6, marginTop:8 }}>
                 {['All your scanned receipts','All your purchase history','All your saved data','Your account and login'].map((item,i) => (
                   <View key={i} style={{ flexDirection:'row', gap:8, alignItems:'center' }}>
-                    <Text style={{ color:C.red, fontSize:13 }}>✗</Text>
+                    <Text style={{ color:C.red, fontSize:13 }}></Text>
                     <Text style={{ color:C.text2, fontSize:13 }}>{item}</Text>
                   </View>
                 ))}
@@ -612,14 +613,14 @@ export default function ProfileScreen() {
 
             {deleteError!=='' && (
               <View style={s.authError}>
-                <Text style={s.authErrorText}>⚠  {deleteError}</Text>
+                <Text style={s.authErrorText}>  {deleteError}</Text>
               </View>
             )}
 
             <TouchableOpacity style={[s.dangerBtn, deleteLoading&&{ opacity:0.5 }]} onPress={handleDeleteAccount} disabled={deleteLoading} activeOpacity={0.85}>
               {deleteLoading
                 ? <ActivityIndicator color={C.red} size="small"/>
-                : <Text style={s.dangerBtnText}>🗑️  Permanently Delete My Account</Text>
+                : <Text style={s.dangerBtnText}>  Permanently Delete My Account</Text>
               }
             </TouchableOpacity>
 

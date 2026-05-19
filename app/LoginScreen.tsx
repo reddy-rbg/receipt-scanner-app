@@ -1,13 +1,14 @@
-// ─────────────────────────────────────────
+//
 // app/LoginScreen.tsx
 // Full screen login shown before tabs unlock
-// ─────────────────────────────────────────
+//
 
 import { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, ActivityIndicator, Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { saveUser, startGuestSession } from '../stores/authStore';
 import { DARK_COLORS, useTheme } from '../stores/themeStore';
 
@@ -35,8 +36,8 @@ function PasswordStrengthBar({ password, colors: C }: { password: string; colors
         ))}
       </View>
       {strength < 4
-        ? <Text style={{ fontSize:11, color:C.text3 }}>Missing: {errors.join(' · ')}</Text>
-        : <Text style={{ fontSize:11, color:C.green }}>✓ Strong password</Text>
+        ? <Text style={{ fontSize:11, color:C.text3 }}>Missing: {errors.join('  ')}</Text>
+        : <Text style={{ fontSize:11, color:C.green }}> Strong password</Text>
       }
     </View>
   );
@@ -171,40 +172,10 @@ export default function LoginScreen() {
       {/* Logo */}
       <View style={s.logoWrap}>
         <View style={s.logo}>
-          <Text style={s.logoIcon}>✦</Text>
+          <Ionicons name="receipt-outline" size={34} color={C.accent} />
         </View>
         <Text style={s.appName}>ReceiptAI</Text>
-        <Text style={s.appTagline}>Scan receipts. Ask AI. Save before buying.</Text>
-      </View>
-
-      <View style={s.promiseRow}>
-        {['Scan', 'Ask', 'Save'].map(step => (
-          <View key={step} style={s.promisePill}>
-            <Text style={s.promiseTxt}>{step}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={s.previewCard}>
-        <View style={s.previewTop}>
-          <View style={{ flex:1 }}>
-            <Text style={s.previewKicker}>Personal shopping memory</Text>
-            <Text style={s.previewTitle}>Know the right price before checkout.</Text>
-          </View>
-          <View style={s.previewBadge}>
-            <Text style={s.previewBadgeTxt}>AI</Text>
-          </View>
-        </View>
-        {[
-          ['Scan', 'Turn receipts into item-level price history.'],
-          ['Ask', 'Find cheaper stores, trends, and savings.'],
-          ['Save', 'Check good deals before buying again.'],
-        ].map(([label, text]) => (
-          <View key={label} style={s.previewRow}>
-            <Text style={s.previewStep}>{label}</Text>
-            <Text style={s.previewText}>{text}</Text>
-          </View>
-        ))}
+        <Text style={s.appTagline}>Receipt scanner and AI shopping memory.</Text>
       </View>
 
       {/* Security badge */}
@@ -289,7 +260,7 @@ export default function LoginScreen() {
               { rule:'1 special character (.,?!@#$%)', ok: /[.,?!@#$%&*_\-+]/.test(password) },
             ].map((item,i) => (
               <View key={i} style={{ flexDirection:'row', alignItems:'center', marginBottom:4 }}>
-                <Text style={{ color: item.ok ? C.green : C.text3, fontSize:13, width:20 }}>{item.ok?'✓':'○'}</Text>
+                <Text style={{ color: item.ok ? C.green : C.text3, fontSize:13, width:20 }}>{item.ok?'':''}</Text>
                 <Text style={{ color: item.ok ? C.green : C.text3, fontSize:12 }}>{item.rule}</Text>
               </View>
             ))}
@@ -298,7 +269,7 @@ export default function LoginScreen() {
 
         {error!=='' && (
           <View style={s.errorBox}>
-            <Text style={s.errorTxt}>⚠  {error}</Text>
+            <Text style={s.errorTxt}>  {error}</Text>
           </View>
         )}
 
@@ -316,7 +287,7 @@ export default function LoginScreen() {
 
       {/* Privacy note */}
       <View style={s.privacyNote}>
-        <Text style={s.privacyNoteTxt}>We never sell your data. Your receipts are private and only visible to you.</Text>
+        <Text style={s.privacyNoteTxt}>Your receipts are private and only visible to you.</Text>
       </View>
 
       {/* Divider */}
@@ -348,13 +319,12 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
 
   logoWrap:{ alignItems:'center', marginBottom:18, marginTop:14 },
   logo:{ width:94, height:94, borderRadius:26, backgroundColor:'rgba(124,106,255,0.18)', borderWidth:2, borderColor:C.accent, alignItems:'center', justifyContent:'center', marginBottom:16, shadowColor:C.accent, shadowOpacity:0.45, shadowRadius:22 },
-  logoIcon:{ fontSize:32, color:C.accent, fontWeight:'900', letterSpacing:0 },
   appName:{ fontSize:34, fontWeight:'900', color:C.text, letterSpacing:0, marginBottom:5 },
   appTagline:{ fontSize:14, color:C.text2, textAlign:'center', lineHeight:20 },
-  promiseRow:{ flexDirection:'row', justifyContent:'center', gap:8, marginBottom:16 },
+  promiseRow:{ display:'none' },
   promisePill:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:12, paddingVertical:6 },
   promiseTxt:{ color:C.accent, fontSize:11, fontWeight:'900' },
-  previewCard:{ width:'100%', backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:18, padding:16, marginBottom:14 },
+  previewCard:{ display:'none' },
   previewTop:{ flexDirection:'row', alignItems:'flex-start', gap:12, marginBottom:12 },
   previewKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:5 },
   previewTitle:{ color:C.text, fontSize:18, fontWeight:'900', lineHeight:23 },
