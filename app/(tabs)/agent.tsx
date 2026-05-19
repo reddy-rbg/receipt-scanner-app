@@ -391,6 +391,18 @@ export default function AgentScreen() {
         {/* Quick prompts - only show at start */}
         {msgs.length <= 1 && (
           <View style={s.quickSection}>
+            <View style={[s.agentIntro, { backgroundColor: C.surface, borderColor: C.border }]}>
+              <View style={[s.agentIntroIcon, { backgroundColor: 'rgba(124,106,255,0.16)', borderColor: 'rgba(124,106,255,0.34)' }]}>
+                <Ionicons name="sparkles" size={18} color={C.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.agentIntroKicker, { color: C.accent3 }]}>AI shopping agent</Text>
+                <Text style={[s.agentIntroTitle, { color: C.text }]}>Ask in your own words.</Text>
+                <Text style={[s.agentIntroText, { color: C.text2 }]}>
+                  Compare prices, review spending, plan the next trip, or find what changed.
+                </Text>
+              </View>
+            </View>
             <Text style={[s.quickLabel, { color: C.text3 }]}>Ask anything</Text>
             <View style={s.quickGrid}>
               {QUICK_PROMPTS.map((q, i) => (
@@ -473,6 +485,11 @@ const s = StyleSheet.create({
   chat:         { flex: 1 },
   chatContent:  { padding: 16, paddingBottom: 8 },
   quickSection: { marginBottom: 20 },
+  agentIntro:   { flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 16 },
+  agentIntroIcon:{ width: 42, height: 42, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  agentIntroKicker:{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 4 },
+  agentIntroTitle:{ fontSize: 20, lineHeight: 24, fontWeight: '900', letterSpacing: 0, marginBottom: 5 },
+  agentIntroText:{ fontSize: 13, lineHeight: 19 },
   quickLabel:   { fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 },
   quickGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   quickChip:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 12, paddingVertical: 6 },

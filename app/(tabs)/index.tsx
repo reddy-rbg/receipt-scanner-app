@@ -209,6 +209,27 @@ export default function ScanScreen(){
   return(
     <ScrollView style={s.scroll} contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
 
+      <View style={s.heroCard}>
+        <View style={s.heroTop}>
+          <View style={s.heroMark}>
+            <Text style={s.heroMarkText}>AI</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.heroKicker}>Receipt scanner</Text>
+            <Text style={s.heroTitle}>Turn receipts into shopping memory.</Text>
+          </View>
+        </View>
+        <Text style={s.heroSub}>
+          Scan once, then let ReceiptAI remember prices, stores, categories, and savings.
+        </Text>
+        <View style={s.heroSteps}>
+          {['Scan', 'Learn', 'Save'].map(step => (
+            <View key={step} style={s.heroStep}>
+              <Text style={s.heroStepText}>{step}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
 
       {/* PROFILE BADGE */}
       {user && (
@@ -410,6 +431,32 @@ export default function ScanScreen(){
 }
 
 const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
+  heroCard:{
+    backgroundColor:C.surface,
+    borderRadius:22,
+    borderWidth:1,
+    borderColor:C.border,
+    padding:18,
+    marginBottom:16,
+  },
+  heroTop:{ flexDirection:'row', alignItems:'center', gap:12, marginBottom:12 },
+  heroMark:{
+    width:48,
+    height:48,
+    borderRadius:16,
+    backgroundColor:'rgba(124,106,255,0.18)',
+    borderWidth:1,
+    borderColor:'rgba(124,106,255,0.38)',
+    alignItems:'center',
+    justifyContent:'center',
+  },
+  heroMarkText:{ color:C.accent, fontSize:14, fontWeight:'900', letterSpacing:0 },
+  heroKicker:{ color:C.accent3, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.8, marginBottom:4 },
+  heroTitle:{ color:C.text, fontSize:24, lineHeight:29, fontWeight:'900', letterSpacing:0 },
+  heroSub:{ color:C.text2, fontSize:13, lineHeight:20, marginBottom:14 },
+  heroSteps:{ flexDirection:'row', gap:8 },
+  heroStep:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, paddingVertical:9, alignItems:'center' },
+  heroStepText:{ color:C.text, fontSize:12, fontWeight:'900' },
   profileBadge:{
     flexDirection:'row',
     alignItems:'center',
@@ -453,7 +500,7 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   statsRow:{flexDirection:'row',gap:10,marginBottom:16},
   statBox:{flex:1,backgroundColor:C.surface2,borderRadius:14,padding:14,borderWidth:1,borderColor:C.border,borderBottomWidth:2},
   statLabel:{fontSize:10,color:C.text3,textTransform:'uppercase',letterSpacing:0.6,marginBottom:4},
-  statVal:{fontSize:22,fontWeight:'800',letterSpacing:-0.5},
+  statVal:{fontSize:22,fontWeight:'900',letterSpacing:0},
   card:{backgroundColor:C.surface,borderRadius:20,borderWidth:1,borderColor:C.border,padding:20,marginBottom:16},
   cardRow:{flexDirection:'row',alignItems:'center',gap:10,marginBottom:16},
   cardIcon:{width:30,height:30,borderRadius:9,alignItems:'center',justifyContent:'center'},
@@ -484,7 +531,7 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   resultCard:{backgroundColor:C.surface2,borderRadius:18,overflow:'hidden',borderWidth:1,borderColor:'rgba(106,255,212,0.2)',marginBottom:16},
   resultHeader:{padding:16,backgroundColor:'rgba(106,255,212,0.05)',borderBottomWidth:1,borderBottomColor:'rgba(106,255,212,0.15)'},
   resultKicker:{color:C.accent3,fontSize:10,fontWeight:'900',textTransform:'uppercase',letterSpacing:0.6,marginBottom:5},
-  resultStore:{color:C.text,fontSize:18,fontWeight:'800',letterSpacing:-0.5},
+  resultStore:{color:C.text,fontSize:18,fontWeight:'900',letterSpacing:0},
   resultMeta:{color:C.text2,fontSize:11,marginTop:3},
   resultSummary:{flexDirection:'row',gap:8,padding:16,paddingBottom:8},
   summaryTile:{flex:1,backgroundColor:C.surface,borderWidth:1,borderColor:C.border,borderRadius:12,padding:10,minHeight:62},

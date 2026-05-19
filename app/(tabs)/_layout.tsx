@@ -51,25 +51,25 @@ export default function TabLayout() {
           shadowOpacity: 0,
         },
         headerTintColor: C.text,
-        headerTitleStyle: { fontWeight:'800', fontSize:17, letterSpacing:-0.5 },
+        headerTitleStyle: { fontWeight:'900', fontSize:17, letterSpacing:0 },
         headerRight: () => <View style={styles.dot} />,
         tabBarStyle: {
           backgroundColor: C.surface,
           borderTopColor: C.border,
           borderTopWidth: 1,
-          height: 72,
-          paddingBottom: 12,
-          paddingTop: 8,
+          height: 78,
+          paddingBottom: 14,
+          paddingTop: 9,
         },
         tabBarActiveTintColor: C.accent,
         tabBarInactiveTintColor: C.text3,
-        tabBarLabelStyle: { fontSize:9, fontWeight:'600', marginTop:2 },
+        tabBarLabelStyle: { fontSize:10, fontWeight:'800', marginTop:2, letterSpacing:0 },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'ReceiptAI ✦',
+          title: 'ReceiptAI',
           tabBarLabel: 'Scan',
           tabBarIcon: ({ color, size }) => <Ionicons name="scan-outline" size={size} color={color} />,
         }}

@@ -185,11 +185,34 @@ export default function LoginScreen() {
         ))}
       </View>
 
-      {/* Security badge */}
-      <View style={s.securityBadge}>
-        <Text style={s.securityBadgeText}>🔒  Your data is encrypted and private</Text>
+      <View style={s.previewCard}>
+        <View style={s.previewTop}>
+          <View style={{ flex:1 }}>
+            <Text style={s.previewKicker}>Personal shopping memory</Text>
+            <Text style={s.previewTitle}>Know the right price before checkout.</Text>
+          </View>
+          <View style={s.previewBadge}>
+            <Text style={s.previewBadgeTxt}>AI</Text>
+          </View>
+        </View>
+        {[
+          ['Scan', 'Turn receipts into item-level price history.'],
+          ['Ask', 'Find cheaper stores, trends, and savings.'],
+          ['Save', 'Check good deals before buying again.'],
+        ].map(([label, text]) => (
+          <View key={label} style={s.previewRow}>
+            <Text style={s.previewStep}>{label}</Text>
+            <Text style={s.previewText}>{text}</Text>
+          </View>
+        ))}
       </View>
 
+      {/* Security badge */}
+      <View style={s.securityBadge}>
+        <Text style={s.securityBadgeText}>Private by default. Your receipts stay yours.</Text>
+      </View>
+
+      <View style={s.authPanel}>
       {/* Tab switcher */}
       <View style={s.tabRow}>
         <TouchableOpacity
@@ -239,7 +262,7 @@ export default function LoginScreen() {
               onChangeText={setPassword} secureTextEntry={!showPw}
             />
             <TouchableOpacity style={s.eyeBtn} onPress={()=>setShowPw(!showPw)}>
-              <Text style={s.eyeText}>{showPw?'🙈':'👁'}</Text>
+              <Text style={s.eyeText}>{showPw ? 'Hide' : 'Show'}</Text>
             </TouchableOpacity>
           </View>
           {mode==='signup' && <PasswordStrengthBar password={password} colors={C}/>}
@@ -289,10 +312,11 @@ export default function LoginScreen() {
           }
         </TouchableOpacity>
       </View>
+      </View>
 
       {/* Privacy note */}
       <View style={s.privacyNote}>
-        <Text style={s.privacyNoteTxt}>🔐  We never sell your data. Your receipts are private and only visible to you.</Text>
+        <Text style={s.privacyNoteTxt}>We never sell your data. Your receipts are private and only visible to you.</Text>
       </View>
 
       {/* Divider */}
@@ -306,7 +330,7 @@ export default function LoginScreen() {
       <View style={s.guestSection}>
         <Text style={s.guestTitle}>Want to try first?</Text>
         <TouchableOpacity style={s.guestBtn} onPress={handleGuest} activeOpacity={0.85}>
-          <Text style={s.guestBtnTxt}>⏱  Start 24-Hour Free Trial</Text>
+          <Text style={s.guestBtnTxt}>Start 24-Hour Free Trial</Text>
         </TouchableOpacity>
         <Text style={s.guestWarning}>
           Trial data is automatically deleted after 24 hours.{'\n'}
@@ -320,21 +344,31 @@ export default function LoginScreen() {
 
 const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   scroll:{ flex:1, backgroundColor:C.bg },
-  container:{ padding:24, paddingBottom:50, alignItems:'center', minHeight:'100%', justifyContent:'center' },
+  container:{ padding:22, paddingBottom:50, alignItems:'center', minHeight:'100%', justifyContent:'center' },
 
-  logoWrap:{ alignItems:'center', marginBottom:24, marginTop:20 },
-  logo:{ width:90, height:90, borderRadius:24, backgroundColor:'rgba(124,106,255,0.18)', borderWidth:2, borderColor:C.accent, alignItems:'center', justifyContent:'center', marginBottom:16, shadowColor:C.accent, shadowOpacity:0.4, shadowRadius:20 },
-  logoIcon:{ fontSize:40, color:C.accent },
-  appName:{ fontSize:32, fontWeight:'800', color:C.text, letterSpacing:-1, marginBottom:4 },
-  appTagline:{ fontSize:14, color:C.text2, textAlign:'center' },
+  logoWrap:{ alignItems:'center', marginBottom:18, marginTop:14 },
+  logo:{ width:94, height:94, borderRadius:26, backgroundColor:'rgba(124,106,255,0.18)', borderWidth:2, borderColor:C.accent, alignItems:'center', justifyContent:'center', marginBottom:16, shadowColor:C.accent, shadowOpacity:0.45, shadowRadius:22 },
+  logoIcon:{ fontSize:32, color:C.accent, fontWeight:'900', letterSpacing:0 },
+  appName:{ fontSize:34, fontWeight:'900', color:C.text, letterSpacing:0, marginBottom:5 },
+  appTagline:{ fontSize:14, color:C.text2, textAlign:'center', lineHeight:20 },
   promiseRow:{ flexDirection:'row', justifyContent:'center', gap:8, marginBottom:16 },
   promisePill:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:12, paddingVertical:6 },
   promiseTxt:{ color:C.accent, fontSize:11, fontWeight:'900' },
+  previewCard:{ width:'100%', backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:18, padding:16, marginBottom:14 },
+  previewTop:{ flexDirection:'row', alignItems:'flex-start', gap:12, marginBottom:12 },
+  previewKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:5 },
+  previewTitle:{ color:C.text, fontSize:18, fontWeight:'900', lineHeight:23 },
+  previewBadge:{ width:38, height:38, borderRadius:12, backgroundColor:'rgba(106,255,212,0.10)', borderWidth:1, borderColor:'rgba(106,255,212,0.24)', alignItems:'center', justifyContent:'center' },
+  previewBadgeTxt:{ color:C.accent3, fontSize:12, fontWeight:'900' },
+  previewRow:{ flexDirection:'row', alignItems:'center', gap:10, paddingTop:10, borderTopWidth:1, borderTopColor:C.border },
+  previewStep:{ color:C.text, width:42, fontSize:12, fontWeight:'900' },
+  previewText:{ color:C.text2, flex:1, fontSize:12, lineHeight:17 },
 
-  securityBadge:{ backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.25)', borderRadius:99, paddingHorizontal:16, paddingVertical:7, marginBottom:24 },
-  securityBadgeText:{ color:C.green, fontSize:12, fontWeight:'500' },
+  securityBadge:{ backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.25)', borderRadius:99, paddingHorizontal:16, paddingVertical:8, marginBottom:14 },
+  securityBadgeText:{ color:C.green, fontSize:12, fontWeight:'700', textAlign:'center' },
+  authPanel:{ width:'100%', backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:18, padding:14, marginBottom:16 },
 
-  tabRow:{ flexDirection:'row', backgroundColor:C.surface2, borderRadius:12, padding:4, marginBottom:20, width:'100%', borderWidth:1, borderColor:C.border },
+  tabRow:{ flexDirection:'row', backgroundColor:C.surface2, borderRadius:12, padding:4, marginBottom:16, width:'100%', borderWidth:1, borderColor:C.border },
   tab:{ flex:1, padding:10, borderRadius:10, alignItems:'center' },
   tabActive:{ backgroundColor:C.accent },
   tabTxt:{ color:C.text2, fontSize:14, fontWeight:'600' },

@@ -242,6 +242,21 @@ export default function ProfileScreen() {
         </View>
       </View>
 
+      <View style={s.profileInsightCard}>
+        <View style={s.profileInsightTop}>
+          <Text style={s.profileInsightKicker}>Your ReceiptAI profile</Text>
+          <View style={s.profileInsightBadge}>
+            <Text style={s.profileInsightBadgeText}>{isGuest ? 'Trial' : 'Private'}</Text>
+          </View>
+        </View>
+        <Text style={s.profileInsightTitle}>
+          {isGuest ? 'Try the memory before creating an account.' : 'Your receipts are becoming a smarter price history.'}
+        </Text>
+        <Text style={s.profileInsightText}>
+          ReceiptAI uses your scans to organize stores, spending, savings, and the items worth checking before you buy again.
+        </Text>
+      </View>
+
       {/* Stats */}
       {statsLoading
         ? <ActivityIndicator color={C.accent} style={{ marginBottom:16 }}/>
@@ -625,7 +640,7 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   authContainer:{ padding:24, paddingBottom:50, alignItems:'center' },
   authLogo:{ width:80, height:80, borderRadius:22, backgroundColor:'rgba(124,106,255,0.18)', borderWidth:2, borderColor:C.accent, alignItems:'center', justifyContent:'center', marginTop:40, marginBottom:14 },
   authLogoText:{ fontSize:36, color:C.accent, fontWeight:'800' },
-  authTitle:{ fontWeight:'800', fontSize:26, color:C.text, letterSpacing:-0.5, marginBottom:6 },
+  authTitle:{ fontWeight:'900', fontSize:26, color:C.text, letterSpacing:0, marginBottom:6 },
   authSubtitle:{ color:C.text2, fontSize:14, marginBottom:16 },
   securityBadge:{ backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.25)', borderRadius:99, paddingHorizontal:14, paddingVertical:6, marginBottom:24 },
   securityBadgeText:{ color:C.green, fontSize:12, fontWeight:'500' },
@@ -658,16 +673,23 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   avatarSection:{ alignItems:'center', paddingVertical:20 },
   avatar:{ width:72, height:72, borderRadius:20, backgroundColor:'rgba(124,106,255,0.18)', borderWidth:2, borderColor:C.accent, alignItems:'center', justifyContent:'center', marginBottom:12 },
   avatarText:{ fontSize:28, color:C.accent, fontWeight:'800' },
-  userName:{ color:C.text, fontSize:20, fontWeight:'800', marginBottom:2, letterSpacing:-0.5 },
+  userName:{ color:C.text, fontSize:20, fontWeight:'900', marginBottom:2, letterSpacing:0 },
   userEmail:{ color:C.text2, fontSize:13, marginBottom:10 },
   upgradeBtn:{ backgroundColor:'rgba(124,106,255,0.1)', borderWidth:1, borderColor:'rgba(124,106,255,0.3)', borderRadius:99, paddingHorizontal:16, paddingVertical:6, marginBottom:10 },
   upgradeBtnText:{ color:C.accent, fontSize:12, fontWeight:'600' },
   statusBadge:{ flexDirection:'row', alignItems:'center', gap:6, backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.2)', borderRadius:99, paddingHorizontal:12, paddingVertical:4 },
   statusDot:{ width:6, height:6, borderRadius:3, backgroundColor:C.green },
   statusText:{ color:C.green, fontSize:12 },
+  profileInsightCard:{ backgroundColor:C.surface, borderRadius:20, borderWidth:1, borderColor:C.border, padding:16, marginBottom:16 },
+  profileInsightTop:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:10 },
+  profileInsightKicker:{ color:C.accent3, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.8 },
+  profileInsightBadge:{ backgroundColor:'rgba(74,222,128,0.10)', borderWidth:1, borderColor:'rgba(74,222,128,0.24)', borderRadius:99, paddingHorizontal:10, paddingVertical:4 },
+  profileInsightBadgeText:{ color:C.green, fontSize:10, fontWeight:'900' },
+  profileInsightTitle:{ color:C.text, fontSize:19, lineHeight:24, fontWeight:'900', letterSpacing:0, marginBottom:7 },
+  profileInsightText:{ color:C.text2, fontSize:13, lineHeight:20 },
   statsGrid:{ flexDirection:'row', gap:10, marginBottom:16 },
   statBox:{ flex:1, backgroundColor:C.surface2, borderRadius:14, padding:12, borderWidth:1, borderColor:C.border, borderBottomWidth:2, alignItems:'center' },
-  statVal:{ fontSize:18, fontWeight:'800', letterSpacing:-0.5, marginBottom:4 },
+  statVal:{ fontSize:18, fontWeight:'900', letterSpacing:0, marginBottom:4 },
   statLbl:{ color:C.text3, fontSize:9, textTransform:'uppercase', letterSpacing:0.5 },
   menuCard:{ backgroundColor:C.surface, borderRadius:18, borderWidth:1, borderColor:C.border, overflow:'hidden', marginBottom:16, padding:16 },
   menuSection:{ color:C.text3, fontSize:10, fontWeight:'600', letterSpacing:1, textTransform:'uppercase', marginBottom:8 },
