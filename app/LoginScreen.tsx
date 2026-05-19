@@ -51,6 +51,7 @@ export default function LoginScreen() {
   const [name, setName]         = useState('');
   const [showPw, setShowPw]     = useState(false);
   const [loading, setLoading]   = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [error, setError]       = useState('');
 
   async function handleAuth() {
@@ -122,6 +123,46 @@ export default function LoginScreen() {
     } catch {
       setError('Could not start guest session. Please try again.');
     }
+  }
+
+  async function handleForgotPassword() {
+    setError('');
+    const targetEmail = email.trim().toLowerCase();
+    if (!targetEmail) {
+      setError('Enter your email address first, then tap Forgot password.');
+      return;
+    }
+
+    setRecoveryLoading(true);
+    try {
+      const res = await fetch(`${API}/auth/forgot-password`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email: targetEmail }),
+      });
+      const raw = await res.text();
+      let data: any = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch { data = { detail: raw }; }
+      if (!res.ok) {
+        setError(data.detail || data.message || 'Could not send reset email.');
+        return;
+      }
+      Alert.alert(
+        'Check your email',
+        data.message || 'If an account exists for this email, a password reset link has been sent.'
+      );
+    } catch {
+      setError('Could not send reset email. Please try again.');
+    } finally {
+      setRecoveryLoading(false);
+    }
+  }
+
+  function handleForgotUsername() {
+    Alert.alert(
+      'Forgot email?',
+      'ReceiptAI uses your email address as your username. Try the email you used when creating your account. If you used Guest Trial, no permanent account was created.'
+    );
   }
 
   return (
@@ -203,6 +244,17 @@ export default function LoginScreen() {
           </View>
           {mode==='signup' && <PasswordStrengthBar password={password} colors={C}/>}
         </View>
+
+        {mode==='login' && (
+          <View style={s.recoveryRow}>
+            <TouchableOpacity onPress={handleForgotPassword} disabled={recoveryLoading}>
+              <Text style={s.recoveryLink}>{recoveryLoading ? 'Sending reset...' : 'Forgot password?'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleForgotUsername}>
+              <Text style={s.recoveryLink}>Forgot email?</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {mode==='signup' && (
           <View style={s.passwordRules}>
@@ -294,6 +346,8 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   input:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, padding:14, paddingHorizontal:16, color:C.text, fontSize:14, width:'100%' },
   eyeBtn:{ position:'absolute', right:14, top:14 },
   eyeText:{ fontSize:18 },
+  recoveryRow:{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:-4, marginBottom:12 },
+  recoveryLink:{ color:C.accent, fontSize:12, fontWeight:'800' },
   passwordRules:{ backgroundColor:C.surface2, borderRadius:12, padding:14, marginTop:4, marginBottom:8, borderWidth:1, borderColor:C.border },
   passwordRulesTitle:{ color:C.text2, fontSize:11, fontWeight:'600', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 },
   errorBox:{ backgroundColor:'rgba(255,107,107,0.08)', borderWidth:1, borderColor:'rgba(255,107,107,0.2)', borderRadius:10, padding:12, marginBottom:12 },
