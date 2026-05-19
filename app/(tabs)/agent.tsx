@@ -39,6 +39,20 @@ function friendlyAgentError(message: string) {
   return message;
 }
 
+function formatAgentText(text: string) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/^### (.+)$/gm, '$1:')
+    .replace(/^## (.+)$/gm, '$1')
+    .replace(/^# (.+)$/gm, '$1')
+    .split('\n')
+    .filter(line => !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line))
+    .map(line => line.replace(/^\s*\|\s*/, '').replace(/\s*\|\s*$/, '').replace(/\s*\|\s*/g, '   '))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 type Msg = {
   role: 'user' | 'agent';
   text: string;
@@ -315,12 +329,8 @@ export default function AgentScreen() {
       );
     }
 
-    // Format agent response - convert markdown to readable text
-    const formattedText = msg.text
-      .replace(/\*\*(.+?)\*\*/g, '$1')
-      .replace(/^### (.+)$/gm, '$1:')
-      .replace(/^## (.+)$/gm, '$1')
-      .replace(/^# (.+)$/gm, '$1');
+    const formattedText = formatAgentText(msg.text);
+    const tableLike = msg.text.includes('|');
 
     return (
       <View key={index} style={s.msgRow}>
@@ -329,7 +339,7 @@ export default function AgentScreen() {
         </View>
         <View style={{ flex: 1 }}>
           <View style={[s.bubble, s.agentBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
-            <Text style={[s.bubbleTxt, { color: C.text }]}>{formattedText}</Text>
+            <Text style={[s.bubbleTxt, tableLike && s.tableTxt, { color: C.text }]}>{formattedText}</Text>
           </View>
         </View>
       </View>
@@ -474,6 +484,7 @@ const s = StyleSheet.create({
   agentBubble:  { borderWidth: 1, borderBottomLeftRadius: 4 },
   userBubble:   { borderBottomRightRadius: 4 },
   bubbleTxt:    { fontSize: 14, lineHeight: 21 },
+  tableTxt:     { fontSize: 12, lineHeight: 18, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
   inputBar:     { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 8 },

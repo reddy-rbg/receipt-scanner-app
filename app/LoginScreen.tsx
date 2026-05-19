@@ -133,7 +133,15 @@ export default function LoginScreen() {
           <Text style={s.logoIcon}>✦</Text>
         </View>
         <Text style={s.appName}>ReceiptAI</Text>
-        <Text style={s.appTagline}>Smart Receipt Scanner</Text>
+        <Text style={s.appTagline}>Scan receipts. Ask AI. Save before buying.</Text>
+      </View>
+
+      <View style={s.promiseRow}>
+        {['Scan', 'Ask', 'Save'].map(step => (
+          <View key={step} style={s.promisePill}>
+            <Text style={s.promiseTxt}>{step}</Text>
+          </View>
+        ))}
       </View>
 
       {/* Security badge */}
@@ -266,7 +274,10 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   logo:{ width:90, height:90, borderRadius:24, backgroundColor:'rgba(124,106,255,0.18)', borderWidth:2, borderColor:C.accent, alignItems:'center', justifyContent:'center', marginBottom:16, shadowColor:C.accent, shadowOpacity:0.4, shadowRadius:20 },
   logoIcon:{ fontSize:40, color:C.accent },
   appName:{ fontSize:32, fontWeight:'800', color:C.text, letterSpacing:-1, marginBottom:4 },
-  appTagline:{ fontSize:14, color:C.text2 },
+  appTagline:{ fontSize:14, color:C.text2, textAlign:'center' },
+  promiseRow:{ flexDirection:'row', justifyContent:'center', gap:8, marginBottom:16 },
+  promisePill:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:12, paddingVertical:6 },
+  promiseTxt:{ color:C.accent, fontSize:11, fontWeight:'900' },
 
   securityBadge:{ backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.25)', borderRadius:99, paddingHorizontal:16, paddingVertical:7, marginBottom:24 },
   securityBadgeText:{ color:C.green, fontSize:12, fontWeight:'500' },

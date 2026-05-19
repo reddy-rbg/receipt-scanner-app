@@ -1,14 +1,16 @@
 import { useTheme } from '../../stores/themeStore';
 import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore';
 import { DARK_COLORS } from '../../stores/themeStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Modal, FlatList, TextInput, RefreshControl,
-  Alert,
+  Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 
 const API = 'https://web-production-3605f4.up.railway.app';
+const RECEIPTS_CACHE_KEY = 'receiptai:receipts-cache:v1';
 
 
 const n = (v:any) => parseFloat(v)||0;
@@ -28,7 +30,7 @@ type ReceiptCategory = {
 
 const FILTER_TABS = [
   { key:'all',   label:'All' },
-  { key:'store', label:'By Store' },
+  { key:'store', label:'Search' },
   { key:'category', label:'Category' },
   { key:'id',    label:'By ID' },
   { key:'month', label:'By Month' },
@@ -153,6 +155,22 @@ export default function ReceiptsScreen() {
 
   useEffect(() => { load(); }, [user?.id, user?.guest_session_id]);
 
+  useEffect(() => {
+    if (activeTab !== 'store') return;
+    const q = storeQ.trim().toLowerCase();
+    if (!q) {
+      setShown(applySort(all, 'newest'));
+      setFilterInfo('');
+      return;
+    }
+    const r = all.filter(x =>
+      receiptSearchText(x).includes(q) ||
+      String(x.id).includes(q) ||
+      getReceiptCategory(x).label.toLowerCase().includes(q)
+    );
+    showResults(r, `Search: "${storeQ.trim()}"`);
+  }, [storeQ, activeTab, all]);
+
   async function load() {
     try {
       if (!user) {
@@ -162,6 +180,19 @@ export default function ReceiptsScreen() {
         setRefreshing(false);
         return;
       }
+
+      if (!refreshing && all.length === 0) {
+        try {
+          const cached = await AsyncStorage.getItem(`${RECEIPTS_CACHE_KEY}:${user.id}`);
+          const cachedReceipts = cached ? JSON.parse(cached) : [];
+          if (Array.isArray(cachedReceipts) && cachedReceipts.length) {
+            setAll(cachedReceipts);
+            setShown(applySort(cachedReceipts, 'newest'));
+            setLoading(false);
+          }
+        } catch {}
+      }
+
       const guestId = getGuestSessionId();
       const isGuestMode = !!guestId || user?.isGuest || user?.is_guest || user?.token === 'guest';
       const url = isGuestMode
@@ -174,7 +205,8 @@ export default function ReceiptsScreen() {
       const data = await res.json();
       const recs = data.receipts || [];
       setAll(recs);
-      applySort(recs, 'newest');
+      setShown(applySort(recs, 'newest'));
+      await AsyncStorage.setItem(`${RECEIPTS_CACHE_KEY}:${user.id}`, JSON.stringify(recs));
       setFilterInfo('');
     } catch {}
     finally { setLoading(false); setRefreshing(false); }
@@ -330,9 +362,8 @@ export default function ReceiptsScreen() {
     switch (activeTab) {
       case 'store':
         return (
-          <View style={s.filterRow}>
-            <TextInput style={s.filterInput} placeholder="Search store, item, category..." placeholderTextColor={C.text3} value={storeQ} onChangeText={setStoreQ} onSubmitEditing={applyFilter} returnKeyType="search" autoCorrect={false}/>
-            <TouchableOpacity style={s.filterBtn} onPress={applyFilter}><Text style={s.filterBtnTxt}>Search</Text></TouchableOpacity>
+          <View style={s.searchHintBox}>
+            <Text style={s.filterHint}>Results update while you type. Search store names, item names, categories, or receipt IDs.</Text>
           </View>
         );
       case 'category':
@@ -349,7 +380,7 @@ export default function ReceiptsScreen() {
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={[s.selectChipTxt, category===cat.key && s.selectChipTxtActive]}>{cat.icon} {cat.label}</Text>
+                  <Text style={[s.selectChipTxt, category===cat.key && s.selectChipTxtActive]}>{cat.label}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -435,20 +466,79 @@ export default function ReceiptsScreen() {
   }
 
   return (
-    <View style={s.screen}>
+    <KeyboardAvoidingView
+      style={s.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+    >
 
       {/* ── TOP SECTION (fixed) ── */}
       <View style={s.top}>
+        <View style={s.hero}>
+          <Text style={s.heroKicker}>Receipt Library</Text>
+          <Text style={s.heroTitle}>Find purchases fast</Text>
+          <Text style={s.heroSub}>Search by store, item, category, or receipt number.</Text>
+        </View>
+
+        <View style={s.searchBox}>
+          <TextInput
+            style={s.searchInput}
+            placeholder="Search receipts..."
+            placeholderTextColor={C.text3}
+            value={storeQ}
+            onChangeText={(text) => {
+              if (activeTab !== 'store') setActiveTab('store');
+              setStoreQ(text);
+            }}
+            returnKeyType="search"
+            autoCorrect={false}
+            blurOnSubmit={false}
+          />
+          {storeQ ? (
+            <TouchableOpacity
+              style={s.searchClear}
+              onPress={() => {
+                setStoreQ('');
+                setActiveTab('all');
+                setShown(applySort(all, 'newest'));
+                setFilterInfo('');
+              }}
+            >
+              <Text style={s.searchClearTxt}>Clear</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.categoryRow} keyboardShouldPersistTaps="handled">
+          {CATEGORIES.slice(0, 8).map(cat => (
+            <TouchableOpacity
+              key={cat.key}
+              style={[s.categoryQuickChip, category === cat.key && activeTab === 'category' && s.categoryQuickActive]}
+              onPress={() => {
+                setActiveTab('category');
+                setCategory(cat.key);
+                filterByCategory(cat.key);
+              }}
+              activeOpacity={0.82}
+            >
+              <Text style={[s.categoryQuickTxt, category === cat.key && activeTab === 'category' && s.categoryQuickTxtActive]}>{cat.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         {/* Filter Tabs */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsRow} keyboardShouldPersistTaps="handled">
           {FILTER_TABS.map(tab => (
             <TouchableOpacity
               key={tab.key}
               style={[s.tab, activeTab===tab.key && s.tabActive]}
               onPress={() => {
                 setActiveTab(tab.key);
-                if (tab.key === 'all') load();
+                if (tab.key === 'all') {
+                  setStoreQ('');
+                  setShown(applySort(all, 'newest'));
+                  setFilterInfo('');
+                }
               }}
             >
               <Text style={[s.tabTxt, activeTab===tab.key && s.tabTxtActive]}>{tab.label}</Text>
@@ -476,6 +566,8 @@ export default function ReceiptsScreen() {
       {loading ? (
         <View style={s.loadingWrap}>
           <ActivityIndicator color={C.accent} size="large"/>
+          <Text style={s.loadingTitle}>Finding your receipts</Text>
+          <Text style={s.loadingText}>Loading saved trips, categories, and totals.</Text>
         </View>
       ) : (
         <FlatList
@@ -484,6 +576,9 @@ export default function ReceiptsScreen() {
           style={s.list}
           contentContainerStyle={s.listContent}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent}/>}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          removeClippedSubviews={false}
           renderItem={({item:r}) => (
             <TouchableOpacity
               style={s.card}
@@ -494,7 +589,7 @@ export default function ReceiptsScreen() {
                 <View style={s.cardTopLine}>
                   <Text style={s.idBadge}>#{r.id}</Text>
                   <View style={s.categoryBadge}>
-                    <Text style={s.categoryBadgeTxt}>{getReceiptCategory(r).icon} {getReceiptCategory(r).label}</Text>
+                    <Text style={s.categoryBadgeTxt}>{getReceiptCategory(r).label}</Text>
                   </View>
                 </View>
                 <Text style={s.storeName}>{r.store}</Text>
@@ -516,8 +611,25 @@ export default function ReceiptsScreen() {
           ListEmptyComponent={
             <View style={s.empty}>
               <Text style={s.emptyEmoji}>🔍</Text>
-              <Text style={s.emptyTxt}>{filterInfo ? 'No receipts match this filter.' : 'No receipts yet. Scan your first!'}</Text>
-              {filterInfo !== '' && <TouchableOpacity onPress={load}><Text style={s.clearTxt}>Clear filter</Text></TouchableOpacity>}
+              <Text style={s.emptyTitle}>{filterInfo ? 'No matching receipts' : 'No receipts yet'}</Text>
+              <Text style={s.emptyTxt}>
+                {filterInfo
+                  ? 'Try a store name, item name, category, or receipt number.'
+                  : 'Scan your first receipt to unlock price memory, spending insights, and AI answers.'}
+              </Text>
+              {filterInfo !== '' && (
+                <TouchableOpacity
+                  style={s.emptyBtn}
+                  onPress={() => {
+                    setStoreQ('');
+                    setActiveTab('all');
+                    setShown(applySort(all, 'newest'));
+                    setFilterInfo('');
+                  }}
+                >
+                  <Text style={s.emptyBtnTxt}>Clear filter</Text>
+                </TouchableOpacity>
+              )}
             </View>
           }
         />
@@ -531,7 +643,7 @@ export default function ReceiptsScreen() {
               <Text style={s.modalStore}>{selected?.store||'Unknown Store'}</Text>
               {selected ? (
                 <View style={[s.categoryBadge, { alignSelf:'flex-start', marginBottom:8 }]}>
-                  <Text style={s.categoryBadgeTxt}>{getReceiptCategory(selected).icon} {getReceiptCategory(selected).label}</Text>
+                  <Text style={s.categoryBadgeTxt}>{getReceiptCategory(selected).label}</Text>
                 </View>
               ) : null}
               <Text style={s.modalMeta}>
@@ -564,6 +676,26 @@ export default function ReceiptsScreen() {
                   </View>
                 </View>
               )}
+
+              <View style={s.detailSummary}>
+                <View style={s.detailTile}>
+                  <Text style={s.detailLabel}>Total</Text>
+                  <Text style={[s.detailValue, { color:C.accent }]}>${n(selected?.total).toFixed(2)}</Text>
+                </View>
+                <View style={s.detailTile}>
+                  <Text style={s.detailLabel}>Items</Text>
+                  <Text style={s.detailValue}>{(selected?.items || []).length}</Text>
+                </View>
+                <View style={s.detailTile}>
+                  <Text style={s.detailLabel}>Saved</Text>
+                  <Text style={[s.detailValue, n(selected?.total_savings) > 0 && { color:C.green }]}>${n(selected?.total_savings).toFixed(2)}</Text>
+                </View>
+              </View>
+
+              <View style={s.aiReadyBox}>
+                <Text style={s.aiReadyTitle}>AI-ready receipt</Text>
+                <Text style={s.aiReadyText}>Ask Agent about cheaper stores, repeated items, category spending, or whether this trip was unusual.</Text>
+              </View>
 
               <Text style={s.sectionTitle}>Items Purchased</Text>
               {(selected?.items||[]).map((item:any,i:number) => {
@@ -667,7 +799,7 @@ export default function ReceiptsScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -675,6 +807,19 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   screen:{ flex:1, backgroundColor:C.bg },
 
   top:{ backgroundColor:C.bg, paddingTop:8 },
+  hero:{ paddingHorizontal:16, paddingTop:4, paddingBottom:10 },
+  heroKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:5 },
+  heroTitle:{ color:C.text, fontSize:24, fontWeight:'900', letterSpacing:0 },
+  heroSub:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:4 },
+  searchBox:{ marginHorizontal:16, marginBottom:10, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:14, flexDirection:'row', alignItems:'center', paddingHorizontal:12 },
+  searchInput:{ flex:1, color:C.text, fontSize:14, paddingVertical:12 },
+  searchClear:{ paddingLeft:10, paddingVertical:8 },
+  searchClearTxt:{ color:C.accent, fontSize:12, fontWeight:'800' },
+  categoryRow:{ gap:8, paddingHorizontal:16, paddingBottom:8 },
+  categoryQuickChip:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:12, paddingVertical:7 },
+  categoryQuickActive:{ backgroundColor:'rgba(124,106,255,0.16)', borderColor:'rgba(124,106,255,0.42)' },
+  categoryQuickTxt:{ color:C.text2, fontSize:11, fontWeight:'700' },
+  categoryQuickTxtActive:{ color:C.accent },
 
   // Filter tabs
   tabsRow:{ flexDirection:'row', gap:6, paddingHorizontal:16, paddingVertical:6 },
@@ -691,6 +836,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   filterBtn:{ backgroundColor:C.accent, borderRadius:11, paddingHorizontal:16, paddingVertical:10 },
   filterBtnTxt:{ color:'#fff', fontWeight:'600', fontSize:13 },
   filterHint:{ color:C.text3, fontSize:11, lineHeight:15, marginTop:2 },
+  searchHintBox:{ backgroundColor:'rgba(124,106,255,0.06)', borderWidth:1, borderColor:'rgba(124,106,255,0.14)', borderRadius:12, padding:10 },
 
   // Select chips (month/year/sort)
   selectChip:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:14, paddingVertical:6, flexShrink:0 },
@@ -707,7 +853,9 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   // List
   list:{ flex:1 },
   listContent:{ padding:16, paddingTop:4, paddingBottom:40 },
-  loadingWrap:{ flex:1, alignItems:'center', justifyContent:'center' },
+  loadingWrap:{ flex:1, alignItems:'center', justifyContent:'center', padding:28 },
+  loadingTitle:{ color:C.text, fontSize:16, fontWeight:'900', marginTop:14 },
+  loadingText:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:5, textAlign:'center' },
 
   // Receipt cards
   card:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:16, padding:16, marginBottom:10, flexDirection:'row', alignItems:'center', gap:10 },
@@ -722,9 +870,12 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   pillTxt:{ color:C.green, fontSize:10 },
   arrow:{ color:C.text3, fontSize:22, marginLeft:2 },
 
-  empty:{ alignItems:'center', paddingTop:60, gap:10 },
+  empty:{ alignItems:'center', paddingTop:60, gap:10, paddingHorizontal:24 },
   emptyEmoji:{ fontSize:36 },
-  emptyTxt:{ color:C.text3, fontSize:13, textAlign:'center' },
+  emptyTitle:{ color:C.text, fontSize:18, fontWeight:'900', textAlign:'center' },
+  emptyTxt:{ color:C.text2, fontSize:13, lineHeight:19, textAlign:'center' },
+  emptyBtn:{ backgroundColor:C.accent, borderRadius:12, paddingHorizontal:16, paddingVertical:10, marginTop:4 },
+  emptyBtnTxt:{ color:'#fff', fontSize:13, fontWeight:'900' },
 
   // Modal
   modal:{ flex:1, backgroundColor:C.bg },
@@ -734,6 +885,13 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   closeBtn:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, width:32, height:32, alignItems:'center', justifyContent:'center' },
   closeBtnTxt:{ color:C.text2, fontSize:15 },
   modalBody:{ padding:20, paddingBottom:40 },
+  detailSummary:{ flexDirection:'row', gap:8, marginBottom:12 },
+  detailTile:{ flex:1, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:12, padding:12, minHeight:66 },
+  detailLabel:{ color:C.text3, fontSize:9, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.5, marginBottom:6 },
+  detailValue:{ color:C.text, fontSize:15, fontWeight:'900' },
+  aiReadyBox:{ backgroundColor:'rgba(124,106,255,0.08)', borderWidth:1, borderColor:'rgba(124,106,255,0.2)', borderRadius:12, padding:12, marginBottom:18 },
+  aiReadyTitle:{ color:C.text, fontSize:13, fontWeight:'900', marginBottom:4 },
+  aiReadyText:{ color:C.text2, fontSize:12, lineHeight:17 },
   sectionTitle:{ color:C.text3, fontSize:10, fontWeight:'600', letterSpacing:1, textTransform:'uppercase', marginBottom:10 },
   mItem:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', paddingVertical:9, borderBottomWidth:1, borderBottomColor:C.border, gap:10 },
   mCode:{ color:C.text3, fontSize:9, fontFamily:'monospace', marginBottom:2 },

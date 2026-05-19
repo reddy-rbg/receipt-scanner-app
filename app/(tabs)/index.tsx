@@ -44,6 +44,18 @@ function getMime(uri:string, isPDF:boolean=false){
   return 'image/jpeg';
 }
 const n=(v:any)=>parseFloat(v)||0;
+function scanCategory(receipt:any) {
+  const itemText = (receipt?.items || []).map((item:any) => [item?.name, item?.item, item?.code].filter(Boolean).join(' ')).join(' ');
+  const text = [receipt?.store, receipt?.address, receipt?.payment_method, itemText].filter(Boolean).join(' ').toLowerCase();
+  if (['bank', 'atm', 'withdrawal', 'deposit', 'credit union', 'chase', 'wells fargo', 'bank of america', 'capital one'].some(w => text.includes(w))) return 'Bank & Finance';
+  if (['hospital', 'clinic', 'urgent care', 'doctor', 'dental', 'patient', 'medical'].some(w => text.includes(w))) return 'Hospital & Medical';
+  if (['cvs', 'walgreens', 'pharmacy', 'rx ', 'medicine', 'vitamin'].some(w => text.includes(w))) return 'Pharmacy & Health';
+  if (['lowe', 'home depot', 'tractor supply', 'garden', 'mulch', 'soil', 'plant', 'fertilizer', 'hardware', 'paint', 'lumber'].some(w => text.includes(w))) return 'Gardening & Hardware';
+  if (['restaurant', 'cafe', 'pizza', 'burger', 'taco', 'starbucks', 'subway'].some(w => text.includes(w))) return 'Restaurants';
+  if (['walmart', 'kroger', 'aldi', 'costco', 'supermarket', 'market', 'grocery', 'food', 'milk', 'bread', 'egg'].some(w => text.includes(w))) return 'Food & Grocery';
+  if (['shell', 'exxon', 'chevron', 'bp ', 'gas', 'fuel', 'auto', 'tire'].some(w => text.includes(w))) return 'Fuel & Auto';
+  return 'Other';
+}
 
 export default function ScanScreen(){
   const { colors: C } = useTheme();
@@ -312,10 +324,31 @@ export default function ScanScreen(){
       {result&&(
         <View style={s.resultCard}>
           <View style={s.resultHeader}>
+            <Text style={s.resultKicker}>Scan complete</Text>
             <Text style={s.resultStore}>{result.store||'Unknown Store'}</Text>
             <Text style={s.resultMeta}>
               {[result.date&&`📅 ${result.date}${result.time?' '+result.time:''}`,result.address&&`📍 ${result.address}`].filter(Boolean).join('  ·  ')}
             </Text>
+          </View>
+
+          <View style={s.resultSummary}>
+            <View style={s.summaryTile}>
+              <Text style={s.summaryLabel}>Category</Text>
+              <Text style={s.summaryValue} numberOfLines={1}>{scanCategory(result)}</Text>
+            </View>
+            <View style={s.summaryTile}>
+              <Text style={s.summaryLabel}>Items</Text>
+              <Text style={s.summaryValue}>{(result.items||[]).length}</Text>
+            </View>
+            <View style={s.summaryTile}>
+              <Text style={s.summaryLabel}>Total</Text>
+              <Text style={[s.summaryValue,{color:C.accent}]}>${n(result.total).toFixed(2)}</Text>
+            </View>
+          </View>
+
+          <View style={s.resultActionNote}>
+            <Text style={s.resultActionTitle}>Ready for AI Memory</Text>
+            <Text style={s.resultActionText}>Saved for price history, spending analysis, and before-you-buy checks.</Text>
           </View>
 
           <View style={s.items}>
@@ -450,8 +483,16 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   warnText:{color:'#fbbf24',fontSize:13},
   resultCard:{backgroundColor:C.surface2,borderRadius:18,overflow:'hidden',borderWidth:1,borderColor:'rgba(106,255,212,0.2)',marginBottom:16},
   resultHeader:{padding:16,backgroundColor:'rgba(106,255,212,0.05)',borderBottomWidth:1,borderBottomColor:'rgba(106,255,212,0.15)'},
+  resultKicker:{color:C.accent3,fontSize:10,fontWeight:'900',textTransform:'uppercase',letterSpacing:0.6,marginBottom:5},
   resultStore:{color:C.text,fontSize:18,fontWeight:'800',letterSpacing:-0.5},
   resultMeta:{color:C.text2,fontSize:11,marginTop:3},
+  resultSummary:{flexDirection:'row',gap:8,padding:16,paddingBottom:8},
+  summaryTile:{flex:1,backgroundColor:C.surface,borderWidth:1,borderColor:C.border,borderRadius:12,padding:10,minHeight:62},
+  summaryLabel:{color:C.text3,fontSize:9,fontWeight:'800',textTransform:'uppercase',letterSpacing:0.5,marginBottom:5},
+  summaryValue:{color:C.text,fontSize:13,fontWeight:'900'},
+  resultActionNote:{marginHorizontal:16,marginBottom:4,backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:12},
+  resultActionTitle:{color:C.text,fontSize:13,fontWeight:'900',marginBottom:3},
+  resultActionText:{color:C.text2,fontSize:12,lineHeight:17},
   items:{padding:16},
   itemRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'flex-start',paddingVertical:7,borderBottomWidth:1,borderBottomColor:C.border,gap:10},
   itemCode:{color:C.text3,fontSize:9,fontFamily:'monospace'},
