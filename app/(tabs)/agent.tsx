@@ -63,18 +63,24 @@ type Msg = {
 type VoiceMode = 'dictate' | 'wake' | null;
 
 const QUICK_PROMPTS = [
-  { label: ' Spending summary', prompt: 'Give me a complete summary of my spending' },
-  { label: ' Best store', prompt: 'Which store gives me the best value for money?' },
-  { label: ' Price trends', prompt: 'Show me price trends for items I buy regularly' },
-  { label: ' Shopping plan', prompt: 'Help me plan my next grocery shopping trip to save money' },
-  { label: ' Save money', prompt: 'What are the top 3 ways I can save money based on my receipts?' },
-  { label: ' Monthly report', prompt: 'Give me a monthly spending report with store breakdown' },
-  { label: ' Spending graph', prompt: 'Show my monthly expenses spent analysis as a chart' },
-  { label: ' Buy this month', prompt: 'Give me this month items to purchase based on my receipts' },
-  { label: ' Compare prices', prompt: 'Compare my prices to current market prices and find where I overpaid' },
+  { label: 'Spending summary', prompt: 'Give me a complete summary of my spending' },
+  { label: 'Best store', prompt: 'Which store gives me the best value for money?' },
+  { label: 'Price trends', prompt: 'Show me price trends for items I buy regularly' },
+  { label: 'Shopping plan', prompt: 'Help me plan my next grocery shopping trip to save money' },
+  { label: 'Save money', prompt: 'What are the top 3 ways I can save money based on my receipts?' },
+  { label: 'Monthly report', prompt: 'Give me a monthly spending report with store breakdown' },
+  { label: 'Spending graph', prompt: 'Show my monthly expenses spent analysis as a chart' },
+  { label: 'Buy this month', prompt: 'Give me this month items to purchase based on my receipts' },
+  { label: 'Compare prices', prompt: 'Compare my prices to current market prices and find where I overpaid' },
   { label: 'Price memory', prompt: 'Show my price memory and avoid-above prices' },
   { label: 'Good price?', prompt: 'Is this a good price based on my receipt history?' },
-  { label: ' Best deals', prompt: 'What were the best deals I got recently?' },
+  { label: 'Best deals', prompt: 'What were the best deals I got recently?' },
+];
+
+const FEATURED_PROMPTS = [
+  { icon: 'analytics-outline' as const, label: 'Analyze spending', prompt: 'Give me a smart spending snapshot with best next moves' },
+  { icon: 'pricetag-outline' as const, label: 'Check prices', prompt: 'Show my price trends and biggest price swings' },
+  { icon: 'cart-outline' as const, label: 'Plan trip', prompt: 'Build my next shopping plan from my receipt history' },
 ];
 
 function cleanPromptLabel(label: string) {
@@ -89,7 +95,7 @@ export default function AgentScreen() {
   const [msgs, setMsgs]         = useState<Msg[]>([
     {
       role: 'agent',
-      text: 'Ask me anything about your receipts, spending, prices, or what to buy next.',
+      text: 'Ready. Ask about prices, spending, stores, or what to buy next.',
     }
   ]);
   const [input, setInput]       = useState('');
@@ -300,7 +306,7 @@ export default function AgentScreen() {
           } catch {}
           setMsgs([{
             role: 'agent',
-            text: ' Fresh start! Ask me anything about your receipts and spending.',
+            text: 'Fresh start. Ask about your receipts, prices, or spending.',
           }]);
         }
       }
@@ -314,7 +320,7 @@ export default function AgentScreen() {
       return (
         <View key={index} style={s.msgRow}>
           <View style={[s.agentAvatar, { backgroundColor: 'rgba(124,106,255,0.15)' }]}>
-            <Text style={{ color: C.accent, fontSize: 12 }}></Text>
+            <Ionicons name="sparkles" size={15} color={C.accent} />
           </View>
           <View style={[s.bubble, s.agentBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -342,7 +348,7 @@ export default function AgentScreen() {
     return (
       <View key={index} style={s.msgRow}>
         <View style={[s.agentAvatar, { backgroundColor: 'rgba(124,106,255,0.15)' }]}>
-          <Text style={{ color: C.accent, fontSize: 12 }}></Text>
+          <Ionicons name="sparkles" size={15} color={C.accent} />
         </View>
         <View style={{ flex: 1 }}>
           <View style={[s.bubble, s.agentBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
@@ -403,14 +409,27 @@ export default function AgentScreen() {
                 <Ionicons name="sparkles" size={18} color={C.accent} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[s.agentIntroKicker, { color: C.accent3 }]}>AI Agent</Text>
-                <Text style={[s.agentIntroTitle, { color: C.text }]}>Ask anything</Text>
+                <Text style={[s.agentIntroKicker, { color: C.accent3 }]}>ReceiptAI Agent</Text>
+                <Text style={[s.agentIntroTitle, { color: C.text }]}>Shopping intelligence</Text>
                 <Text style={[s.agentIntroText, { color: C.text2 }]}>
-                  Prices, spending, stores, savings, and shopping plans.
+                  Ask for price checks, spending analysis, store comparisons, and next-purchase plans.
                 </Text>
               </View>
             </View>
-            <Text style={[s.quickLabel, { color: C.text3 }]}>Ask anything</Text>
+            <View style={s.featuredGrid}>
+              {FEATURED_PROMPTS.map((q) => (
+                <TouchableOpacity
+                  key={q.label}
+                  style={[s.featuredCard, { backgroundColor: C.surface, borderColor: C.border }]}
+                  onPress={() => sendMessage(q.prompt)}
+                  activeOpacity={0.82}
+                >
+                  <Ionicons name={q.icon} size={18} color={C.accent} />
+                  <Text style={[s.featuredLabel, { color: C.text }]}>{q.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={[s.quickLabel, { color: C.text3 }]}>Quick questions</Text>
             <View style={s.quickGrid}>
               {QUICK_PROMPTS.map((q, i) => (
                 <TouchableOpacity
@@ -462,7 +481,7 @@ export default function AgentScreen() {
         >
           {loading
             ? <ActivityIndicator size="small" color="#fff" />
-            : <Text style={s.sendIcon}></Text>
+            : <Ionicons name="arrow-up" size={20} color="#fff" />
           }
         </TouchableOpacity>
       </View>
@@ -495,16 +514,19 @@ const s = StyleSheet.create({
   agentIntro:   { flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderWidth: 1, borderRadius: 20, padding: 16, marginBottom: 16 },
   agentIntroIcon:{ width: 42, height: 42, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   agentIntroKicker:{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 4 },
-  agentIntroTitle:{ fontSize: 20, lineHeight: 24, fontWeight: '900', letterSpacing: 0, marginBottom: 5 },
+  agentIntroTitle:{ fontSize: 22, lineHeight: 26, fontWeight: '900', letterSpacing: 0, marginBottom: 5 },
   agentIntroText:{ fontSize: 13, lineHeight: 19 },
+  featuredGrid:  { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  featuredCard:  { flex: 1, minHeight: 78, borderWidth: 1, borderRadius: 16, padding: 11, justifyContent: 'space-between' },
+  featuredLabel: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
   quickLabel:   { fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 },
   quickGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  quickChip:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 12, paddingVertical: 6 },
-  quickChipTxt: { fontSize: 12 },
+  quickChip:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 7 },
+  quickChipTxt: { fontSize: 12, fontWeight: '700' },
   msgRow:       { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14, gap: 8 },
   userRow:      { justifyContent: 'flex-end' },
-  agentAvatar:  { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 },
-  bubble:       { maxWidth: '85%', borderRadius: 16, padding: 12, paddingHorizontal: 14 },
+  agentAvatar:  { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 },
+  bubble:       { maxWidth: '86%', borderRadius: 18, padding: 13, paddingHorizontal: 15 },
   agentBubble:  { borderWidth: 1, borderBottomLeftRadius: 4 },
   userBubble:   { borderBottomRightRadius: 4 },
   bubbleTxt:    { fontSize: 14, lineHeight: 21 },
@@ -512,9 +534,9 @@ const s = StyleSheet.create({
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
   inputBar:     { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 8 },
-  input:        { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, paddingHorizontal: 14, fontSize: 14, maxHeight: 100 },
-  micBtn:       { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  sendBtn:      { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  input:        { flex: 1, borderWidth: 1, borderRadius: 16, padding: 12, paddingHorizontal: 14, fontSize: 14, maxHeight: 100 },
+  micBtn:       { width: 44, height: 44, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  sendBtn:      { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   sendIcon:     { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 },
   voiceHint:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, paddingHorizontal: 16, paddingVertical: 8, gap: 10 },
   voiceHintTxt: { flex: 1, fontSize: 12 },
