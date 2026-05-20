@@ -48,7 +48,7 @@ function friendlyAuthError(message: string) {
   const lower = text.toLowerCase();
   if (!text) return 'Something went wrong. Please try again.';
   if (lower.includes('application not found')) {
-    return 'We could not complete that request. Please check your email and password, then try again.';
+    return 'ReceiptAI server is not reachable. Please check the backend deployment.';
   }
   if (lower.includes('invalid login') || lower.includes('invalid credentials') || lower.includes('authentication failed')) {
     return 'Email or password is incorrect.';
@@ -113,6 +113,11 @@ export default function LoginScreen() {
         data = raw ? JSON.parse(raw) : {};
       } catch {
         data = { detail: raw };
+      }
+
+      if (res.status === 404) {
+        setError('ReceiptAI server is not reachable. Please check the backend deployment.');
+        return;
       }
 
       if (!res.ok) {
