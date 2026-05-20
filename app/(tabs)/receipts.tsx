@@ -69,6 +69,45 @@ function matchAny(text: string, words: string[]) {
   return words.some(word => text.includes(word));
 }
 
+function itemDetailLines(item: any) {
+  const lines: string[] = [];
+  const quantity = n(item?.quantity) || 1;
+  const unit = String(item?.unit || 'each').trim();
+  const unitPrice = n(item?.unit_price);
+  const productSize = item?.product_size || item?.size;
+  const quantityType = item?.quantity_type;
+  const unitLabel = item?.unit_label;
+  const source = item?.source;
+
+  if (productSize) lines.push(`Size: ${productSize}`);
+
+  if (unit && unit.toLowerCase() !== 'each') {
+    const qtyText = quantity > 0 ? `${quantity} ${unit}` : unit;
+    const priceText = unitPrice > 0 ? ` @ $${unitPrice.toFixed(2)}/${unit}` : '';
+    lines.push(`${qtyText}${priceText}`);
+  } else if (quantity > 1) {
+    const priceText = unitPrice > 0 ? ` @ $${unitPrice.toFixed(2)} each` : '';
+    lines.push(`${quantity} each${priceText}`);
+  } else if (unitPrice > 0 && unitPrice !== n(item?.price)) {
+    lines.push(`Unit price: $${unitPrice.toFixed(2)}`);
+  }
+
+  if (unitLabel && unitLabel !== 'each' && !lines.some(line => line.includes(unitLabel))) {
+    lines.push(unitLabel);
+  }
+  if (quantityType && quantityType !== 'each') {
+    lines.push(`Type: ${String(quantityType).replace(/_/g, ' ')}`);
+  }
+  if (source && source !== 'printed') {
+    lines.push(`Source: ${source}`);
+  }
+  if (item?.explicit_quantity === true) {
+    lines.push('Explicit quantity shown on receipt');
+  }
+
+  return lines;
+}
+
 const INDIAN_GROCERY_TERMS = [
   'india mart', 'bharath bazaar', 'bharat bazaar', 'nwa bharath', 'nwa bharat',
   'asian amigo', 'indian grocery', 'desi', 'methi', 'amla', 'okra', 'bhindi',
@@ -709,13 +748,20 @@ export default function ReceiptsScreen() {
               {(selected?.items||[]).map((item:any,i:number) => {
                 const neg = item.price < 0;
                 const ps  = neg ? `-$${Math.abs(item.price).toFixed(2)}` : `$${n(item.price).toFixed(2)}`;
+                const detailLines = itemDetailLines(item);
                 return (
                   <View key={i} style={s.mItem}>
                     <View style={{flex:1}}>
                       {item.code ? <Text style={s.mCode}>{item.code}</Text> : null}
                       <Text style={s.mName}>{item.name}</Text>
                       {item.corrected_by_user ? <Text style={s.correctedTxt}>Corrected</Text> : null}
-                      {item.quantity>1&&item.unit_price ? <Text style={s.mDetail}>{item.quantity}  ${n(item.unit_price).toFixed(2)}</Text> : null}
+                      {detailLines.length ? (
+                        <View style={s.mDetailWrap}>
+                          {detailLines.map((line, idx) => (
+                            <Text key={`${line}-${idx}`} style={s.mDetail}>{line}</Text>
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
                     <View style={{ alignItems:'flex-end', gap:6 }}>
                       <Text style={[s.mPrice,{color:neg?C.green:C.text}]}>{ps}</Text>
@@ -904,7 +950,8 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   mItem:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', paddingVertical:9, borderBottomWidth:1, borderBottomColor:C.border, gap:10 },
   mCode:{ color:C.text3, fontSize:9, fontFamily:'monospace', marginBottom:2 },
   mName:{ color:C.text, fontSize:13 },
-  mDetail:{ color:C.text2, fontSize:10, marginTop:3 },
+  mDetailWrap:{ marginTop:5, gap:2 },
+  mDetail:{ color:C.text2, fontSize:10, lineHeight:14 },
   mPrice:{ fontSize:13, fontWeight:'600' },
   correctedTxt:{ color:C.green, fontSize:10, marginTop:3, fontWeight:'700' },
   editItemBtn:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:8, paddingHorizontal:9, paddingVertical:4 },
