@@ -69,6 +69,14 @@ function matchAny(text: string, words: string[]) {
   return words.some(word => text.includes(word));
 }
 
+const INDIAN_GROCERY_TERMS = [
+  'india mart', 'bharath bazaar', 'bharat bazaar', 'nwa bharath', 'nwa bharat',
+  'asian amigo', 'indian grocery', 'desi', 'methi', 'amla', 'okra', 'bhindi',
+  'goat', 'mutton', 'lamb', 'keema', 'kheema', 'qeema', 'dal', 'dhal', 'atta',
+  'rice', 'masala', 'paneer', 'ghee', 'curry', 'squash', 'chana', 'garbanzo',
+  'brinjal', 'eggplant', 'cilantro', 'coriander', 'dahi', 'curd', 'naan',
+];
+
 function getReceiptCategory(receipt: Receipt): ReceiptCategory {
   const text = receiptSearchText(receipt);
 
@@ -87,7 +95,7 @@ function getReceiptCategory(receipt: Receipt): ReceiptCategory {
   if (matchAny(text, ['restaurant', 'cafe', 'pizza', 'burger', 'taco', 'mcdonald', 'starbucks', 'subway', 'doordash', 'uber eats', 'grubhub'])) {
     return CATEGORIES.find(c => c.key === 'restaurant')!;
   }
-  if (matchAny(text, ['walmart', 'kroger', 'aldi', 'costco', 'sam club', 'target grocery', 'supermarket', 'market', 'grocery', 'food', 'seafood', 'milk', 'bread', 'egg'])) {
+  if (matchAny(text, ['walmart', 'wal mart', 'wal*mart', 'kroger', 'aldi', 'costco', 'sam club', 'target grocery', 'supermarket', 'market', 'grocery', 'food', 'seafood', 'milk', 'bread', 'egg', ...INDIAN_GROCERY_TERMS])) {
     return CATEGORIES.find(c => c.key === 'food')!;
   }
   if (matchAny(text, ['shell', 'exxon', 'chevron', 'bp ', 'circle k', 'speedway', 'gas', 'fuel', 'auto', 'oil change', 'tire'])) {

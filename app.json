@@ -15,14 +15,20 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.ajay.receiptai"
+      "bundleIdentifier": "com.ajay.receiptai",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#080810"
       },
-      "package": "com.ajay.receiptai"
+      "package": "com.ajay.receiptai",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       [

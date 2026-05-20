@@ -1,4 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
 import { getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
 import { useState, useEffect, useCallback } from 'react';
@@ -28,6 +30,9 @@ function getInitial(user: any) {
 }
 
 const API = 'https://web-production-3605f4.up.railway.app';
+// Claude's 5 MB limit is after base64 encoding, so keep raw images well below it.
+const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+const MAX_COMPARISON_ITEMS = 10;
 const FALLBACK_COLORS = {
   bg:'#080810',surface:'#0f0f1a',surface2:'#16162a',
   border:'rgba(255,255,255,0.06)',
@@ -45,6 +50,14 @@ function getMime(uri:string, isPDF:boolean=false){
   return 'image/jpeg';
 }
 const n=(v:any)=>parseFloat(v)||0;
+const money=(v:any)=>`$${n(v).toFixed(2)}`;
+const INDIAN_GROCERY_TERMS = [
+  'india mart', 'bharath bazaar', 'bharat bazaar', 'nwa bharath', 'nwa bharat',
+  'asian amigo', 'indian grocery', 'desi', 'methi', 'amla', 'okra', 'bhindi',
+  'goat', 'mutton', 'lamb', 'keema', 'kheema', 'qeema', 'dal', 'dhal', 'atta',
+  'rice', 'masala', 'paneer', 'ghee', 'curry', 'squash', 'chana', 'garbanzo',
+  'brinjal', 'eggplant', 'cilantro', 'coriander', 'dahi', 'curd', 'naan',
+];
 function scanCategory(receipt:any) {
   const itemText = (receipt?.items || []).map((item:any) => [item?.name, item?.item, item?.code].filter(Boolean).join(' ')).join(' ');
   const text = [receipt?.store, receipt?.address, receipt?.payment_method, itemText].filter(Boolean).join(' ').toLowerCase();
@@ -53,9 +66,60 @@ function scanCategory(receipt:any) {
   if (['cvs', 'walgreens', 'pharmacy', 'rx ', 'medicine', 'vitamin'].some(w => text.includes(w))) return 'Pharmacy & Health';
   if (['lowe', 'home depot', 'tractor supply', 'garden', 'mulch', 'soil', 'plant', 'fertilizer', 'hardware', 'paint', 'lumber'].some(w => text.includes(w))) return 'Gardening & Hardware';
   if (['restaurant', 'cafe', 'pizza', 'burger', 'taco', 'starbucks', 'subway'].some(w => text.includes(w))) return 'Restaurants';
-  if (['walmart', 'kroger', 'aldi', 'costco', 'supermarket', 'market', 'grocery', 'food', 'milk', 'bread', 'egg'].some(w => text.includes(w))) return 'Food & Grocery';
+  if (['walmart', 'wal mart', 'wal*mart', 'kroger', 'aldi', 'costco', 'supermarket', 'market', 'grocery', 'food', 'milk', 'bread', 'egg', ...INDIAN_GROCERY_TERMS].some(w => text.includes(w))) return 'Food & Grocery';
   if (['shell', 'exxon', 'chevron', 'bp ', 'gas', 'fuel', 'auto', 'tire'].some(w => text.includes(w))) return 'Fuel & Auto';
   return 'Other';
+}
+
+async function fileSize(uri: string) {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    return info.exists && typeof info.size === 'number' ? info.size : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function compressReceiptImage(uri: string) {
+  let currentUri = uri;
+  let currentSize = await fileSize(currentUri);
+  if (!currentSize || currentSize <= MAX_UPLOAD_BYTES) {
+    return { uri: currentUri, compressed: false, size: currentSize };
+  }
+
+  const attempts = [
+    { width: 1800, compress: 0.72 },
+    { width: 1500, compress: 0.62 },
+    { width: 1200, compress: 0.52 },
+    { width: 1000, compress: 0.45 },
+    { width: 800, compress: 0.35 },
+    { width: 650, compress: 0.3 },
+  ];
+
+  for (const attempt of attempts) {
+    const manipulated = await ImageManipulator.manipulateAsync(
+      currentUri,
+      [{ resize: { width: attempt.width } }],
+      { compress: attempt.compress, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    currentUri = manipulated.uri;
+    currentSize = await fileSize(currentUri);
+    if (!currentSize || currentSize <= MAX_UPLOAD_BYTES) break;
+  }
+
+  return { uri: currentUri, compressed: currentUri !== uri, size: currentSize };
+}
+
+function itemAmountForCompare(item: any) {
+  const unit = String(item?.unit || 'each').toLowerCase().trim();
+  const unitPrice = n(item?.unit_price);
+  if (unit && unit !== 'each' && unitPrice > 0) return unitPrice;
+  return n(item?.price);
+}
+
+function itemUnitLabel(item: any) {
+  const unit = String(item?.unit || 'each').toLowerCase().trim();
+  return unit && unit !== 'each' ? `/${unit}` : '';
 }
 
 export default function ScanScreen(){
@@ -65,6 +129,9 @@ export default function ScanScreen(){
   const [isPDF,setIsPDF]         = useState(false);
   const [loading,setLoading]     = useState(false);
   const [result,setResult]       = useState<any>(null);
+  const [priceInsights,setPriceInsights] = useState<any[]>([]);
+  const [priceLoading,setPriceLoading] = useState(false);
+  const [fileStatus,setFileStatus] = useState('');
   const [duplicate,setDuplicate] = useState('');
   const [stats,setStats]         = useState({receipts:0,spent:0,saved:0});
 
@@ -102,15 +169,97 @@ export default function ScanScreen(){
     }catch{}
   }
 
+  async function comparisonHeaders() {
+    const token = await getUserToken();
+    const headers:any = {'Content-Type':'application/json'};
+    if(user && !user.is_guest && token && token !== 'guest') {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  }
+
+  async function loadPriceInsights(receipt:any, savedId:any) {
+    const items = (receipt?.items || [])
+      .filter((item:any) => item && n(item.price) > 0 && String(item.name || '').trim() && !String(item.name || '').toLowerCase().includes('discount'))
+      .slice(0, MAX_COMPARISON_ITEMS);
+
+    if (!items.length || !user) {
+      setPriceInsights([]);
+      return;
+    }
+
+    setPriceLoading(true);
+    try {
+      const headers = await comparisonHeaders();
+      const guestSessionId = user?.is_guest || user?.token === 'guest' ? (user.guest_session_id || user.id) : '';
+      const rows = await Promise.all(items.map(async (item:any) => {
+        const params = new URLSearchParams({ item: item.name || item.item || '' });
+        if (guestSessionId) params.set('session_id', guestSessionId);
+        const res = await fetch(`${API}/price-memory/search?${params.toString()}`, { headers });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const match = (data.matches || [])[0];
+        const current = itemAmountForCompare(item);
+        if (!match || current <= 0) {
+          return {
+            item: item.name || item.item,
+            current,
+            unitLabel: itemUnitLabel(item),
+            status: 'new',
+            message: 'No previous price found yet.',
+          };
+        }
+
+        const previousEvents = (match.recent_events || []).filter((event:any) => String(event.receipt_id || '') !== String(savedId || ''));
+        const previousPrices = previousEvents.map((event:any) => n(event.price)).filter((price:number) => price > 0);
+        if (!previousPrices.length) {
+          return {
+            item: item.name || item.item,
+            current,
+            unitLabel: itemUnitLabel(item),
+            status: 'new',
+            matched: match.item_name,
+            message: 'First saved price for this item.',
+          };
+        }
+
+        const previousLow = Math.min(...previousPrices);
+        const previousHigh = Math.max(...previousPrices);
+        const diff = current - previousLow;
+        const status = Math.abs(diff) < 0.01 ? 'same' : diff < 0 ? 'lower' : 'higher';
+        return {
+          item: item.name || item.item,
+          current,
+          unitLabel: itemUnitLabel(item),
+          matched: match.item_name,
+          previousLow,
+          previousHigh,
+          diff,
+          status,
+          store: match.cheapest_store,
+        };
+      }));
+      setPriceInsights(rows.filter(Boolean));
+    } catch {
+      setPriceInsights([]);
+    } finally {
+      setPriceLoading(false);
+    }
+  }
+
   async function pickImage(){
     const p=await ImagePicker.requestMediaLibraryPermissionsAsync();
     if(!p.granted){Alert.alert('Permission needed','Allow photo access.');return;}
     const r=await ImagePicker.launchImageLibraryAsync({mediaTypes:ImagePicker.MediaTypeOptions.Images,quality:0.85});
     if(!r.canceled&&r.assets[0]){
-      setUri(r.assets[0].uri);
+      setFileStatus('');
+      const prepared = await compressReceiptImage(r.assets[0].uri);
+      setUri(prepared.uri);
       setIsPDF(false);
       setResult(null);
+      setPriceInsights([]);
       setDuplicate('');
+      if (prepared.compressed) setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
     }
   }
 
@@ -119,10 +268,14 @@ export default function ScanScreen(){
     if(!p.granted){Alert.alert('Permission needed','Allow camera access.');return;}
     const r=await ImagePicker.launchCameraAsync({quality:0.85});
     if(!r.canceled&&r.assets[0]){
-      setUri(r.assets[0].uri);
+      setFileStatus('');
+      const prepared = await compressReceiptImage(r.assets[0].uri);
+      setUri(prepared.uri);
       setIsPDF(false);
       setResult(null);
+      setPriceInsights([]);
       setDuplicate('');
+      if (prepared.compressed) setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
     }
   }
 
@@ -140,17 +293,28 @@ export default function ScanScreen(){
 
     setLoading(true);
     setResult(null);
+    setPriceInsights([]);
     setDuplicate('');
 
     try{
       const token = await getUserToken();
+      const prepared = isPDF ? { uri, compressed: false, size: 0 } : await compressReceiptImage(uri);
+      if (prepared.compressed) {
+        setUri(prepared.uri);
+        setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
+      }
+      if (prepared.size && prepared.size > MAX_UPLOAD_BYTES) {
+        Alert.alert('Image too large', 'Please crop the receipt closer and try again. The image is still above 5 MB after compression.');
+        return;
+      }
+
       const fd = new FormData();
-      const fname = uri.split('/').pop() || (isPDF ? 'receipt.pdf' : 'receipt.jpg');
+      const fname = prepared.uri.split('/').pop() || (isPDF ? 'receipt.pdf' : 'receipt.jpg');
 
       fd.append('file', {
-        uri,
+        uri: prepared.uri,
         name: fname,
-        type: getMime(uri, isPDF),
+        type: getMime(prepared.uri, isPDF),
       } as any);
 
       let endpoint = `${API}/scan-receipt`;
@@ -183,7 +347,14 @@ export default function ScanScreen(){
       const data = await res.json();
 
       if(!res.ok){
-        Alert.alert('Scan Failed', data.detail || data.message || `Error ${res.status}`);
+        const rawMessage = String(data.detail || data.message || `Error ${res.status}`);
+        const lowerMessage = rawMessage.toLowerCase();
+        const friendlyMessage = rawMessage.includes('image exceeds 5 MB')
+          ? 'The receipt image is still too large for AI scanning. Please crop closer to the receipt or retake the photo from a shorter distance.'
+          : lowerMessage.includes('cannot read receipt') || lowerMessage.includes('not readable') || lowerMessage.includes('not legible') || lowerMessage.includes('too small') || lowerMessage.includes('far away')
+            ? 'Cannot read the receipt clearly. Retake the photo closer, keep the full receipt visible, and make sure the text is sharp.'
+          : rawMessage;
+        Alert.alert('Scan Failed', friendlyMessage);
         return;
       }
 
@@ -192,6 +363,7 @@ export default function ScanScreen(){
       }
 
       setResult(data.receipt);
+      await loadPriceInsights(data.receipt, data.saved_id);
       await loadStats();
     }catch(e:any){
       Alert.alert('Error', e.message || 'Could not connect. Try again.');
@@ -203,6 +375,8 @@ export default function ScanScreen(){
   function resetScan(){
     setResult(null);
     setUri(null);
+    setPriceInsights([]);
+    setFileStatus('');
     setDuplicate('');
     setIsPDF(false);
   }
@@ -302,6 +476,12 @@ export default function ScanScreen(){
                 <Text style={s.pdfPreviewSub}>PDF ready to scan</Text>
               </View>
             )}
+            {fileStatus ? (
+              <View style={s.fileNote}>
+                <Ionicons name="checkmark-circle-outline" size={15} color={C.accent3} />
+                <Text style={s.fileNoteText}>{fileStatus}</Text>
+              </View>
+            ) : null}
 
             <View style={s.btnRow}>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickImage} activeOpacity={0.8}>
@@ -380,6 +560,8 @@ export default function ScanScreen(){
               const unit = (item.unit||'').toLowerCase().trim();
               const qty  = n(item.quantity)||1;
               const up   = n(item.unit_price);
+              const productSize = item.product_size || '';
+              const savedUnitLabel = item.unit_label || '';
               const UNITS=['lb','lbs','oz','kg','g','mg','ml','l','liter','liters','fl oz','fl','gal','gallon','pt','pint','qt','quart','ct','count'];
               const isWeighted=UNITS.includes(unit);
               let qtyLabel='',unitLabel='';
@@ -390,6 +572,8 @@ export default function ScanScreen(){
                 qtyLabel=`${qty}`;
                 if(up>0) unitLabel=`@ $${up.toFixed(2)} each`;
               }
+              if(productSize && !unitLabel) unitLabel=`Size: ${productSize}`;
+              if(savedUnitLabel && savedUnitLabel !== 'each' && !unitLabel) unitLabel=savedUnitLabel;
               return(
                 <View key={i} style={s.itemRow}>
                   <View style={{flex:1}}>
@@ -401,6 +585,53 @@ export default function ScanScreen(){
                     {unitLabel?<Text style={s.itemUnit}>{unitLabel}</Text>:null}
                   </View>
                   <Text style={[s.itemPrice,{color:neg?C.green:C.text}]}>{ps}</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <View style={s.compareBox}>
+            <View style={s.compareHead}>
+              <View>
+                <Text style={s.compareKicker}>Instant price check</Text>
+                <Text style={s.compareTitle}>Compared with your receipt history</Text>
+              </View>
+              {priceLoading ? <ActivityIndicator color={C.accent} size="small" /> : null}
+            </View>
+
+            {!priceLoading && priceInsights.length === 0 ? (
+              <Text style={s.compareEmpty}>Scan more receipts to compare these prices automatically.</Text>
+            ) : null}
+
+            {priceInsights.map((row:any, i:number) => {
+              const isLower = row.status === 'lower';
+              const isHigher = row.status === 'higher';
+              const tone = isLower ? C.green : isHigher ? C.red : C.text2;
+              const label = row.status === 'new'
+                ? 'New'
+                : row.status === 'same'
+                  ? 'Same'
+                  : isLower
+                    ? 'Lower'
+                    : 'Higher';
+              const detail = row.status === 'new'
+                ? row.message
+                : `${money(row.current)}${row.unitLabel || ''} now · previous low ${money(row.previousLow)}${row.unitLabel || ''}`;
+              const delta = row.status === 'new' || row.status === 'same'
+                ? ''
+                : `${isLower ? 'Save' : 'Up'} ${money(Math.abs(row.diff))}${row.unitLabel || ''}`;
+
+              return (
+                <View key={`${row.item}-${i}`} style={s.compareRow}>
+                  <View style={s.compareLeft}>
+                    <Text style={s.compareItem} numberOfLines={1}>{row.item}</Text>
+                    <Text style={s.compareDetail}>{detail}</Text>
+                    {row.store ? <Text style={s.compareStore}>Best known store: {row.store}</Text> : null}
+                  </View>
+                  <View style={[s.comparePill,{borderColor:tone}]}>
+                    <Text style={[s.comparePillText,{color:tone}]}>{label}</Text>
+                    {delta ? <Text style={[s.compareDelta,{color:tone}]}>{delta}</Text> : null}
+                  </View>
                 </View>
               );
             })}
@@ -518,6 +749,8 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   fmtPill:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,borderRadius:99,paddingHorizontal:8,paddingVertical:2},
   fmtText:{color:C.text3,fontSize:10},
   preview:{width:'100%',height:200,borderRadius:12,marginTop:14,borderWidth:1,borderColor:C.border},
+  fileNote:{marginTop:10,flexDirection:'row',alignItems:'center',gap:7,backgroundColor:'rgba(106,255,212,0.07)',borderWidth:1,borderColor:'rgba(106,255,212,0.18)',borderRadius:10,padding:10},
+  fileNoteText:{color:C.text2,fontSize:11,flex:1},
   pdfPreview:{backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:16,marginTop:14,alignItems:'center'},
   pdfPreviewText:{color:C.accent,fontSize:13,fontWeight:'600'},
   pdfPreviewSub:{color:C.text3,fontSize:11,marginTop:4},
@@ -548,6 +781,19 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   itemQty:{color:C.accent,fontSize:11},
   itemUnit:{color:C.text2,fontSize:11,marginTop:2},
   itemPrice:{fontSize:13,fontWeight:'600'},
+  compareBox:{marginHorizontal:16,marginBottom:12,backgroundColor:C.surface,borderWidth:1,borderColor:C.border,borderRadius:14,padding:14},
+  compareHead:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:8},
+  compareKicker:{color:C.accent3,fontSize:9,fontWeight:'900',textTransform:'uppercase',letterSpacing:0.6,marginBottom:3},
+  compareTitle:{color:C.text,fontSize:14,fontWeight:'900'},
+  compareEmpty:{color:C.text2,fontSize:12,lineHeight:18},
+  compareRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10,paddingVertical:9,borderTopWidth:1,borderTopColor:C.border},
+  compareLeft:{flex:1},
+  compareItem:{color:C.text,fontSize:12,fontWeight:'800'},
+  compareDetail:{color:C.text2,fontSize:11,marginTop:2},
+  compareStore:{color:C.accent,fontSize:10,marginTop:2,fontWeight:'700'},
+  comparePill:{minWidth:72,borderWidth:1,borderRadius:12,paddingHorizontal:8,paddingVertical:6,alignItems:'center'},
+  comparePillText:{fontSize:11,fontWeight:'900'},
+  compareDelta:{fontSize:9,fontWeight:'800',marginTop:2},
   totals:{backgroundColor:C.surface,margin:16,borderRadius:12,padding:14},
   tRow:{flexDirection:'row',justifyContent:'space-between',paddingVertical:4},
   tLbl:{color:C.text2,fontSize:13},
