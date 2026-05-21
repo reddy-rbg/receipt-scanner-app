@@ -15,6 +15,7 @@ const INVOICE_ITEM_PAGE_SIZE = 25;
 
 
 const n = (v:any) => parseFloat(v)||0;
+const hasVisibleMoney = (v:any) => v !== null && v !== undefined && v !== '' && n(v) > 0;
 
 type Receipt = {
   id:number; store:string; date?:string; time?:string;
@@ -41,6 +42,7 @@ const FILTER_TABS = [
 ];
 
 const CATEGORIES: ReceiptCategory[] = [
+  { key:'inventory',  label:'Wholesale Inventory', icon:'' },
   { key:'food',       label:'Food & Grocery',       icon:'' },
   { key:'restaurant', label:'Restaurants',          icon:'' },
   { key:'garden',     label:'Gardening & Hardware', icon:'' },
@@ -132,6 +134,9 @@ const INDIAN_GROCERY_TERMS = [
 function getReceiptCategory(receipt: Receipt): ReceiptCategory {
   const text = receiptSearchText(receipt);
 
+  if (matchAny(text, ['wholesale', 'invoice', 'sold to', 'ship to', 'tobacco license', 'vape', 'nicotine', 'e-liquid', 'eliquid', 'gummies', 'smoke shop', 'warehouse'])) {
+    return CATEGORIES.find(c => c.key === 'inventory')!;
+  }
   if (matchAny(text, ['bank', 'atm', 'withdrawal', 'deposit', 'credit union', 'chase', 'wells fargo', 'bank of america', 'capital one', 'payment receipt'])) {
     return CATEGORIES.find(c => c.key === 'bank')!;
   }
@@ -743,7 +748,7 @@ export default function ReceiptsScreen() {
               <View style={s.detailSummary}>
                 <View style={s.detailTile}>
                   <Text style={s.detailLabel}>Total</Text>
-                  <Text style={[s.detailValue, { color:C.accent }]}>${n(selected?.total).toFixed(2)}</Text>
+                  <Text style={[s.detailValue, { color:C.accent }]}>{hasVisibleMoney(selected?.total) ? `$${n(selected?.total).toFixed(2)}` : 'Not visible'}</Text>
                 </View>
                 <View style={s.detailTile}>
                   <Text style={s.detailLabel}>Items</Text>
@@ -831,8 +836,11 @@ export default function ReceiptsScreen() {
                 {n(selected?.tax)>0      && <View style={s.tRow}><Text style={s.tLbl}>Tax</Text><Text style={s.tVal}>${n(selected?.tax).toFixed(2)}</Text></View>}
                 <View style={[s.tRow,s.tFinal]}>
                   <Text style={s.tFinalLbl}>Total Paid</Text>
-                  <Text style={s.tFinalAmt}>${n(selected?.total).toFixed(2)}</Text>
+                  <Text style={s.tFinalAmt}>{hasVisibleMoney(selected?.total) ? `$${n(selected?.total).toFixed(2)}` : 'Not visible'}</Text>
                 </View>
+                {!hasVisibleMoney(selected?.total) ? (
+                  <Text style={s.totalNote}>Final invoice total was not visible in the scanned image.</Text>
+                ) : null}
               </View>
 
               {n(selected?.total_savings)>0 && (
@@ -1021,6 +1029,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   tFinal:{ borderTopWidth:1, borderTopColor:C.border, marginTop:6, paddingTop:10 },
   tFinalLbl:{ color:C.text, fontSize:15, fontWeight:'700' },
   tFinalAmt:{ color:C.accent, fontSize:15, fontWeight:'800' },
+  totalNote:{ color:C.text2, fontSize:11, lineHeight:16, marginTop:8 },
   savingsBanner:{ marginTop:12, padding:10, backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.25)', borderRadius:10 },
   savingsBannerTxt:{ color:C.green, fontWeight:'600', fontSize:13, textAlign:'center' },
   payment:{ color:C.text3, fontSize:11, textAlign:'center', marginTop:10 },

@@ -52,6 +52,7 @@ function getMime(uri:string, isPDF:boolean=false){
 }
 const n=(v:any)=>parseFloat(v)||0;
 const money=(v:any)=>`$${n(v).toFixed(2)}`;
+const hasVisibleMoney=(v:any)=>v !== null && v !== undefined && v !== '' && n(v) > 0;
 const INDIAN_GROCERY_TERMS = [
   'india mart', 'bharath bazaar', 'bharat bazaar', 'nwa bharath', 'nwa bharat',
   'asian amigo', 'indian grocery', 'desi', 'methi', 'amla', 'okra', 'bhindi',
@@ -62,6 +63,7 @@ const INDIAN_GROCERY_TERMS = [
 function scanCategory(receipt:any) {
   const itemText = (receipt?.items || []).map((item:any) => [item?.name, item?.item, item?.code].filter(Boolean).join(' ')).join(' ');
   const text = [receipt?.store, receipt?.address, receipt?.payment_method, itemText].filter(Boolean).join(' ').toLowerCase();
+  if (['wholesale', 'invoice', 'sold to', 'ship to', 'tobacco license', 'vape', 'nicotine', 'e-liquid', 'eliquid', 'gummies', 'smoke shop', 'warehouse'].some(w => text.includes(w))) return 'Wholesale Inventory';
   if (['bank', 'atm', 'withdrawal', 'deposit', 'credit union', 'chase', 'wells fargo', 'bank of america', 'capital one'].some(w => text.includes(w))) return 'Bank & Finance';
   if (['hospital', 'clinic', 'urgent care', 'doctor', 'dental', 'patient', 'medical'].some(w => text.includes(w))) return 'Hospital & Medical';
   if (['cvs', 'walgreens', 'pharmacy', 'rx ', 'medicine', 'vitamin'].some(w => text.includes(w))) return 'Pharmacy & Health';
@@ -560,7 +562,7 @@ export default function ScanScreen(){
             </View>
             <View style={s.summaryTile}>
               <Text style={s.summaryLabel}>Total</Text>
-              <Text style={[s.summaryValue,{color:C.accent}]}>${n(result.total).toFixed(2)}</Text>
+              <Text style={[s.summaryValue,{color:C.accent}]}>{hasVisibleMoney(result.total) ? `$${n(result.total).toFixed(2)}` : 'Not visible'}</Text>
             </View>
           </View>
 
@@ -693,8 +695,11 @@ export default function ScanScreen(){
             {n(result.tax)>0&&<View style={s.tRow}><Text style={s.tLbl}>Tax</Text><Text style={s.tVal}>${n(result.tax).toFixed(2)}</Text></View>}
             <View style={[s.tRow,s.tFinal]}>
               <Text style={s.tFinalLbl}>Total Paid</Text>
-              <Text style={s.tFinalAmt}>${n(result.total).toFixed(2)}</Text>
+              <Text style={s.tFinalAmt}>{hasVisibleMoney(result.total) ? `$${n(result.total).toFixed(2)}` : 'Not visible'}</Text>
             </View>
+            {!hasVisibleMoney(result.total) ? (
+              <Text style={s.totalNote}>The final invoice total was not visible in this image. Scan the remaining page to capture the full total.</Text>
+            ) : null}
           </View>
 
           {n(result.total_savings)>0&&(
@@ -859,6 +864,7 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   tFinal:{borderTopWidth:1,borderTopColor:C.border,marginTop:6,paddingTop:10},
   tFinalLbl:{color:C.text,fontSize:15,fontWeight:'700'},
   tFinalAmt:{color:C.accent,fontSize:15,fontWeight:'800'},
+  totalNote:{color:C.text2,fontSize:11,lineHeight:16,marginTop:8},
   savingsBanner:{marginHorizontal:16,marginBottom:8,padding:10,backgroundColor:'rgba(74,222,128,0.1)',borderWidth:1,borderColor:'rgba(74,222,128,0.25)',borderRadius:10},
   savingsText:{color:C.green,fontWeight:'600',fontSize:13,textAlign:'center'},
 });
