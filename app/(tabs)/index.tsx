@@ -33,6 +33,7 @@ const API = 'https://web-production-3605f4.up.railway.app';
 // Claude's 5 MB limit is after base64 encoding, so keep raw images well below it.
 const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
 const MAX_COMPARISON_ITEMS = 10;
+const INVOICE_ITEM_PAGE_SIZE = 25;
 const FALLBACK_COLORS = {
   bg:'#080810',surface:'#0f0f1a',surface2:'#16162a',
   border:'rgba(255,255,255,0.06)',
@@ -122,6 +123,15 @@ function itemUnitLabel(item: any) {
   return unit && unit !== 'each' ? `/${unit}` : '';
 }
 
+function itemPageCount(items: any[] = []) {
+  return Math.max(1, Math.ceil(items.length / INVOICE_ITEM_PAGE_SIZE));
+}
+
+function itemPageItems(items: any[] = [], page: number) {
+  const start = page * INVOICE_ITEM_PAGE_SIZE;
+  return items.slice(start, start + INVOICE_ITEM_PAGE_SIZE);
+}
+
 export default function ScanScreen(){
   const { colors: C } = useTheme();
   const s = createStyles(C);
@@ -134,6 +144,7 @@ export default function ScanScreen(){
   const [fileStatus,setFileStatus] = useState('');
   const [duplicate,setDuplicate] = useState('');
   const [stats,setStats]         = useState({receipts:0,spent:0,saved:0});
+  const [resultItemPage,setResultItemPage] = useState(0);
 
   // Re-check login every time this screen is focused
   // This fixes the issue where sign out doesn't update the scan screen
@@ -257,6 +268,7 @@ export default function ScanScreen(){
       setUri(prepared.uri);
       setIsPDF(false);
       setResult(null);
+      setResultItemPage(0);
       setPriceInsights([]);
       setDuplicate('');
       if (prepared.compressed) setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
@@ -273,6 +285,7 @@ export default function ScanScreen(){
       setUri(prepared.uri);
       setIsPDF(false);
       setResult(null);
+      setResultItemPage(0);
       setPriceInsights([]);
       setDuplicate('');
       if (prepared.compressed) setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
@@ -293,6 +306,7 @@ export default function ScanScreen(){
 
     setLoading(true);
     setResult(null);
+    setResultItemPage(0);
     setPriceInsights([]);
     setDuplicate('');
 
@@ -363,6 +377,7 @@ export default function ScanScreen(){
       }
 
       setResult(data.receipt);
+      setResultItemPage(0);
       await loadPriceInsights(data.receipt, data.saved_id);
       await loadStats();
     }catch(e:any){
@@ -374,6 +389,7 @@ export default function ScanScreen(){
 
   function resetScan(){
     setResult(null);
+    setResultItemPage(0);
     setUri(null);
     setPriceInsights([]);
     setFileStatus('');
@@ -553,8 +569,42 @@ export default function ScanScreen(){
             <Text style={s.resultActionText}>Saved for price history, spending analysis, and before-you-buy checks.</Text>
           </View>
 
+          {(() => {
+            const items = result.items || [];
+            const totalPages = itemPageCount(items);
+            const page = Math.min(resultItemPage, totalPages - 1);
+            const start = page * INVOICE_ITEM_PAGE_SIZE + 1;
+            const end = Math.min(items.length, (page + 1) * INVOICE_ITEM_PAGE_SIZE);
+            if (items.length <= INVOICE_ITEM_PAGE_SIZE) return null;
+            return (
+              <View style={s.invoicePager}>
+                <View>
+                  <Text style={s.invoicePagerTitle}>Large invoice view</Text>
+                  <Text style={s.invoicePagerText}>Showing {start}-{end} of {items.length} scanned lines</Text>
+                </View>
+                <View style={s.pageControls}>
+                  <TouchableOpacity
+                    style={[s.pageBtn, page === 0 && s.pageBtnDisabled]}
+                    onPress={() => setResultItemPage(Math.max(0, page - 1))}
+                    disabled={page === 0}
+                  >
+                    <Text style={s.pageBtnText}>Prev</Text>
+                  </TouchableOpacity>
+                  <Text style={s.pageCount}>{page + 1}/{totalPages}</Text>
+                  <TouchableOpacity
+                    style={[s.pageBtn, page >= totalPages - 1 && s.pageBtnDisabled]}
+                    onPress={() => setResultItemPage(Math.min(totalPages - 1, page + 1))}
+                    disabled={page >= totalPages - 1}
+                  >
+                    <Text style={s.pageBtnText}>Next</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
+
           <View style={s.items}>
-            {(result.items||[]).map((item:any,i:number)=>{
+            {itemPageItems(result.items||[], resultItemPage).map((item:any,i:number)=>{
               const neg  = item.price<0;
               const ps   = neg?`-$${Math.abs(item.price).toFixed(2)}`:`$${n(item.price).toFixed(2)}`;
               const unit = (item.unit||'').toLowerCase().trim();
@@ -774,6 +824,14 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   resultActionNote:{marginHorizontal:16,marginBottom:4,backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:12},
   resultActionTitle:{color:C.text,fontSize:13,fontWeight:'900',marginBottom:3},
   resultActionText:{color:C.text2,fontSize:12,lineHeight:17},
+  invoicePager:{marginHorizontal:16,marginTop:12,backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:12,flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10},
+  invoicePagerTitle:{color:C.text,fontSize:13,fontWeight:'900'},
+  invoicePagerText:{color:C.text2,fontSize:11,marginTop:2},
+  pageControls:{flexDirection:'row',alignItems:'center',gap:6},
+  pageBtn:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,borderRadius:9,paddingHorizontal:9,paddingVertical:6},
+  pageBtnDisabled:{opacity:0.35},
+  pageBtnText:{color:C.accent,fontSize:11,fontWeight:'900'},
+  pageCount:{color:C.text2,fontSize:11,fontWeight:'800',minWidth:34,textAlign:'center'},
   items:{padding:16},
   itemRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'flex-start',paddingVertical:7,borderBottomWidth:1,borderBottomColor:C.border,gap:10},
   itemCode:{color:C.text3,fontSize:9,fontFamily:'monospace'},

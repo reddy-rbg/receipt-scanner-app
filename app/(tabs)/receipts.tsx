@@ -11,6 +11,7 @@ import {
 
 const API = 'https://web-production-3605f4.up.railway.app';
 const RECEIPTS_CACHE_KEY = 'receiptai:receipts-cache:v1';
+const INVOICE_ITEM_PAGE_SIZE = 25;
 
 
 const n = (v:any) => parseFloat(v)||0;
@@ -108,6 +109,18 @@ function itemDetailLines(item: any) {
   return lines;
 }
 
+function itemPageCount(items: any[] = []) {
+  return Math.max(1, Math.ceil(items.length / INVOICE_ITEM_PAGE_SIZE));
+}
+
+function itemPageItems(items: any[] = [], page: number) {
+  const start = page * INVOICE_ITEM_PAGE_SIZE;
+  return items.slice(start, start + INVOICE_ITEM_PAGE_SIZE).map((item, index) => ({
+    item,
+    originalIndex: start + index,
+  }));
+}
+
 const INDIAN_GROCERY_TERMS = [
   'india mart', 'bharath bazaar', 'bharat bazaar', 'nwa bharath', 'nwa bharat',
   'asian amigo', 'indian grocery', 'desi', 'methi', 'amla', 'okra', 'bhindi',
@@ -199,8 +212,11 @@ export default function ReceiptsScreen() {
   const [editPrice, setEditPrice] = useState('');
   const [editQty, setEditQty] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const [detailItemPage, setDetailItemPage] = useState(0);
 
   useEffect(() => { load(); }, [user?.id, user?.guest_session_id]);
+
+  useEffect(() => { setDetailItemPage(0); }, [selected?.id]);
 
   useEffect(() => {
     if (activeTab !== 'store') return;
@@ -744,13 +760,48 @@ export default function ReceiptsScreen() {
                 <Text style={s.aiReadyText}>Ask Agent about cheaper stores, repeated items, category spending, or whether this trip was unusual.</Text>
               </View>
 
-              <Text style={s.sectionTitle}>Items Purchased</Text>
-              {(selected?.items||[]).map((item:any,i:number) => {
+              {(() => {
+                const items = selected?.items || [];
+                const totalPages = itemPageCount(items);
+                const page = Math.min(detailItemPage, totalPages - 1);
+                const start = page * INVOICE_ITEM_PAGE_SIZE + 1;
+                const end = Math.min(items.length, (page + 1) * INVOICE_ITEM_PAGE_SIZE);
+                return (
+                  <View style={s.invoicePager}>
+                    <View style={{ flex:1 }}>
+                      <Text style={s.sectionTitle}>{items.length > INVOICE_ITEM_PAGE_SIZE ? 'Invoice Items' : 'Items Purchased'}</Text>
+                      {items.length > INVOICE_ITEM_PAGE_SIZE ? (
+                        <Text style={s.invoicePagerText}>Showing {start}-{end} of {items.length}</Text>
+                      ) : null}
+                    </View>
+                    {items.length > INVOICE_ITEM_PAGE_SIZE ? (
+                      <View style={s.pageControls}>
+                        <TouchableOpacity
+                          style={[s.pageBtn, page === 0 && s.pageBtnDisabled]}
+                          onPress={() => setDetailItemPage(Math.max(0, page - 1))}
+                          disabled={page === 0}
+                        >
+                          <Text style={s.pageBtnText}>Prev</Text>
+                        </TouchableOpacity>
+                        <Text style={s.pageCount}>{page + 1}/{totalPages}</Text>
+                        <TouchableOpacity
+                          style={[s.pageBtn, page >= totalPages - 1 && s.pageBtnDisabled]}
+                          onPress={() => setDetailItemPage(Math.min(totalPages - 1, page + 1))}
+                          disabled={page >= totalPages - 1}
+                        >
+                          <Text style={s.pageBtnText}>Next</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })()}
+              {itemPageItems(selected?.items || [], detailItemPage).map(({ item, originalIndex }) => {
                 const neg = item.price < 0;
                 const ps  = neg ? `-$${Math.abs(item.price).toFixed(2)}` : `$${n(item.price).toFixed(2)}`;
                 const detailLines = itemDetailLines(item);
                 return (
-                  <View key={i} style={s.mItem}>
+                  <View key={originalIndex} style={s.mItem}>
                     <View style={{flex:1}}>
                       {item.code ? <Text style={s.mCode}>{item.code}</Text> : null}
                       <Text style={s.mName}>{item.name}</Text>
@@ -765,7 +816,7 @@ export default function ReceiptsScreen() {
                     </View>
                     <View style={{ alignItems:'flex-end', gap:6 }}>
                       <Text style={[s.mPrice,{color:neg?C.green:C.text}]}>{ps}</Text>
-                      <TouchableOpacity style={s.editItemBtn} onPress={() => startEditItem(i, item)}>
+                      <TouchableOpacity style={s.editItemBtn} onPress={() => startEditItem(originalIndex, item)}>
                         <Text style={s.editItemTxt}>Edit</Text>
                       </TouchableOpacity>
                     </View>
@@ -947,6 +998,13 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   aiReadyTitle:{ color:C.text, fontSize:13, fontWeight:'900', marginBottom:4 },
   aiReadyText:{ color:C.text2, fontSize:12, lineHeight:17 },
   sectionTitle:{ color:C.text3, fontSize:10, fontWeight:'600', letterSpacing:1, textTransform:'uppercase', marginBottom:10 },
+  invoicePager:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:6 },
+  invoicePagerText:{ color:C.text2, fontSize:11, marginTop:-6 },
+  pageControls:{ flexDirection:'row', alignItems:'center', gap:6 },
+  pageBtn:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:9, paddingHorizontal:10, paddingVertical:6 },
+  pageBtnDisabled:{ opacity:0.35 },
+  pageBtnText:{ color:C.accent, fontSize:11, fontWeight:'900' },
+  pageCount:{ color:C.text2, fontSize:11, fontWeight:'800', minWidth:34, textAlign:'center' },
   mItem:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', paddingVertical:9, borderBottomWidth:1, borderBottomColor:C.border, gap:10 },
   mCode:{ color:C.text3, fontSize:9, fontFamily:'monospace', marginBottom:2 },
   mName:{ color:C.text, fontSize:13 },
