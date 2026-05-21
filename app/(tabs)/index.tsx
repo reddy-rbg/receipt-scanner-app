@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
@@ -295,7 +296,20 @@ export default function ScanScreen(){
   }
 
   async function pickPDF(){
-    Alert.alert('PDF Support', 'PDF scanning coming soon! Please use Gallery or Camera for now.');
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'application/pdf',
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setFileStatus(asset.size ? `PDF selected: ${(asset.size / (1024 * 1024)).toFixed(1)} MB. Multi-page invoices will be scanned together.` : 'PDF selected. Multi-page invoices will be scanned together.');
+    setUri(asset.uri);
+    setIsPDF(true);
+    setResult(null);
+    setResultItemPage(0);
+    setPriceInsights([]);
+    setDuplicate('');
   }
 
   async function scan(){
