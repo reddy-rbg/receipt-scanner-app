@@ -33,6 +33,7 @@ function getInitial(user: any) {
 const API = 'https://web-production-3605f4.up.railway.app';
 // Claude's 5 MB limit is after base64 encoding, so keep raw images well below it.
 const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+const MAX_SCAN_IMAGE_PAGES = 8;
 const MAX_COMPARISON_ITEMS = 10;
 const INVOICE_ITEM_PAGE_SIZE = 25;
 const FALLBACK_COLORS = {
@@ -139,6 +140,7 @@ export default function ScanScreen(){
   const { colors: C } = useTheme();
   const s = createStyles(C);
   const [uri,setUri]             = useState<string|null>(null);
+  const [imageUris,setImageUris] = useState<string[]>([]);
   const [isPDF,setIsPDF]         = useState(false);
   const [loading,setLoading]     = useState(false);
   const [result,setResult]       = useState<any>(null);
@@ -264,21 +266,34 @@ export default function ScanScreen(){
   async function pickImage(){
     const p=await ImagePicker.requestMediaLibraryPermissionsAsync();
     if(!p.granted){Alert.alert('Permission needed','Allow photo access.');return;}
-    const r=await ImagePicker.launchImageLibraryAsync({mediaTypes:ImagePicker.MediaTypeOptions.Images,quality:0.85});
-    if(!r.canceled&&r.assets[0]){
+    const r=await ImagePicker.launchImageLibraryAsync({
+      mediaTypes:ImagePicker.MediaTypeOptions.Images,
+      quality:0.85,
+      allowsMultipleSelection:true,
+      selectionLimit:MAX_SCAN_IMAGE_PAGES,
+    });
+    if(!r.canceled&&r.assets?.length){
       setFileStatus('');
-      const prepared = await compressReceiptImage(r.assets[0].uri);
-      setUri(prepared.uri);
+      const prepared = await Promise.all(r.assets.slice(0, MAX_SCAN_IMAGE_PAGES).map(asset => compressReceiptImage(asset.uri)));
+      const preparedUris = prepared.map(item => item.uri);
+      setUri(preparedUris[0]);
+      setImageUris(preparedUris);
       setIsPDF(false);
       setResult(null);
       setResultItemPage(0);
       setPriceInsights([]);
       setDuplicate('');
-      if (prepared.compressed) setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
+      const compressedCount = prepared.filter(item => item.compressed).length;
+      const pageText = preparedUris.length > 1 ? `${preparedUris.length} pages selected. They will be scanned together.` : '1 page selected.';
+      setFileStatus(compressedCount ? `${pageText} ${compressedCount} image(s) compressed for scanning.` : pageText);
     }
   }
 
   async function takePhoto(){
+    if (imageUris.length >= MAX_SCAN_IMAGE_PAGES) {
+      Alert.alert('Page limit reached', `You can scan up to ${MAX_SCAN_IMAGE_PAGES} photo pages at one time.`);
+      return;
+    }
     const p=await ImagePicker.requestCameraPermissionsAsync();
     if(!p.granted){Alert.alert('Permission needed','Allow camera access.');return;}
     const r=await ImagePicker.launchCameraAsync({quality:0.85});
@@ -286,12 +301,15 @@ export default function ScanScreen(){
       setFileStatus('');
       const prepared = await compressReceiptImage(r.assets[0].uri);
       setUri(prepared.uri);
+      const nextUris = [...imageUris, prepared.uri].slice(0, MAX_SCAN_IMAGE_PAGES);
+      setImageUris(nextUris);
       setIsPDF(false);
       setResult(null);
       setResultItemPage(0);
       setPriceInsights([]);
       setDuplicate('');
-      if (prepared.compressed) setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
+      const pageText = nextUris.length > 1 ? `${nextUris.length} pages ready. Take another page or scan all pages together.` : '1 page ready. Take another photo if this receipt has more pages.';
+      setFileStatus(prepared.compressed ? `${pageText} Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB.` : pageText);
     }
   }
 
@@ -305,6 +323,7 @@ export default function ScanScreen(){
     const asset = result.assets[0];
     setFileStatus(asset.size ? `PDF selected: ${(asset.size / (1024 * 1024)).toFixed(1)} MB. Multi-page invoices will be scanned together.` : 'PDF selected. Multi-page invoices will be scanned together.');
     setUri(asset.uri);
+    setImageUris([]);
     setIsPDF(true);
     setResult(null);
     setResultItemPage(0);
@@ -339,15 +358,9 @@ export default function ScanScreen(){
       }
 
       const fd = new FormData();
-      const fname = prepared.uri.split('/').pop() || (isPDF ? 'receipt.pdf' : 'receipt.jpg');
-
-      fd.append('file', {
-        uri: prepared.uri,
-        name: fname,
-        type: getMime(prepared.uri, isPDF),
-      } as any);
-
-      let endpoint = `${API}/scan-receipt`;
+      const multiImageUris = !isPDF ? (imageUris.length ? imageUris : [uri]).filter(Boolean) as string[] : [];
+      const isMultiImageScan = !isPDF && multiImageUris.length > 1;
+      let endpoint = isMultiImageScan ? `${API}/scan-receipt-pages` : `${API}/scan-receipt`;
       const headers:any = {};
 
       if(user?.is_guest || user?.token === 'guest'){
@@ -358,7 +371,9 @@ export default function ScanScreen(){
           return;
         }
 
-        endpoint = `${API}/guest/scan-receipt?session_id=${encodeURIComponent(guestSessionId)}`;
+        endpoint = isMultiImageScan
+          ? `${API}/guest/scan-receipt-pages?session_id=${encodeURIComponent(guestSessionId)}`
+          : `${API}/guest/scan-receipt?session_id=${encodeURIComponent(guestSessionId)}`;
       } else {
         if(!token || token === 'guest'){
           Alert.alert('Authentication required', 'Your session token is missing. Please sign out and sign in again.');
@@ -366,6 +381,24 @@ export default function ScanScreen(){
         }
 
         headers.Authorization = `Bearer ${token}`;
+      }
+
+      if (isMultiImageScan) {
+        multiImageUris.forEach((pageUri, index) => {
+          const name = pageUri.split('/').pop() || `receipt-page-${index + 1}.jpg`;
+          fd.append('files', {
+            uri: pageUri,
+            name,
+            type: getMime(pageUri, false),
+          } as any);
+        });
+      } else {
+        const fname = prepared.uri.split('/').pop() || (isPDF ? 'receipt.pdf' : 'receipt.jpg');
+        fd.append('file', {
+          uri: prepared.uri,
+          name: fname,
+          type: getMime(prepared.uri, isPDF),
+        } as any);
       }
 
       const res = await fetch(endpoint, {
@@ -407,6 +440,7 @@ export default function ScanScreen(){
     setResult(null);
     setResultItemPage(0);
     setUri(null);
+    setImageUris([]);
     setPriceInsights([]);
     setFileStatus('');
     setDuplicate('');
@@ -501,7 +535,23 @@ export default function ScanScreen(){
               </View>
             </TouchableOpacity>
 
-            {uri && !isPDF && <Image source={{uri}} style={s.preview} resizeMode="contain"/>}
+            {uri && !isPDF && imageUris.length <= 1 && <Image source={{uri}} style={s.preview} resizeMode="contain"/>}
+            {uri && !isPDF && imageUris.length > 1 && (
+              <View style={s.multiPreview}>
+                <View style={s.multiPreviewHead}>
+                  <Text style={s.multiPreviewTitle}>{imageUris.length} pages selected</Text>
+                  <Text style={s.multiPreviewSub}>Scans as one receipt or invoice</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pageStrip}>
+                  {imageUris.map((pageUri, index) => (
+                    <View key={`${pageUri}-${index}`} style={s.pageThumbWrap}>
+                      <Image source={{uri: pageUri}} style={s.pageThumb} resizeMode="cover" />
+                      <Text style={s.pageThumbLabel}>Page {index + 1}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
             {uri && isPDF && (
               <View style={s.pdfPreview}>
                 <Text style={s.pdfPreviewText}>  {uri.split('/').pop()}</Text>
@@ -522,7 +572,7 @@ export default function ScanScreen(){
               </TouchableOpacity>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={takePhoto} activeOpacity={0.8}>
                 <Ionicons name="camera-outline" size={18} color={C.text} />
-                <Text style={s.btnSecTxt}>Camera</Text>
+                <Text style={s.btnSecTxt}>{imageUris.length ? 'Add Page' : 'Camera'}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickPDF} activeOpacity={0.8}>
                 <Ionicons name="document-outline" size={18} color={C.text} />
@@ -539,7 +589,7 @@ export default function ScanScreen(){
               >
                 {loading
                   ?<ActivityIndicator color="#fff" size="small"/>
-                  :<Text style={s.btnPriTxt}>Scan Receipt</Text>
+                  :<Text style={s.btnPriTxt}>{!isPDF && imageUris.length > 1 ? `Scan ${imageUris.length} Pages` : 'Scan Receipt'}</Text>
                 }
               </TouchableOpacity>
             )}
@@ -818,6 +868,14 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   fmtPill:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,borderRadius:99,paddingHorizontal:8,paddingVertical:2},
   fmtText:{color:C.text3,fontSize:10},
   preview:{width:'100%',height:200,borderRadius:12,marginTop:14,borderWidth:1,borderColor:C.border},
+  multiPreview:{marginTop:14,backgroundColor:'rgba(124,106,255,0.06)',borderWidth:1,borderColor:'rgba(124,106,255,0.18)',borderRadius:12,padding:12},
+  multiPreviewHead:{marginBottom:10},
+  multiPreviewTitle:{color:C.text,fontSize:13,fontWeight:'900'},
+  multiPreviewSub:{color:C.text2,fontSize:11,marginTop:2},
+  pageStrip:{gap:10,paddingRight:4},
+  pageThumbWrap:{width:88},
+  pageThumb:{width:88,height:112,borderRadius:10,borderWidth:1,borderColor:C.border,backgroundColor:C.surface},
+  pageThumbLabel:{color:C.text2,fontSize:10,fontWeight:'800',textAlign:'center',marginTop:5},
   fileNote:{marginTop:10,flexDirection:'row',alignItems:'center',gap:7,backgroundColor:'rgba(106,255,212,0.07)',borderWidth:1,borderColor:'rgba(106,255,212,0.18)',borderRadius:10,padding:10},
   fileNoteText:{color:C.text2,fontSize:11,flex:1},
   pdfPreview:{backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:16,marginTop:14,alignItems:'center'},
