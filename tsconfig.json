@@ -9,7 +9,13 @@
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx"
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "stores/**/*.ts"
+  ],
+  "exclude": [
+    "app-example",
+    "node_modules",
+    "temp-assets"
   ]
 }

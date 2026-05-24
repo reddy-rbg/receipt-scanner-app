@@ -1,7 +1,17 @@
 import os
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+    import anthropic
+except ModuleNotFoundError as exc:
+    print(f"SKIPPED: optional dependency missing ({exc.name}). Run `pip install -r requirements.txt` to enable this live smoke test.")
+    raise SystemExit(0)
+
 load_dotenv()
-import anthropic
+
+if not os.getenv("ANTHROPIC_API_KEY"):
+    print("SKIPPED: ANTHROPIC_API_KEY is not set.")
+    raise SystemExit(0)
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 

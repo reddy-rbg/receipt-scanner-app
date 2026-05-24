@@ -117,14 +117,33 @@ async function compressReceiptImage(uri: string) {
 
 function itemAmountForCompare(item: any) {
   const unit = String(item?.unit || 'each').toLowerCase().trim();
+  const qty = n(item?.quantity) || 1;
   const unitPrice = n(item?.unit_price);
-  if (unit && unit !== 'each' && unitPrice > 0) return unitPrice;
+  if ((unit && unit !== 'each' && unitPrice > 0) || (qty > 1 && unitPrice > 0)) return unitPrice;
   return n(item?.price);
 }
 
 function itemUnitLabel(item: any) {
   const unit = String(item?.unit || 'each').toLowerCase().trim();
+  const qty = n(item?.quantity) || 1;
+  if (qty > 1 && (!unit || unit === 'each')) return ' each';
   return unit && unit !== 'each' ? `/${unit}` : '';
+}
+
+function itemMeaningTokens(value: any) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter(token => token.length > 2 && !/^\d+$/.test(token));
+}
+
+function isWeakFragmentMatch(scannedName: any, matchedName: any) {
+  const scanned = itemMeaningTokens(scannedName);
+  const matched = itemMeaningTokens(matchedName);
+  if (scanned.length >= 3 || matched.length < 3) return false;
+  const overlap = scanned.filter(token => matched.includes(token)).length;
+  return overlap < Math.min(scanned.length, 2);
 }
 
 function itemPageCount(items: any[] = []) {
@@ -216,7 +235,7 @@ export default function ScanScreen(){
         const data = await res.json();
         const match = (data.matches || [])[0];
         const current = itemAmountForCompare(item);
-        if (!match || current <= 0) {
+        if (!match || current <= 0 || isWeakFragmentMatch(item.name || item.item, match.item_name)) {
           return {
             item: item.name || item.item,
             current,
@@ -226,9 +245,16 @@ export default function ScanScreen(){
           };
         }
 
-        const previousEvents = (match.recent_events || []).filter((event:any) => String(event.receipt_id || '') !== String(savedId || ''));
-        const previousPrices = previousEvents.map((event:any) => n(event.price)).filter((price:number) => price > 0);
-        if (!previousPrices.length) {
+        const allMatchedEvents = match.price_events || match.recent_events || [];
+        const previousEvents = savedId
+          ? allMatchedEvents.filter((event:any) => String(event.receipt_id || '') !== String(savedId || ''))
+          : allMatchedEvents.length <= 1
+            ? []
+            : allMatchedEvents;
+        const comparablePreviousEvents = previousEvents
+          .map((event:any) => ({ ...event, compareAmount: n(event.compare_price || event.price) }))
+          .filter((event:any) => event.compareAmount > 0);
+        if (!comparablePreviousEvents.length) {
           return {
             item: item.name || item.item,
             current,
@@ -239,20 +265,22 @@ export default function ScanScreen(){
           };
         }
 
-        const previousLow = Math.min(...previousPrices);
-        const previousHigh = Math.max(...previousPrices);
-        const diff = current - previousLow;
+        const previousBuyEvent = comparablePreviousEvents.reduce((best:any, event:any) => event.compareAmount < best.compareAmount ? event : best);
+        const previousBuy = previousBuyEvent.compareAmount;
+        const previousHigh = Math.max(...comparablePreviousEvents.map((event:any) => event.compareAmount));
+        const diff = current - previousBuy;
         const status = Math.abs(diff) < 0.01 ? 'same' : diff < 0 ? 'lower' : 'higher';
         return {
           item: item.name || item.item,
           current,
           unitLabel: itemUnitLabel(item),
           matched: match.item_name,
-          previousLow,
+          previousBuy,
+          previousLow: previousBuy,
           previousHigh,
           diff,
           status,
-          store: match.cheapest_store,
+          store: previousBuyEvent.store || match.cheapest_store,
         };
       }));
       setPriceInsights(rows.filter(Boolean));
@@ -732,7 +760,7 @@ export default function ScanScreen(){
                     : 'Higher';
               const detail = row.status === 'new'
                 ? row.message
-                : `${money(row.current)}${row.unitLabel || ''} now · previous low ${money(row.previousLow)}${row.unitLabel || ''}`;
+                : `${money(row.current)}${row.unitLabel || ''} now · previous buy ${money(row.previousBuy ?? row.previousLow)}${row.unitLabel || ''}`;
               const delta = row.status === 'new' || row.status === 'same'
                 ? ''
                 : `${isLower ? 'Save' : 'Up'} ${money(Math.abs(row.diff))}${row.unitLabel || ''}`;
