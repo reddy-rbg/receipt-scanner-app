@@ -123,6 +123,18 @@ function itemAmountForCompare(item: any) {
   return n(item?.price);
 }
 
+function eventAmountForCompare(event: any) {
+  const direct = n(event?.compare_price);
+  if (direct > 0) return direct;
+  const unit = String(event?.unit || 'each').toLowerCase().trim();
+  const qty = n(event?.quantity) || 1;
+  const unitPrice = n(event?.unit_price);
+  if ((unit && unit !== 'each' && unitPrice > 0) || (qty > 1 && unitPrice > 0)) return unitPrice;
+  const line = n(event?.price);
+  if (line > 0 && qty > 0 && unit && unit !== 'each') return line / qty;
+  return line;
+}
+
 function itemUnitLabel(item: any) {
   const unit = String(item?.unit || 'each').toLowerCase().trim();
   const qty = n(item?.quantity) || 1;
@@ -136,6 +148,39 @@ function itemMeaningTokens(value: any) {
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
     .filter(token => token.length > 2 && !/^\d+$/.test(token));
+}
+
+function shouldMergeContinuationLine(previous: any, current: any, following?: any) {
+  const prevTokens = itemMeaningTokens(previous?.name || previous?.item);
+  const currentTokens = itemMeaningTokens(current?.name || current?.item);
+  if (prevTokens.length < 2 || currentTokens.length === 0 || currentTokens.length > 3) return false;
+  const continuationTerms = new Set([
+    'icecream', 'ice', 'cream', 'badam', 'kulfi', 'cake', 'candy',
+    'biscuit', 'biscuits', 'cookie', 'cookies',
+  ]);
+  const hasDescriptor = currentTokens.some(token => continuationTerms.has(token) || /^\d+$/.test(token));
+  if (!hasDescriptor) return false;
+  const currentPrice = n(current?.price);
+  const followingPrice = n(following?.price);
+  return currentPrice <= 0 || (followingPrice > 0 && Math.abs(currentPrice - followingPrice) < 0.01) || currentTokens.length <= 2;
+}
+
+function normalizeScannedReceipt(receipt: any) {
+  const sourceItems = receipt?.items || [];
+  const items:any[] = [];
+  for (let i = 0; i < sourceItems.length; i += 1) {
+    const current = { ...sourceItems[i] };
+    const next = sourceItems[i + 1];
+    const following = sourceItems[i + 2];
+    if (next && shouldMergeContinuationLine(current, next, following)) {
+      current.name = `${current.name || current.item || ''} ${next.name || next.item || ''}`.trim();
+      current.normalized_name = String(current.name).toLowerCase();
+      current.merged_from_split_lines = true;
+      i += 1;
+    }
+    items.push(current);
+  }
+  return { ...receipt, items };
 }
 
 function isWeakFragmentMatch(scannedName: any, matchedName: any) {
@@ -214,7 +259,8 @@ export default function ScanScreen(){
   }
 
   async function loadPriceInsights(receipt:any, savedId:any) {
-    const items = (receipt?.items || [])
+    const normalizedReceipt = normalizeScannedReceipt(receipt);
+    const items = (normalizedReceipt?.items || [])
       .filter((item:any) => item && n(item.price) > 0 && String(item.name || '').trim() && !String(item.name || '').toLowerCase().includes('discount'))
       .slice(0, MAX_COMPARISON_ITEMS);
 
@@ -252,7 +298,7 @@ export default function ScanScreen(){
             ? []
             : allMatchedEvents;
         const comparablePreviousEvents = previousEvents
-          .map((event:any) => ({ ...event, compareAmount: n(event.compare_price || event.price) }))
+          .map((event:any) => ({ ...event, compareAmount: eventAmountForCompare(event) }))
           .filter((event:any) => event.compareAmount > 0);
         if (!comparablePreviousEvents.length) {
           return {
@@ -453,9 +499,10 @@ export default function ScanScreen(){
         setDuplicate(data.message || 'Duplicate receipt detected.');
       }
 
-      setResult(data.receipt);
+      const normalizedReceipt = normalizeScannedReceipt(data.receipt);
+      setResult(normalizedReceipt);
       setResultItemPage(0);
-      await loadPriceInsights(data.receipt, data.saved_id);
+      await loadPriceInsights(normalizedReceipt, data.saved_id);
       await loadStats();
     }catch(e:any){
       Alert.alert('Error', e.message || 'Could not connect. Try again.');
