@@ -151,6 +151,8 @@ function itemMeaningTokens(value: any) {
 }
 
 function shouldMergeContinuationLine(previous: any, current: any, following?: any) {
+  const previousUnit = String(previous?.unit || 'each').toLowerCase().trim();
+  if (previousUnit && previousUnit !== 'each') return false;
   const prevTokens = itemMeaningTokens(previous?.name || previous?.item);
   const currentTokens = itemMeaningTokens(current?.name || current?.item);
   if (prevTokens.length < 2 || currentTokens.length === 0 || currentTokens.length > 3) return false;
@@ -172,6 +174,23 @@ function normalizeScannedReceipt(receipt: any) {
     const current = { ...sourceItems[i] };
     const next = sourceItems[i + 1];
     const following = sourceItems[i + 2];
+    const currentName = String(current.name || current.item || '');
+    const weightedUnit = String(current.unit || 'each').toLowerCase().trim();
+    const badamTail = currentName.match(/^(.*?)(\bVL\s+Badam\s+Carnival.*)$/i);
+    if (badamTail && weightedUnit && weightedUnit !== 'each' && next && /ice\s*cream|icecream/i.test(String(next.name || next.item || ''))) {
+      current.name = badamTail[1].trim();
+      current.normalized_name = String(current.name).toLowerCase();
+      items.push(current);
+      const mergedIceCream = {
+        ...next,
+        name: `${badamTail[2].trim()} ${next.name || next.item || ''}`.trim(),
+        normalized_name: `${badamTail[2].trim()} ${next.name || next.item || ''}`.trim().toLowerCase(),
+        merged_from_split_lines: true,
+      };
+      items.push(mergedIceCream);
+      i += 1;
+      continue;
+    }
     if (next && shouldMergeContinuationLine(current, next, following)) {
       current.name = `${current.name || current.item || ''} ${next.name || next.item || ''}`.trim();
       current.normalized_name = String(current.name).toLowerCase();
