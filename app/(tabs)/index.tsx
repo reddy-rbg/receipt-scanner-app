@@ -160,6 +160,12 @@ function itemMeaningTokens(value: any) {
     .filter(token => token.length > 2 && !/^\d+$/.test(token));
 }
 
+function eventTimeValue(event: any) {
+  const raw = event?.date || event?.purchase_date || event?.created_at || event?.receipt_created_at || '';
+  const parsed = Date.parse(String(raw));
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 function shouldMergeContinuationLine(previous: any, current: any, following?: any) {
   const previousUnit = String(previous?.unit || 'each').toLowerCase().trim();
   if (previousUnit && previousUnit !== 'each') return false;
@@ -355,8 +361,13 @@ export default function ScanScreen(){
           };
         }
 
-        const previousBuyEvent = comparablePreviousEvents.reduce((best:any, event:any) => event.compareAmount < best.compareAmount ? event : best);
+        const previousBuyEvent = comparablePreviousEvents.reduce((latest:any, event:any) => {
+          const latestTime = eventTimeValue(latest);
+          const eventTime = eventTimeValue(event);
+          return eventTime >= latestTime ? event : latest;
+        });
         const previousBuy = previousBuyEvent.compareAmount;
+        const previousLow = Math.min(...comparablePreviousEvents.map((event:any) => event.compareAmount));
         const previousHigh = Math.max(...comparablePreviousEvents.map((event:any) => event.compareAmount));
         const diff = current - previousBuy;
         const status = Math.abs(diff) < 0.01 ? 'same' : diff < 0 ? 'lower' : 'higher';
@@ -366,7 +377,7 @@ export default function ScanScreen(){
           unitLabel: itemUnitLabel(item),
           matched: match.item_name,
           previousBuy,
-          previousLow: previousBuy,
+          previousLow,
           previousHigh,
           diff,
           status,
