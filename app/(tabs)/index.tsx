@@ -49,8 +49,15 @@ function getMime(uri:string, isPDF:boolean=false){
   const e=uri.split('.').pop()?.toLowerCase();
   if(e==='png')  return 'image/png';
   if(e==='webp') return 'image/webp';
-  if(e==='heic') return 'image/heic';
   return 'image/jpeg';
+}
+function isHeicImage(uri: string) {
+  const ext = uri.split('?')[0].split('.').pop()?.toLowerCase();
+  return ext === 'heic' || ext === 'heif';
+}
+function uploadFileName(uri: string, fallback: string) {
+  const name = uri.split('?')[0].split('/').pop() || fallback;
+  return isHeicImage(name) ? name.replace(/\.(heic|heif)$/i, '.jpg') : name;
 }
 const n=(v:any)=>parseFloat(v)||0;
 const money=(v:any)=>`$${n(v).toFixed(2)}`;
@@ -88,6 +95,17 @@ async function fileSize(uri: string) {
 async function compressReceiptImage(uri: string) {
   let currentUri = uri;
   let currentSize = await fileSize(currentUri);
+  if (isHeicImage(currentUri)) {
+    const manipulated = await ImageManipulator.manipulateAsync(
+      currentUri,
+      [],
+      { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    currentUri = manipulated.uri;
+    currentSize = await fileSize(currentUri);
+    return { uri: currentUri, compressed: true, size: currentSize };
+  }
+
   if (!currentSize || currentSize <= MAX_UPLOAD_BYTES) {
     return { uri: currentUri, compressed: false, size: currentSize };
   }
@@ -479,7 +497,13 @@ export default function ScanScreen(){
 
     try{
       const token = await getUserToken();
-      const prepared = isPDF ? { uri, compressed: false, size: 0 } : await compressReceiptImage(uri);
+      const sourceImageUris = !isPDF ? (imageUris.length ? imageUris : [uri]).filter(Boolean) as string[] : [];
+      const isMultiImageScan = !isPDF && sourceImageUris.length > 1;
+      const prepared = isPDF
+        ? { uri, compressed: false, size: 0 }
+        : isMultiImageScan
+          ? { uri, compressed: false, size: 0 }
+          : await compressReceiptImage(uri);
       if (prepared.compressed) {
         setUri(prepared.uri);
         setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
@@ -490,8 +514,6 @@ export default function ScanScreen(){
       }
 
       const fd = new FormData();
-      const multiImageUris = !isPDF ? (imageUris.length ? imageUris : [uri]).filter(Boolean) as string[] : [];
-      const isMultiImageScan = !isPDF && multiImageUris.length > 1;
       let endpoint = isMultiImageScan ? `${API}/scan-receipt-pages` : `${API}/scan-receipt`;
       const headers:any = {};
 
@@ -516,16 +538,25 @@ export default function ScanScreen(){
       }
 
       if (isMultiImageScan) {
-        multiImageUris.forEach((pageUri, index) => {
-          const name = pageUri.split('/').pop() || `receipt-page-${index + 1}.jpg`;
+        const preparedPages = await Promise.all(sourceImageUris.map(pageUri => compressReceiptImage(pageUri)));
+        const oversizedPage = preparedPages.find(page => page.size && page.size > MAX_UPLOAD_BYTES);
+        if (oversizedPage) {
+          Alert.alert('Image too large', 'One receipt page is still above 5 MB after compression. Please crop it closer and try again.');
+          return;
+        }
+        if (preparedPages.some(page => page.compressed)) {
+          setFileStatus(`${preparedPages.length} pages prepared for scanning.`);
+        }
+        preparedPages.forEach((page, index) => {
+          const name = uploadFileName(page.uri, `receipt-page-${index + 1}.jpg`);
           fd.append('files', {
-            uri: pageUri,
+            uri: page.uri,
             name,
-            type: getMime(pageUri, false),
+            type: getMime(page.uri, false),
           } as any);
         });
       } else {
-        const fname = prepared.uri.split('/').pop() || (isPDF ? 'receipt.pdf' : 'receipt.jpg');
+        const fname = uploadFileName(prepared.uri, isPDF ? 'receipt.pdf' : 'receipt.jpg');
         fd.append('file', {
           uri: prepared.uri,
           name: fname,
@@ -666,9 +697,9 @@ export default function ScanScreen(){
                 <Ionicons name="document-text-outline" size={34} color={C.text} />
               </View>
               <Text style={s.uploadTitle}>Tap to select a receipt</Text>
-              <Text style={s.uploadSub}>JPG / PNG / WEBP / PDF</Text>
+              <Text style={s.uploadSub}>JPG / PNG / WEBP / HEIC / PDF</Text>
               <View style={s.fmtRow}>
-                {['JPG','PNG','WEBP','PDF'].map(f=>(
+                {['JPG','PNG','WEBP','HEIC','PDF'].map(f=>(
                   <View key={f} style={s.fmtPill}><Text style={s.fmtText}>{f}</Text></View>
                 ))}
               </View>
