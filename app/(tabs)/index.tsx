@@ -123,15 +123,25 @@ function itemAmountForCompare(item: any) {
   return n(item?.price);
 }
 
-function eventAmountForCompare(event: any) {
+function isWeightedUnit(unit: any) {
+  const value = String(unit || '').toLowerCase().trim();
+  return Boolean(value && value !== 'each');
+}
+
+function eventAmountForCompare(event: any, currentItem?: any) {
   const direct = n(event?.compare_price);
   if (direct > 0) return direct;
-  const unit = String(event?.unit || 'each').toLowerCase().trim();
-  const qty = n(event?.quantity) || 1;
+  const eventUnit = String(event?.unit || '').toLowerCase().trim();
+  const currentUnit = String(currentItem?.unit || '').toLowerCase().trim();
+  const qty = n(event?.quantity);
+  const currentQty = n(currentItem?.quantity) || 1;
+  const currentIsWeighted = isWeightedUnit(currentUnit);
+  const currentNeedsUnitPrice = currentIsWeighted || currentQty > 1;
   const unitPrice = n(event?.unit_price);
-  if ((unit && unit !== 'each' && unitPrice > 0) || (qty > 1 && unitPrice > 0)) return unitPrice;
+  if (unitPrice > 0 && (isWeightedUnit(eventUnit) || currentNeedsUnitPrice || qty > 1)) return unitPrice;
   const line = n(event?.price);
-  if (line > 0 && qty > 0 && unit && unit !== 'each') return line / qty;
+  if (line > 0 && qty > 0 && (isWeightedUnit(eventUnit) || currentIsWeighted || currentQty > 1)) return line / qty;
+  if (currentNeedsUnitPrice) return 0;
   return line;
 }
 
@@ -185,6 +195,21 @@ function normalizeScannedReceipt(receipt: any) {
         ...next,
         name: `${badamTail[2].trim()} ${next.name || next.item || ''}`.trim(),
         normalized_name: `${badamTail[2].trim()} ${next.name || next.item || ''}`.trim().toLowerCase(),
+        merged_from_split_lines: true,
+      };
+      items.push(mergedIceCream);
+      i += 1;
+      continue;
+    }
+    if (/^VL\s+Badam\s+Carnival$/i.test(currentName.trim()) && next && /ice\s*cream|icecream/i.test(String(next.name || next.item || ''))) {
+      const mergedIceCream = {
+        ...current,
+        name: `${currentName.trim()} ${next.name || next.item || ''}`.trim(),
+        normalized_name: `${currentName.trim()} ${next.name || next.item || ''}`.trim().toLowerCase(),
+        price: n(current.price) > 0 ? current.price : next.price,
+        quantity: n(current.quantity) > 0 ? current.quantity : next.quantity,
+        unit: current.unit || next.unit || 'each',
+        unit_price: n(current.unit_price) > 0 ? current.unit_price : next.unit_price,
         merged_from_split_lines: true,
       };
       items.push(mergedIceCream);
@@ -317,7 +342,7 @@ export default function ScanScreen(){
             ? []
             : allMatchedEvents;
         const comparablePreviousEvents = previousEvents
-          .map((event:any) => ({ ...event, compareAmount: eventAmountForCompare(event) }))
+          .map((event:any) => ({ ...event, compareAmount: eventAmountForCompare(event, item) }))
           .filter((event:any) => event.compareAmount > 0);
         if (!comparablePreviousEvents.length) {
           return {
@@ -541,6 +566,8 @@ export default function ScanScreen(){
     setIsPDF(false);
   }
 
+  const displayResult = result ? normalizeScannedReceipt(result) : null;
+
   return(
     <ScrollView style={s.scroll} contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
 
@@ -699,28 +726,28 @@ export default function ScanScreen(){
       )}
 
       {/* RESULT */}
-      {result&&(
+      {displayResult&&(
         <View style={s.resultCard}>
           <View style={s.resultHeader}>
             <Text style={s.resultKicker}>Scan complete</Text>
-            <Text style={s.resultStore}>{result.store||'Unknown Store'}</Text>
+            <Text style={s.resultStore}>{displayResult.store||'Unknown Store'}</Text>
             <Text style={s.resultMeta}>
-              {[result.date&&` ${result.date}${result.time?' '+result.time:''}`,result.address&&` ${result.address}`].filter(Boolean).join('    ')}
+              {[displayResult.date&&` ${displayResult.date}${displayResult.time?' '+displayResult.time:''}`,displayResult.address&&` ${displayResult.address}`].filter(Boolean).join('    ')}
             </Text>
           </View>
 
           <View style={s.resultSummary}>
             <View style={s.summaryTile}>
               <Text style={s.summaryLabel}>Category</Text>
-              <Text style={s.summaryValue} numberOfLines={1}>{scanCategory(result)}</Text>
+              <Text style={s.summaryValue} numberOfLines={1}>{scanCategory(displayResult)}</Text>
             </View>
             <View style={s.summaryTile}>
               <Text style={s.summaryLabel}>Items</Text>
-              <Text style={s.summaryValue}>{(result.items||[]).length}</Text>
+              <Text style={s.summaryValue}>{(displayResult.items||[]).length}</Text>
             </View>
             <View style={s.summaryTile}>
               <Text style={s.summaryLabel}>Total</Text>
-              <Text style={[s.summaryValue,{color:C.accent}]}>{hasVisibleMoney(result.total) ? `$${n(result.total).toFixed(2)}` : 'Not visible'}</Text>
+              <Text style={[s.summaryValue,{color:C.accent}]}>{hasVisibleMoney(displayResult.total) ? `$${n(displayResult.total).toFixed(2)}` : 'Not visible'}</Text>
             </View>
           </View>
 
@@ -730,7 +757,7 @@ export default function ScanScreen(){
           </View>
 
           {(() => {
-            const items = result.items || [];
+            const items = displayResult.items || [];
             const totalPages = itemPageCount(items);
             const page = Math.min(resultItemPage, totalPages - 1);
             const start = page * INVOICE_ITEM_PAGE_SIZE + 1;
@@ -764,7 +791,7 @@ export default function ScanScreen(){
           })()}
 
           <View style={s.items}>
-            {itemPageItems(result.items||[], resultItemPage).map((item:any,i:number)=>{
+            {itemPageItems(displayResult.items||[], resultItemPage).map((item:any,i:number)=>{
               const neg  = item.price<0;
               const ps   = neg?`-$${Math.abs(item.price).toFixed(2)}`:`$${n(item.price).toFixed(2)}`;
               const unit = (item.unit||'').toLowerCase().trim();
@@ -848,21 +875,21 @@ export default function ScanScreen(){
           </View>
 
           <View style={s.totals}>
-            {n(result.subtotal)>0&&<View style={s.tRow}><Text style={s.tLbl}>Subtotal</Text><Text style={s.tVal}>${n(result.subtotal).toFixed(2)}</Text></View>}
-            {n(result.discount)>0&&<View style={s.tRow}><Text style={s.tLbl}>Discount</Text><Text style={[s.tVal,{color:C.green}]}>-${n(result.discount).toFixed(2)}</Text></View>}
-            {n(result.tax)>0&&<View style={s.tRow}><Text style={s.tLbl}>Tax</Text><Text style={s.tVal}>${n(result.tax).toFixed(2)}</Text></View>}
+            {n(displayResult.subtotal)>0&&<View style={s.tRow}><Text style={s.tLbl}>Subtotal</Text><Text style={s.tVal}>${n(displayResult.subtotal).toFixed(2)}</Text></View>}
+            {n(displayResult.discount)>0&&<View style={s.tRow}><Text style={s.tLbl}>Discount</Text><Text style={[s.tVal,{color:C.green}]}>-${n(displayResult.discount).toFixed(2)}</Text></View>}
+            {n(displayResult.tax)>0&&<View style={s.tRow}><Text style={s.tLbl}>Tax</Text><Text style={s.tVal}>${n(displayResult.tax).toFixed(2)}</Text></View>}
             <View style={[s.tRow,s.tFinal]}>
               <Text style={s.tFinalLbl}>Total Paid</Text>
-              <Text style={s.tFinalAmt}>{hasVisibleMoney(result.total) ? `$${n(result.total).toFixed(2)}` : 'Not visible'}</Text>
+              <Text style={s.tFinalAmt}>{hasVisibleMoney(displayResult.total) ? `$${n(displayResult.total).toFixed(2)}` : 'Not visible'}</Text>
             </View>
-            {!hasVisibleMoney(result.total) ? (
+            {!hasVisibleMoney(displayResult.total) ? (
               <Text style={s.totalNote}>The final invoice total was not visible in this image. Scan the remaining page to capture the full total.</Text>
             ) : null}
           </View>
 
-          {n(result.total_savings)>0&&(
+          {n(displayResult.total_savings)>0&&(
             <View style={s.savingsBanner}>
-              <Text style={s.savingsText}>  You saved ${n(result.total_savings).toFixed(2)} on this trip!</Text>
+              <Text style={s.savingsText}>  You saved ${n(displayResult.total_savings).toFixed(2)} on this trip!</Text>
             </View>
           )}
 
