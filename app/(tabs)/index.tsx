@@ -153,11 +153,12 @@ function itemUnitLabel(item: any) {
 }
 
 function itemMeaningTokens(value: any) {
+  const stopwords = new Set(['each', 'ea', 'item', 'items', 'fresh', 'large', 'small', 'medium', 'food', 'non', 'the', 'and', 'with', 'good', 'price', 'current', 'buy', 'now', 'for', 'this', 'that', 'should']);
   return String(value || '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
-    .filter(token => token.length > 2 && !/^\d+$/.test(token));
+    .filter(token => token.length > 2 && !/^\d+(\.\d+)?$/.test(token) && !stopwords.has(token));
 }
 
 function eventTimeValue(event: any) {
@@ -236,9 +237,11 @@ function normalizeScannedReceipt(receipt: any) {
 function isWeakFragmentMatch(scannedName: any, matchedName: any) {
   const scanned = itemMeaningTokens(scannedName);
   const matched = itemMeaningTokens(matchedName);
-  if (scanned.length >= 3 || matched.length < 3) return false;
+  if (!scanned.length || !matched.length) return true;
   const overlap = scanned.filter(token => matched.includes(token)).length;
-  return overlap < Math.min(scanned.length, 2);
+  if (scanned.length === 1) return overlap < 1;
+  if (scanned.length === 2) return overlap < 2;
+  return overlap < 2 || overlap / scanned.length < 0.6;
 }
 
 function itemPageCount(items: any[] = []) {
