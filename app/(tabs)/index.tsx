@@ -551,14 +551,18 @@ export default function ScanScreen(){
       }
 
       if(data.duplicate) {
-        setDuplicate(data.message || 'Duplicate receipt detected.');
+        setDuplicate(data.message || 'This receipt was already scanned.');
       }
 
       const normalizedReceipt = normalizeScannedReceipt(data.receipt);
       setResult(normalizedReceipt);
       setResultItemPage(0);
-      await loadPriceInsights(normalizedReceipt, data.saved_id);
-      await loadStats();
+      if (!data.duplicate) {
+        await loadPriceInsights(normalizedReceipt, data.saved_id);
+        await loadStats();
+      } else {
+        setPriceInsights([]);
+      }
     }catch(e:any){
       Alert.alert('Error', e.message || 'Could not connect. Try again.');
     }finally{
