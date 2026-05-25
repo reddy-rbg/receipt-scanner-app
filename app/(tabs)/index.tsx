@@ -384,7 +384,7 @@ export default function ScanScreen(){
           previousHigh,
           diff,
           status,
-          store: previousBuyEvent.store || match.cheapest_store,
+          previousStore: previousBuyEvent.store,
         };
       }));
       setPriceInsights(rows.filter(Boolean));
@@ -881,7 +881,7 @@ export default function ScanScreen(){
                   <View style={s.compareLeft}>
                     <Text style={s.compareItem} numberOfLines={1}>{row.item}</Text>
                     <Text style={s.compareDetail}>{detail}</Text>
-                    {row.store ? <Text style={s.compareStore}>Best known store: {row.store}</Text> : null}
+                    {row.previousStore ? <Text style={s.compareStore}>Previous store: {row.previousStore}</Text> : null}
                   </View>
                   <View style={[s.comparePill,{borderColor:tone}]}>
                     <Text style={[s.comparePillText,{color:tone}]}>{label}</Text>
