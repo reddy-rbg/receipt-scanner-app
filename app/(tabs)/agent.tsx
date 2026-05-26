@@ -40,6 +40,7 @@ function friendlyAgentError(message: string) {
 }
 
 function formatAgentText(text: string) {
+  const chartChars = /[█▇▆▅▄▃▂▁■□#]{3,}/g;
   return text
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/^### (.+)$/gm, '$1:')
@@ -47,7 +48,15 @@ function formatAgentText(text: string) {
     .replace(/^# (.+)$/gm, '$1')
     .split('\n')
     .filter(line => !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line))
-    .map(line => line.replace(/^\s*\|\s*/, '').replace(/\s*\|\s*$/, '').replace(/\s*\|\s*/g, '   '))
+    .map(line => line
+      .replace(/^\s*\|\s*/, '')
+      .replace(/\s*\|\s*$/, '')
+      .replace(/\s*\|\s*/g, '   ')
+      .replace(chartChars, '')
+      .replace(/\s{3,}/g, '  ')
+      .trimEnd()
+    )
+    .filter(line => !/^\s*[-=]{8,}\s*$/.test(line))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
