@@ -411,11 +411,11 @@ export default function AgentScreen() {
         {canFindReceipt ? (
           <TouchableOpacity
             style={[s.answerAction, { borderColor: C.border, backgroundColor: C.surface2 }]}
-            onPress={() => router.push('/receipts')}
+            onPress={() => router.push({ pathname: '/receipts', params: { receiptId: String(card.receipt_id || '') } })}
             activeOpacity={0.8}
           >
             <Ionicons name="open-outline" size={14} color={C.accent} />
-            <Text style={[s.answerActionText, { color: C.accent }]}>Find receipt</Text>
+            <Text style={[s.answerActionText, { color: C.accent }]}>Open receipt</Text>
           </TouchableOpacity>
         ) : null}
       </View>

@@ -2,6 +2,7 @@ import { useTheme } from '../../stores/themeStore';
 import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore';
 import { DARK_COLORS } from '../../stores/themeStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useLocalSearchParams } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
@@ -190,6 +191,8 @@ export default function ReceiptsScreen() {
   const { colors: C } = useTheme();
   const s = createStyles(C);
   const { user } = useAuth(); // reactive theme updates
+  const params = useLocalSearchParams<{ receiptId?: string | string[] }>();
+  const receiptIdParam = Array.isArray(params.receiptId) ? params.receiptId[0] : params.receiptId;
   const [all, setAll]         = useState<Receipt[]>([]);
   const [shown, setShown]     = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -222,6 +225,18 @@ export default function ReceiptsScreen() {
   useEffect(() => { load(); }, [user?.id, user?.guest_session_id]);
 
   useEffect(() => { setDetailItemPage(0); }, [selected?.id]);
+
+  useEffect(() => {
+    if (!receiptIdParam || !all.length) return;
+    const receipt = all.find(r => String(r.id) === String(receiptIdParam));
+    if (!receipt) return;
+    setSelected(receipt);
+    setShown([receipt]);
+    setFilterInfo(`Receipt #${receipt.id}`);
+    setActiveTab('id');
+    setDeleted(false);
+    setDeleteMode(false);
+  }, [receiptIdParam, all]);
 
   useEffect(() => {
     if (activeTab !== 'store') return;
