@@ -355,7 +355,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   container:{ padding:22, paddingBottom:50, alignItems:'center', minHeight:'100%', justifyContent:'center' },
 
   logoWrap:{ alignItems:'center', marginBottom:18, marginTop:14 },
-  logo:{ width:86, height:86, borderRadius:24, backgroundColor:'rgba(128,111,255,0.18)', borderWidth:1, borderColor:'rgba(128,111,255,0.55)', alignItems:'center', justifyContent:'center', marginBottom:16, shadowColor:C.accent, shadowOpacity:0.35, shadowRadius:18 },
+  logo:{ width:88, height:88, borderRadius:26, backgroundColor:'rgba(124,109,255,0.14)', borderWidth:1, borderColor:'rgba(124,109,255,0.48)', alignItems:'center', justifyContent:'center', marginBottom:16, shadowColor:C.accent, shadowOpacity:0.28, shadowRadius:22, shadowOffset:{width:0,height:12}, elevation:5 },
   appName:{ fontSize:34, fontWeight:'900', color:C.text, letterSpacing:0, marginBottom:5 },
   appTagline:{ fontSize:14, color:C.text2, textAlign:'center', lineHeight:20 },
   promiseRow:{ display:'none' },
@@ -373,10 +373,10 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
 
   securityBadge:{ backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.25)', borderRadius:99, paddingHorizontal:16, paddingVertical:8, marginBottom:14 },
   securityBadgeText:{ color:C.green, fontSize:12, fontWeight:'700', textAlign:'center' },
-  authPanel:{ width:'100%', backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:16 },
+  authPanel:{ width:'100%', backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:18, padding:16, marginBottom:16, shadowColor:'#000', shadowOpacity:0.22, shadowRadius:18, shadowOffset:{width:0,height:12}, elevation:5 },
 
-  tabRow:{ flexDirection:'row', backgroundColor:C.surface2, borderRadius:10, padding:4, marginBottom:16, width:'100%', borderWidth:1, borderColor:C.border },
-  tab:{ flex:1, padding:10, borderRadius:8, alignItems:'center' },
+  tabRow:{ flexDirection:'row', backgroundColor:C.surface2, borderRadius:14, padding:4, marginBottom:16, width:'100%', borderWidth:1, borderColor:C.border },
+  tab:{ flex:1, padding:10, borderRadius:11, alignItems:'center' },
   tabActive:{ backgroundColor:C.accent },
   tabTxt:{ color:C.text2, fontSize:14, fontWeight:'600' },
   tabTxtActive:{ color:'#fff' },
@@ -384,7 +384,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   form:{ width:'100%' },
   inputWrap:{ marginBottom:14 },
   inputLabel:{ color:C.text2, fontSize:12, marginBottom:6, fontWeight:'500' },
-  input:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:10, padding:14, paddingHorizontal:16, color:C.text, fontSize:14, width:'100%' },
+  input:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, paddingHorizontal:16, color:C.text, fontSize:14, width:'100%' },
   eyeBtn:{ position:'absolute', right:12, top:13, paddingHorizontal:6, paddingVertical:2 },
   eyeText:{ color:C.accent, fontSize:12, fontWeight:'900' },
   recoveryRow:{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:-4, marginBottom:12 },
@@ -393,10 +393,10 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   passwordRulesTitle:{ color:C.text2, fontSize:11, fontWeight:'600', marginBottom:8, textTransform:'uppercase', letterSpacing:0.5 },
   errorBox:{ backgroundColor:'rgba(255,107,107,0.08)', borderWidth:1, borderColor:'rgba(255,107,107,0.2)', borderRadius:10, padding:12, marginBottom:12 },
   errorTxt:{ color:C.red, fontSize:13 },
-  authBtn:{ backgroundColor:C.accent, borderRadius:10, padding:16, alignItems:'center', marginTop:4, shadowColor:C.accent, shadowOpacity:0.35, shadowRadius:12 },
+  authBtn:{ backgroundColor:C.accent, borderRadius:14, padding:16, alignItems:'center', marginTop:4, shadowColor:C.accent, shadowOpacity:0.32, shadowRadius:14, shadowOffset:{width:0,height:8}, elevation:4 },
   authBtnTxt:{ color:'#fff', fontSize:16, fontWeight:'700' },
 
-  privacyNote:{ backgroundColor:'rgba(128,111,255,0.06)', borderWidth:1, borderColor:'rgba(128,111,255,0.18)', borderRadius:10, padding:14, marginTop:16, width:'100%' },
+  privacyNote:{ backgroundColor:'rgba(124,109,255,0.06)', borderWidth:1, borderColor:'rgba(124,109,255,0.18)', borderRadius:14, padding:14, marginTop:16, width:'100%' },
   privacyNoteTxt:{ color:C.text2, fontSize:12, lineHeight:18, textAlign:'center' },
 
   divider:{ flexDirection:'row', alignItems:'center', gap:12, width:'100%', marginVertical:20 },
@@ -405,7 +405,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
 
   guestSection:{ width:'100%', alignItems:'center' },
   guestTitle:{ color:C.text2, fontSize:13, marginBottom:10 },
-  guestBtn:{ backgroundColor:C.surface2, borderWidth:1, borderColor:'rgba(246,196,83,0.38)', borderRadius:10, paddingHorizontal:24, paddingVertical:14, width:'100%', alignItems:'center', marginBottom:10 },
+  guestBtn:{ backgroundColor:C.surface2, borderWidth:1, borderColor:'rgba(243,199,92,0.38)', borderRadius:14, paddingHorizontal:24, paddingVertical:14, width:'100%', alignItems:'center', marginBottom:10 },
   guestBtnTxt:{ color:C.gold, fontSize:14, fontWeight:'600' },
   guestWarning:{ color:C.text3, fontSize:11, textAlign:'center', lineHeight:16 },
 });

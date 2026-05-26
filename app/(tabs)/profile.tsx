@@ -11,11 +11,11 @@ import { Ionicons } from '@expo/vector-icons';
 const API = 'https://web-production-3605f4.up.railway.app';
 
 const FALLBACK_COLORS = {
-  bg:'#070810', surface:'#10111d', surface2:'#17182b', surface3:'#22233a', card:'#121423',
-  border:'rgba(237,232,255,0.09)',
-  accent:'#806fff', accent2:'#ff6aa6', accent3:'#62f2d0',
-  text:'#f2eeff', text2:'#a8a3c0', text3:'#696481',
-  green:'#4ade80', red:'#ff6b7d', gold:'#f6c453',
+  bg:'#06070D', surface:'#0D0F18', surface2:'#151824', surface3:'#202432', card:'#10131F',
+  border:'rgba(238,242,255,0.10)',
+  accent:'#7C6DFF', accent2:'#E85D97', accent3:'#52E6C8',
+  text:'#F5F3FF', text2:'#AAAEC3', text3:'#71768C',
+  green:'#42D987', red:'#FF6378', gold:'#F3C75C',
 };
 
 type User = { id:string; email:string; name:string; created_at:string; token?:string; guestStartTime?:number };
@@ -672,7 +672,7 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   scroll:{ flex:1, backgroundColor:C.bg },
   container:{ padding:16, paddingBottom:40 },
   avatarSection:{ alignItems:'center', paddingVertical:20 },
-  avatar:{ width:72, height:72, borderRadius:18, backgroundColor:'rgba(128,111,255,0.18)', borderWidth:1, borderColor:'rgba(128,111,255,0.55)', alignItems:'center', justifyContent:'center', marginBottom:12 },
+  avatar:{ width:76, height:76, borderRadius:22, backgroundColor:'rgba(124,109,255,0.14)', borderWidth:1, borderColor:'rgba(124,109,255,0.42)', alignItems:'center', justifyContent:'center', marginBottom:12, shadowColor:C.accent, shadowOpacity:0.24, shadowRadius:18, shadowOffset:{width:0,height:10}, elevation:4 },
   avatarText:{ fontSize:28, color:C.accent, fontWeight:'800' },
   userName:{ color:C.text, fontSize:20, fontWeight:'900', marginBottom:2, letterSpacing:0 },
   userEmail:{ color:C.text2, fontSize:13, marginBottom:10 },
@@ -681,7 +681,7 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   statusBadge:{ flexDirection:'row', alignItems:'center', gap:6, backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.2)', borderRadius:99, paddingHorizontal:12, paddingVertical:4 },
   statusDot:{ width:6, height:6, borderRadius:3, backgroundColor:C.green },
   statusText:{ color:C.green, fontSize:12 },
-  profileInsightCard:{ backgroundColor:C.card, borderRadius:14, borderWidth:1, borderColor:C.border, padding:16, marginBottom:16 },
+  profileInsightCard:{ backgroundColor:C.card, borderRadius:18, borderWidth:1, borderColor:C.border, padding:16, marginBottom:16, shadowColor:'#000', shadowOpacity:0.20, shadowRadius:16, shadowOffset:{width:0,height:10}, elevation:4 },
   profileInsightTop:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:10 },
   profileInsightKicker:{ color:C.accent3, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.8 },
   profileInsightBadge:{ backgroundColor:'rgba(74,222,128,0.10)', borderWidth:1, borderColor:'rgba(74,222,128,0.24)', borderRadius:99, paddingHorizontal:10, paddingVertical:4 },
@@ -689,10 +689,10 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   profileInsightTitle:{ color:C.text, fontSize:19, lineHeight:24, fontWeight:'900', letterSpacing:0, marginBottom:7 },
   profileInsightText:{ color:C.text2, fontSize:13, lineHeight:20 },
   statsGrid:{ flexDirection:'row', gap:10, marginBottom:16 },
-  statBox:{ flex:1, backgroundColor:C.surface2, borderRadius:12, padding:12, borderWidth:1, borderColor:C.border, borderBottomWidth:2, alignItems:'center' },
+  statBox:{ flex:1, backgroundColor:C.surface2, borderRadius:16, padding:12, borderWidth:1, borderColor:C.border, borderBottomWidth:2, alignItems:'center' },
   statVal:{ fontSize:18, fontWeight:'900', letterSpacing:0, marginBottom:4 },
   statLbl:{ color:C.text3, fontSize:9, textTransform:'uppercase', letterSpacing:0.5 },
-  menuCard:{ backgroundColor:C.card, borderRadius:14, borderWidth:1, borderColor:C.border, overflow:'hidden', marginBottom:16, padding:16 },
+  menuCard:{ backgroundColor:C.card, borderRadius:18, borderWidth:1, borderColor:C.border, overflow:'hidden', marginBottom:16, padding:16, shadowColor:'#000', shadowOpacity:0.16, shadowRadius:14, shadowOffset:{width:0,height:8}, elevation:3 },
   menuSection:{ color:C.text3, fontSize:10, fontWeight:'600', letterSpacing:1, textTransform:'uppercase', marginBottom:8 },
   menuItem:{ flexDirection:'row', alignItems:'center', paddingVertical:12, gap:12, borderBottomWidth:1, borderBottomColor:C.border },
   menuIcon:{ width:36, height:36, borderRadius:9, alignItems:'center', justifyContent:'center' },
