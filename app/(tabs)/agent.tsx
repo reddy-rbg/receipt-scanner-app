@@ -33,6 +33,9 @@ function getVoiceModule() {
 function friendlyAgentError(message: string) {
   if (!message) return 'I had trouble answering that. Please try again.';
   const lower = message.toLowerCase();
+  if (lower.includes('network request failed') || lower.includes('failed to fetch') || lower.includes('could not connect')) {
+    return 'ReceiptAI backend is not reachable right now. Please try again after the server redeploy finishes.';
+  }
   if (lower.includes('column') || lower.includes('receipts.') || lower.includes('sql') || lower.includes('supabase')) {
     return 'I had trouble reading your receipt data. Please try again in a moment.';
   }
