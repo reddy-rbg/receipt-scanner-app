@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTheme } from '../../stores/themeStore';
 import { getUserToken, getGuestSessionId } from '../../stores/authStore';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import {
@@ -70,9 +70,37 @@ type Msg = {
   text: string;
   tools?: string[];
   loading?: boolean;
+  answerCard?: AgentAnswerCard | null;
 };
 
 type VoiceMode = 'dictate' | 'wake' | null;
+
+type AgentAnswerRow = {
+  item?: string;
+  price?: string;
+  store?: string;
+  date?: string;
+  receipt_id?: string | number;
+  line_index?: string | number;
+  detail?: string;
+};
+
+type AgentAnswerCard = {
+  type?: string;
+  title?: string;
+  item?: string;
+  price?: string;
+  store?: string;
+  date?: string;
+  quantity?: number;
+  unit?: string;
+  line_total?: string;
+  receipt_id?: string | number;
+  line_index?: string | number;
+  detail?: string;
+  note?: string;
+  rows?: AgentAnswerRow[];
+};
 
 const QUICK_PROMPTS = [
   { label: 'Spending summary', prompt: 'Give me a complete summary of my spending' },
@@ -284,6 +312,7 @@ export default function AgentScreen() {
       const agentMsg: Msg = {
         role:  'agent',
         text:  data.response || 'I could not get an answer. Please try again.',
+        answerCard: data.answer_card || null,
         tools: data.tools_used || [],
       };
 
@@ -323,6 +352,74 @@ export default function AgentScreen() {
         }
       }
     ]);
+  }
+
+  function renderAnswerCard(card?: AgentAnswerCard | null) {
+    if (!card) return null;
+    const rows = card.rows || [];
+    const canFindReceipt = Boolean(card.receipt_id || rows.some(row => row.receipt_id));
+
+    return (
+      <View style={[s.answerCard, { backgroundColor: C.surface, borderColor: C.border }]}>
+        <View style={s.answerCardHead}>
+          <View style={[s.answerCardIcon, { backgroundColor: 'rgba(106,255,212,0.10)', borderColor: 'rgba(106,255,212,0.26)' }]}>
+            <Ionicons name={card.type === 'category_list' ? 'list-outline' : 'pricetag-outline'} size={15} color={C.accent3} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.answerCardKicker, { color: C.accent3 }]}>Evidence</Text>
+            <Text style={[s.answerCardTitle, { color: C.text }]} numberOfLines={2}>{card.title || 'Receipt evidence'}</Text>
+          </View>
+        </View>
+
+        {card.type === 'category_list' && rows.length ? (
+          <View style={s.answerRows}>
+            {rows.map((row, idx) => (
+              <View key={`${row.item}-${idx}`} style={[s.answerRow, { borderTopColor: C.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.answerRowItem, { color: C.text }]} numberOfLines={1}>{row.item || 'Item'}</Text>
+                  <Text style={[s.answerRowMeta, { color: C.text2 }]} numberOfLines={2}>
+                    {[row.store, row.date, row.detail].filter(Boolean).join('  |  ')}
+                  </Text>
+                </View>
+                <Text style={[s.answerRowPrice, { color: C.accent3 }]}>{row.price || ''}</Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <>
+            <Text style={[s.answerMainItem, { color: C.text }]} numberOfLines={2}>{card.item || 'Matched item'}</Text>
+            <View style={s.answerMetrics}>
+              <View style={[s.answerMetric, { backgroundColor: C.surface2, borderColor: C.border }]}>
+                <Text style={[s.answerMetricLabel, { color: C.text3 }]}>Price</Text>
+                <Text style={[s.answerMetricValue, { color: C.accent3 }]} numberOfLines={1}>{card.price || 'N/A'}</Text>
+              </View>
+              <View style={[s.answerMetric, { backgroundColor: C.surface2, borderColor: C.border }]}>
+                <Text style={[s.answerMetricLabel, { color: C.text3 }]}>Store</Text>
+                <Text style={[s.answerMetricValue, { color: C.text }]} numberOfLines={1}>{card.store || 'Unknown'}</Text>
+              </View>
+            </View>
+            <View style={[s.answerSource, { borderTopColor: C.border }]}>
+              <Ionicons name="receipt-outline" size={14} color={C.text3} />
+              <Text style={[s.answerSourceText, { color: C.text2 }]} numberOfLines={2}>
+                {[card.date, card.detail].filter(Boolean).join('  |  ')}
+              </Text>
+            </View>
+          </>
+        )}
+
+        {card.note ? <Text style={[s.answerNote, { color: C.text2 }]}>{card.note}</Text> : null}
+        {canFindReceipt ? (
+          <TouchableOpacity
+            style={[s.answerAction, { borderColor: C.border, backgroundColor: C.surface2 }]}
+            onPress={() => router.push('/receipts')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="open-outline" size={14} color={C.accent} />
+            <Text style={[s.answerActionText, { color: C.accent }]}>Find receipt</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
   }
 
   function renderMessage(msg: Msg, index: number) {
@@ -366,6 +463,7 @@ export default function AgentScreen() {
           <View style={[s.bubble, s.agentBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
             <Text style={[s.bubbleTxt, tableLike && s.tableTxt, { color: C.text }]}>{formattedText}</Text>
           </View>
+          {renderAnswerCard(msg.answerCard)}
         </View>
       </View>
     );
@@ -543,6 +641,26 @@ const s = StyleSheet.create({
   userBubble:   { borderBottomRightRadius: 4 },
   bubbleTxt:    { fontSize: 14, lineHeight: 21 },
   tableTxt:     { fontSize: 12, lineHeight: 18, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  answerCard:   { maxWidth: '86%', borderWidth: 1, borderRadius: 14, padding: 12, marginTop: 8 },
+  answerCardHead:{ flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 10 },
+  answerCardIcon:{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  answerCardKicker:{ fontSize: 9, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7 },
+  answerCardTitle:{ fontSize: 15, lineHeight: 19, fontWeight: '900' },
+  answerMainItem:{ fontSize: 14, lineHeight: 18, fontWeight: '900', marginBottom: 10 },
+  answerMetrics:{ flexDirection: 'row', gap: 8 },
+  answerMetric:{ flex: 1, borderWidth: 1, borderRadius: 10, padding: 9, minHeight: 58 },
+  answerMetricLabel:{ fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
+  answerMetricValue:{ fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  answerSource:{ flexDirection: 'row', alignItems: 'flex-start', gap: 7, borderTopWidth: 1, marginTop: 10, paddingTop: 9 },
+  answerSourceText:{ flex: 1, fontSize: 11, lineHeight: 16 },
+  answerRows:{ marginTop: 2 },
+  answerRow:{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, borderTopWidth: 1, paddingVertical: 8 },
+  answerRowItem:{ fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  answerRowMeta:{ fontSize: 10, lineHeight: 14, marginTop: 2 },
+  answerRowPrice:{ fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  answerNote:{ fontSize: 11, lineHeight: 15, marginTop: 9 },
+  answerAction:{ marginTop: 10, borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  answerActionText:{ fontSize: 11, fontWeight: '900' },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
   inputBar:     { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 8 },
