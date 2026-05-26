@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, Modal,
   Image,
   ScrollView,
   StyleSheet,
@@ -285,6 +285,9 @@ export default function ScanScreen(){
   const [duplicate,setDuplicate] = useState('');
   const [stats,setStats]         = useState({receipts:0,spent:0,saved:0});
   const [resultItemPage,setResultItemPage] = useState(0);
+  const [previousReceipt,setPreviousReceipt] = useState<any>(null);
+  const [previousReceiptItem,setPreviousReceiptItem] = useState<any>(null);
+  const [previousReceiptLoading,setPreviousReceiptLoading] = useState(false);
 
   // Re-check login every time this screen is focused
   // This fixes the issue where sign out doesn't update the scan screen
@@ -327,6 +330,42 @@ export default function ScanScreen(){
       headers.Authorization = `Bearer ${token}`;
     }
     return headers;
+  }
+
+  async function loadOwnerReceipts() {
+    const headers = await comparisonHeaders();
+    const guestSessionId = user?.is_guest || user?.token === 'guest' ? (user.guest_session_id || user.id) : '';
+    const url = guestSessionId
+      ? `${API}/guest/receipts?session_id=${encodeURIComponent(guestSessionId)}`
+      : `${API}/receipts`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error('Could not load previous receipt.');
+    const data = await res.json();
+    return data.receipts || [];
+  }
+
+  async function openPreviousReceipt(row:any) {
+    if (!row?.previousReceiptId) {
+      Alert.alert('Previous receipt', 'No previous receipt link was returned for this comparison.');
+      return;
+    }
+    setPreviousReceiptLoading(true);
+    try {
+      const receipts = await loadOwnerReceipts();
+      const receipt = receipts.find((r:any) => String(r.id) === String(row.previousReceiptId));
+      if (!receipt) {
+        Alert.alert('Previous receipt', 'I could not find that previous receipt in your saved receipts.');
+        return;
+      }
+      setPreviousReceipt(receipt);
+      const itemByLine = (receipt.items || [])[Number(row.previousLineIndex)];
+      const itemByName = (receipt.items || []).find((item:any) => !isWeakFragmentMatch(row.item, item?.name || item?.item));
+      setPreviousReceiptItem(itemByLine || itemByName || null);
+    } catch(e:any) {
+      Alert.alert('Previous receipt', e.message || 'Could not open previous receipt.');
+    } finally {
+      setPreviousReceiptLoading(false);
+    }
   }
 
   async function loadPriceInsights(receipt:any, savedId:any) {
@@ -403,6 +442,8 @@ export default function ScanScreen(){
           diff,
           status,
           previousStore: previousBuyEvent.store,
+          previousReceiptId: previousBuyEvent.receipt_id,
+          previousLineIndex: previousBuyEvent.line_index,
         };
       }));
       setPriceInsights(rows.filter(Boolean));
@@ -914,10 +955,16 @@ export default function ScanScreen(){
                     <Text style={s.compareDetail}>{detail}</Text>
                     {row.previousStore ? <Text style={s.compareStore}>Previous store: {row.previousStore}</Text> : null}
                   </View>
-                  <View style={[s.comparePill,{borderColor:tone}]}>
+                  <TouchableOpacity
+                    style={[s.comparePill,{borderColor:tone}, row.previousReceiptId && s.comparePillTap]}
+                    onPress={() => openPreviousReceipt(row)}
+                    disabled={!row.previousReceiptId}
+                    activeOpacity={0.75}
+                  >
                     <Text style={[s.comparePillText,{color:tone}]}>{label}</Text>
                     {delta ? <Text style={[s.compareDelta,{color:tone}]}>{delta}</Text> : null}
-                  </View>
+                    {row.previousReceiptId ? <Text style={s.compareViewReceipt}>Receipt</Text> : null}
+                  </TouchableOpacity>
                 </View>
               );
             })}
@@ -947,6 +994,75 @@ export default function ScanScreen(){
           </TouchableOpacity>
         </View>
       )}
+
+      <Modal
+        visible={previousReceiptLoading || !!previousReceipt}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setPreviousReceipt(null);
+          setPreviousReceiptItem(null);
+        }}
+      >
+        <View style={s.receiptModalShade}>
+          <View style={s.receiptModal}>
+            {previousReceiptLoading ? (
+              <View style={s.receiptModalLoading}>
+                <ActivityIndicator color={C.accent} />
+                <Text style={s.receiptModalSub}>Opening previous receipt...</Text>
+              </View>
+            ) : (
+              <>
+                <View style={s.receiptModalHead}>
+                  <View style={{flex:1}}>
+                    <Text style={s.receiptModalKicker}>Previous receipt</Text>
+                    <Text style={s.receiptModalTitle}>{previousReceipt?.store || 'Unknown Store'}</Text>
+                    <Text style={s.receiptModalSub}>
+                      {[previousReceipt?.date, previousReceipt?.time, previousReceipt?.address].filter(Boolean).join('  ')}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={s.receiptModalClose}
+                    onPress={() => {
+                      setPreviousReceipt(null);
+                      setPreviousReceiptItem(null);
+                    }}
+                  >
+                    <Ionicons name="close" size={18} color={C.text} />
+                  </TouchableOpacity>
+                </View>
+
+                {previousReceiptItem ? (
+                  <View style={s.receiptMatchedItem}>
+                    <Text style={s.receiptMatchedLabel}>Matched item</Text>
+                    <View style={s.receiptItemLine}>
+                      <Text style={s.receiptItemName}>{previousReceiptItem.name || previousReceiptItem.item}</Text>
+                      <Text style={s.receiptItemPrice}>{money(previousReceiptItem.price)}</Text>
+                    </View>
+                  </View>
+                ) : null}
+
+                <ScrollView style={s.receiptItemsList} showsVerticalScrollIndicator={false}>
+                  {(previousReceipt?.items || []).slice(0, 40).map((item:any, index:number) => {
+                    const matched = previousReceiptItem && item === previousReceiptItem;
+                    return (
+                      <View key={`${item?.name || item?.item}-${index}`} style={[s.receiptItemLine, matched && s.receiptItemLineActive]}>
+                        <Text style={[s.receiptItemName, matched && s.receiptItemNameActive]}>{item?.name || item?.item || 'Item'}</Text>
+                        <Text style={s.receiptItemPrice}>{money(item?.price)}</Text>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+
+                <View style={s.receiptModalTotals}>
+                  <Text style={s.receiptModalSub}>Total</Text>
+                  <Text style={s.receiptModalTotal}>{hasVisibleMoney(previousReceipt?.total) ? money(previousReceipt?.total) : 'Not visible'}</Text>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -1097,8 +1213,10 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   compareDetail:{color:C.text2,fontSize:11,marginTop:2},
   compareStore:{color:C.accent,fontSize:10,marginTop:2,fontWeight:'700'},
   comparePill:{minWidth:72,borderWidth:1,borderRadius:12,paddingHorizontal:8,paddingVertical:6,alignItems:'center'},
+  comparePillTap:{backgroundColor:'rgba(124,106,255,0.08)'},
   comparePillText:{fontSize:11,fontWeight:'900'},
   compareDelta:{fontSize:9,fontWeight:'800',marginTop:2},
+  compareViewReceipt:{color:C.text2,fontSize:8,fontWeight:'800',marginTop:2},
   totals:{backgroundColor:C.surface,margin:16,borderRadius:12,padding:14},
   tRow:{flexDirection:'row',justifyContent:'space-between',paddingVertical:4},
   tLbl:{color:C.text2,fontSize:13},
@@ -1109,4 +1227,22 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   totalNote:{color:C.text2,fontSize:11,lineHeight:16,marginTop:8},
   savingsBanner:{marginHorizontal:16,marginBottom:8,padding:10,backgroundColor:'rgba(74,222,128,0.1)',borderWidth:1,borderColor:'rgba(74,222,128,0.25)',borderRadius:10},
   savingsText:{color:C.green,fontWeight:'600',fontSize:13,textAlign:'center'},
+  receiptModalShade:{flex:1,backgroundColor:'rgba(0,0,0,0.62)',justifyContent:'flex-end'},
+  receiptModal:{maxHeight:'78%',backgroundColor:C.surface,borderTopLeftRadius:18,borderTopRightRadius:18,borderWidth:1,borderColor:C.border,padding:16},
+  receiptModalLoading:{minHeight:180,alignItems:'center',justifyContent:'center',gap:10},
+  receiptModalHead:{flexDirection:'row',alignItems:'flex-start',gap:12,marginBottom:12},
+  receiptModalKicker:{color:C.accent3,fontSize:10,fontWeight:'900',textTransform:'uppercase',letterSpacing:0.6},
+  receiptModalTitle:{color:C.text,fontSize:20,fontWeight:'900',marginTop:3},
+  receiptModalSub:{color:C.text2,fontSize:12,lineHeight:17,marginTop:3},
+  receiptModalClose:{width:34,height:34,borderRadius:17,alignItems:'center',justifyContent:'center',backgroundColor:C.surface2,borderWidth:1,borderColor:C.border},
+  receiptMatchedItem:{borderWidth:1,borderColor:C.accent,borderRadius:12,padding:10,backgroundColor:'rgba(124,106,255,0.10)',marginBottom:10},
+  receiptMatchedLabel:{color:C.accent3,fontSize:10,fontWeight:'900',textTransform:'uppercase',letterSpacing:0.6,marginBottom:4},
+  receiptItemsList:{maxHeight:330,borderTopWidth:1,borderTopColor:C.border},
+  receiptItemLine:{flexDirection:'row',alignItems:'flex-start',justifyContent:'space-between',gap:10,paddingVertical:9,borderBottomWidth:1,borderBottomColor:C.border},
+  receiptItemLineActive:{backgroundColor:'rgba(124,106,255,0.10)',borderRadius:8,paddingHorizontal:8},
+  receiptItemName:{flex:1,color:C.text,fontSize:13},
+  receiptItemNameActive:{fontWeight:'900',color:C.accent3},
+  receiptItemPrice:{color:C.text,fontSize:13,fontWeight:'800'},
+  receiptModalTotals:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingTop:12,marginTop:4},
+  receiptModalTotal:{color:C.accent,fontSize:17,fontWeight:'900'},
 });
