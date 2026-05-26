@@ -5,7 +5,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
 import { useState, useEffect, useCallback } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   ActivityIndicator, Alert, Modal,
@@ -285,6 +285,7 @@ export default function ScanScreen(){
   const [priceLoading,setPriceLoading] = useState(false);
   const [fileStatus,setFileStatus] = useState('');
   const [duplicate,setDuplicate] = useState('');
+  const [duplicateReceiptId,setDuplicateReceiptId] = useState<string | number | null>(null);
   const [stats,setStats]         = useState({receipts:0,spent:0,saved:0});
   const [resultItemPage,setResultItemPage] = useState(0);
   const [previousReceipt,setPreviousReceipt] = useState<any>(null);
@@ -522,6 +523,7 @@ export default function ScanScreen(){
     setResultItemPage(0);
     setPriceInsights([]);
     setDuplicate('');
+    setDuplicateReceiptId(null);
   }
 
   async function scan(){
@@ -629,6 +631,7 @@ export default function ScanScreen(){
 
       if(data.duplicate) {
         setDuplicate(data.message || 'This receipt was already scanned.');
+        setDuplicateReceiptId(data.saved_id || data.receipt?.id || null);
       }
 
       const normalizedReceipt = normalizeScannedReceipt(data.receipt);
@@ -655,6 +658,7 @@ export default function ScanScreen(){
     setPriceInsights([]);
     setFileStatus('');
     setDuplicate('');
+    setDuplicateReceiptId(null);
     setIsPDF(false);
   }
 
@@ -813,7 +817,20 @@ export default function ScanScreen(){
       {/* DUPLICATE WARNING */}
       {duplicate!==''&&(
         <View style={s.warnBox}>
-          <Text style={s.warnText}>  {duplicate}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.warnTitle}>Already scanned</Text>
+            <Text style={s.warnText}>{duplicate}</Text>
+          </View>
+          {duplicateReceiptId ? (
+            <TouchableOpacity
+              style={s.warnAction}
+              onPress={() => router.push({ pathname: '/receipts', params: { receiptId: String(duplicateReceiptId) } })}
+              activeOpacity={0.82}
+            >
+              <Ionicons name="open-outline" size={14} color={C.accent} />
+              <Text style={s.warnActionText}>Open</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
 
@@ -1175,8 +1192,11 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   btnPriTxt:{color:'#fff',fontSize:15,fontWeight:'600'},
   btnSec:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:7},
   btnSecTxt:{color:C.text,fontSize:12,fontWeight:'700'},
-  warnBox:{backgroundColor:'rgba(251,191,36,0.08)',borderWidth:1,borderColor:'rgba(251,191,36,0.25)',borderRadius:12,padding:14,marginBottom:12},
-  warnText:{color:'#fbbf24',fontSize:13},
+  warnBox:{backgroundColor:'rgba(251,191,36,0.08)',borderWidth:1,borderColor:'rgba(251,191,36,0.25)',borderRadius:12,padding:14,marginBottom:12,flexDirection:'row',alignItems:'center',gap:12},
+  warnTitle:{color:'#fbbf24',fontSize:13,fontWeight:'900',marginBottom:3},
+  warnText:{color:'#fbbf24',fontSize:12,lineHeight:17},
+  warnAction:{flexDirection:'row',alignItems:'center',gap:5,borderWidth:1,borderColor:'rgba(128,111,255,0.38)',backgroundColor:'rgba(128,111,255,0.12)',borderRadius:10,paddingHorizontal:10,paddingVertical:8},
+  warnActionText:{color:C.accent,fontSize:11,fontWeight:'900'},
   resultCard:{backgroundColor:C.card,borderRadius:14,overflow:'hidden',borderWidth:1,borderColor:'rgba(98,242,208,0.22)',marginBottom:16},
   resultHeader:{padding:16,backgroundColor:'rgba(106,255,212,0.05)',borderBottomWidth:1,borderBottomColor:'rgba(106,255,212,0.15)'},
   resultKicker:{color:C.accent3,fontSize:10,fontWeight:'900',textTransform:'uppercase',letterSpacing:0.6,marginBottom:5},

@@ -372,19 +372,31 @@ export default function AgentScreen() {
           </View>
         </View>
 
-        {card.type === 'category_list' && rows.length ? (
+        {rows.length ? (
           <View style={s.answerRows}>
-            {rows.map((row, idx) => (
-              <View key={`${row.item}-${idx}`} style={[s.answerRow, { borderTopColor: C.border }]}>
+            {rows.map((row, idx) => {
+              const rowReceiptId = row.receipt_id;
+              const rowCanOpen = Boolean(rowReceiptId);
+              return (
+              <TouchableOpacity
+                key={`${row.item}-${idx}`}
+                style={[s.answerRow, rowCanOpen && s.answerRowTap, { borderTopColor: C.border }]}
+                onPress={() => rowCanOpen && router.push({ pathname: '/receipts', params: { receiptId: String(rowReceiptId) } })}
+                disabled={!rowCanOpen}
+                activeOpacity={0.78}
+              >
                 <View style={{ flex: 1 }}>
                   <Text style={[s.answerRowItem, { color: C.text }]} numberOfLines={1}>{row.item || 'Item'}</Text>
                   <Text style={[s.answerRowMeta, { color: C.text2 }]} numberOfLines={2}>
                     {[row.store, row.date, row.detail].filter(Boolean).join('  |  ')}
                   </Text>
                 </View>
-                <Text style={[s.answerRowPrice, { color: C.accent3 }]}>{row.price || ''}</Text>
-              </View>
-            ))}
+                <View style={s.answerRowRight}>
+                  <Text style={[s.answerRowPrice, { color: C.accent3 }]}>{row.price || ''}</Text>
+                  {rowCanOpen ? <Ionicons name="open-outline" size={13} color={C.accent} /> : null}
+                </View>
+              </TouchableOpacity>
+            );})}
           </View>
         ) : (
           <>
@@ -660,9 +672,11 @@ const s = StyleSheet.create({
   answerSourceText:{ flex: 1, fontSize: 11, lineHeight: 16 },
   answerRows:{ marginTop: 2 },
   answerRow:{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, borderTopWidth: 1, paddingVertical: 8 },
+  answerRowTap:{ paddingRight: 2 },
   answerRowItem:{ fontSize: 12, lineHeight: 16, fontWeight: '900' },
   answerRowMeta:{ fontSize: 10, lineHeight: 14, marginTop: 2 },
   answerRowPrice:{ fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  answerRowRight:{ alignItems: 'flex-end', gap: 4, minWidth: 74 },
   answerNote:{ fontSize: 11, lineHeight: 15, marginTop: 9 },
   answerAction:{ marginTop: 10, borderWidth: 1, borderRadius: 8, paddingVertical: 9, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   answerActionText:{ fontSize: 11, fontWeight: '900' },
