@@ -73,6 +73,18 @@ def get_image_hash(image_bytes: bytes) -> str:
     return hashlib.md5(image_bytes).hexdigest()
 
 
+def detect_image_media_type(image_bytes: bytes) -> str:
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if image_bytes.startswith(b"GIF87a") or image_bytes.startswith(b"GIF89a"):
+        return "image/gif"
+    if image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
+
+
 def check_duplicate(image_hash: str) -> dict | None:
     """Check if this receipt was already scanned. Returns existing record or None."""
     response = supabase.table("receipts").select("*").eq("image_hash", image_hash).execute()
@@ -205,9 +217,7 @@ def scan_receipt_image(image_bytes: bytes, filename: str) -> dict:
     if extension == "pdf":
         print(f"[scan] Converting PDF: {filename}")
         image_bytes = convert_pdf_to_image(image_bytes)
-        media_type = "image/png"
-    else:
-        media_type = MEDIA_TYPES.get(extension, "image/jpeg")
+    media_type = detect_image_media_type(image_bytes)
 
     image_data = base64.standard_b64encode(image_bytes).decode("utf-8")
 
