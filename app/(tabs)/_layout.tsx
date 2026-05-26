@@ -7,9 +7,9 @@ import { loadTheme, useTheme } from '../../stores/themeStore';
 import LoginScreen from '../LoginScreen';
 
 const FALLBACK_COLORS = {
-  bg:'#080810', surface:'#0f0f1a',
-  accent:'#7c6aff', text3:'#3d3a55',
-  border:'rgba(255,255,255,0.06)',
+  bg:'#070810', surface:'#10111d',
+  accent:'#806fff', text3:'#696481',
+  border:'rgba(237,232,255,0.09)',
 };
 
 export default function TabLayout() {
@@ -60,6 +60,8 @@ export default function TabLayout() {
           height: 78,
           paddingBottom: 14,
           paddingTop: 9,
+          elevation: 0,
+          shadowOpacity: 0,
         },
         tabBarActiveTintColor: C.accent,
         tabBarInactiveTintColor: C.text3,

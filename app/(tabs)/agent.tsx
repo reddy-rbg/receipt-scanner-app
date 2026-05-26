@@ -357,7 +357,8 @@ export default function AgentScreen() {
   function renderAnswerCard(card?: AgentAnswerCard | null) {
     if (!card) return null;
     const rows = card.rows || [];
-    const canFindReceipt = Boolean(card.receipt_id || rows.some(row => row.receipt_id));
+    const actionReceiptId = card.receipt_id || rows.find(row => row.receipt_id)?.receipt_id;
+    const canFindReceipt = Boolean(actionReceiptId);
 
     return (
       <View style={[s.answerCard, { backgroundColor: C.surface, borderColor: C.border }]}>
@@ -411,7 +412,7 @@ export default function AgentScreen() {
         {canFindReceipt ? (
           <TouchableOpacity
             style={[s.answerAction, { borderColor: C.border, backgroundColor: C.surface2 }]}
-            onPress={() => router.push({ pathname: '/receipts', params: { receiptId: String(card.receipt_id || '') } })}
+            onPress={() => router.push({ pathname: '/receipts', params: { receiptId: String(actionReceiptId || '') } })}
             activeOpacity={0.8}
           >
             <Ionicons name="open-outline" size={14} color={C.accent} />
@@ -451,7 +452,7 @@ export default function AgentScreen() {
       );
     }
 
-    const formattedText = formatAgentText(msg.text);
+    const formattedText = msg.answerCard ? formatAgentText(msg.text).split('\n')[0] : formatAgentText(msg.text);
     const tableLike = msg.text.includes('|');
 
     return (
@@ -460,9 +461,11 @@ export default function AgentScreen() {
           <Ionicons name="sparkles" size={15} color={C.accent} />
         </View>
         <View style={{ flex: 1 }}>
-          <View style={[s.bubble, s.agentBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
-            <Text style={[s.bubbleTxt, tableLike && s.tableTxt, { color: C.text }]}>{formattedText}</Text>
-          </View>
+          {formattedText ? (
+            <View style={[s.bubble, s.agentBubble, msg.answerCard && s.answerLeadBubble, { backgroundColor: C.surface2, borderColor: C.border }]}>
+              <Text style={[s.bubbleTxt, tableLike && !msg.answerCard && s.tableTxt, msg.answerCard && s.answerLeadTxt, { color: C.text }]}>{formattedText}</Text>
+            </View>
+          ) : null}
           {renderAnswerCard(msg.answerCard)}
         </View>
       </View>
@@ -641,14 +644,16 @@ const s = StyleSheet.create({
   userBubble:   { borderBottomRightRadius: 4 },
   bubbleTxt:    { fontSize: 14, lineHeight: 21 },
   tableTxt:     { fontSize: 12, lineHeight: 18, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  answerCard:   { maxWidth: '86%', borderWidth: 1, borderRadius: 14, padding: 12, marginTop: 8 },
+  answerLeadBubble:{ paddingVertical: 10, borderRadius: 12 },
+  answerLeadTxt:{ fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  answerCard:   { maxWidth: '86%', borderWidth: 1, borderRadius: 12, padding: 13, marginTop: 8 },
   answerCardHead:{ flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 10 },
   answerCardIcon:{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   answerCardKicker:{ fontSize: 9, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7 },
   answerCardTitle:{ fontSize: 15, lineHeight: 19, fontWeight: '900' },
   answerMainItem:{ fontSize: 14, lineHeight: 18, fontWeight: '900', marginBottom: 10 },
   answerMetrics:{ flexDirection: 'row', gap: 8 },
-  answerMetric:{ flex: 1, borderWidth: 1, borderRadius: 10, padding: 9, minHeight: 58 },
+  answerMetric:{ flex: 1, borderWidth: 1, borderRadius: 8, padding: 9, minHeight: 58 },
   answerMetricLabel:{ fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
   answerMetricValue:{ fontSize: 13, lineHeight: 17, fontWeight: '900' },
   answerSource:{ flexDirection: 'row', alignItems: 'flex-start', gap: 7, borderTopWidth: 1, marginTop: 10, paddingTop: 9 },
@@ -659,7 +664,7 @@ const s = StyleSheet.create({
   answerRowMeta:{ fontSize: 10, lineHeight: 14, marginTop: 2 },
   answerRowPrice:{ fontSize: 12, lineHeight: 16, fontWeight: '900' },
   answerNote:{ fontSize: 11, lineHeight: 15, marginTop: 9 },
-  answerAction:{ marginTop: 10, borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  answerAction:{ marginTop: 10, borderWidth: 1, borderRadius: 8, paddingVertical: 9, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   answerActionText:{ fontSize: 11, fontWeight: '900' },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
