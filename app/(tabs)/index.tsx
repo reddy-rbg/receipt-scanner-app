@@ -95,7 +95,8 @@ async function fileSize(uri: string) {
 async function compressReceiptImage(uri: string) {
   let currentUri = uri;
   let currentSize = await fileSize(currentUri);
-  if (isHeicImage(currentUri)) {
+
+  try {
     const manipulated = await ImageManipulator.manipulateAsync(
       currentUri,
       [],
@@ -103,11 +104,12 @@ async function compressReceiptImage(uri: string) {
     );
     currentUri = manipulated.uri;
     currentSize = await fileSize(currentUri);
-    return { uri: currentUri, compressed: true, size: currentSize };
+  } catch {
+    if (isHeicImage(currentUri)) throw new Error('Could not convert this HEIC image. Please choose a JPEG/PNG export or retake the photo.');
   }
 
   if (!currentSize || currentSize <= MAX_UPLOAD_BYTES) {
-    return { uri: currentUri, compressed: false, size: currentSize };
+    return { uri: currentUri, compressed: currentUri !== uri, size: currentSize };
   }
 
   const attempts = [
@@ -458,7 +460,7 @@ export default function ScanScreen(){
     const p=await ImagePicker.requestMediaLibraryPermissionsAsync();
     if(!p.granted){Alert.alert('Permission needed','Allow photo access.');return;}
     const r=await ImagePicker.launchImageLibraryAsync({
-      mediaTypes:ImagePicker.MediaTypeOptions.Images,
+      mediaTypes:['images'],
       quality:0.85,
       allowsMultipleSelection:true,
       selectionLimit:MAX_SCAN_IMAGE_PAGES,
