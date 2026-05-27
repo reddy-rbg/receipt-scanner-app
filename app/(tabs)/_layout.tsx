@@ -88,6 +88,14 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="shop"
+        options={{
+          title: 'Today List',
+          tabBarLabel: 'Shop',
+          tabBarIcon: ({ color, size }) => <Ionicons name="basket-outline" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="agent"
         options={{
           title: 'Ask Anything',
