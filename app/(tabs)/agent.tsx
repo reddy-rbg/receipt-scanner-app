@@ -362,10 +362,34 @@ export default function AgentScreen() {
     return '';
   }
 
+  async function askForCorrection() {
+    if (Platform.OS === 'web' && typeof globalThis.prompt === 'function') {
+      return globalThis.prompt('What should ReceiptAI have answered or matched instead?') || '';
+    }
+    const alertPrompt = (Alert as any).prompt;
+    if (typeof alertPrompt === 'function') {
+      return await new Promise<string>((resolve) => {
+        alertPrompt(
+          'Teach ReceiptAI',
+          'What should the answer or item match have been?',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve('') },
+            { text: 'Save', onPress: (value: string) => resolve(value || '') },
+          ],
+          'plain-text'
+        );
+      });
+    }
+    return '';
+  }
+
   async function sendFeedback(agentIndex: number, rating: 'correct' | 'wrong') {
     const agentMsg = msgs[agentIndex];
     const message = previousUserMessage(agentIndex);
     if (!agentMsg || agentMsg.role !== 'agent' || !message || agentMsg.feedbackSent) return;
+
+    const correction = rating === 'wrong' ? (await askForCorrection()).trim() : '';
+    if (rating === 'wrong' && !correction) return;
 
     setMsgs(prev => prev.map((msg, idx) => idx === agentIndex ? { ...msg, feedbackSent: true } : msg));
 
@@ -381,6 +405,8 @@ export default function AgentScreen() {
           guest_session_id: getGuestSessionId() || undefined,
           message,
           response: agentMsg.text,
+          expected_response: rating === 'correct' ? agentMsg.text : correction,
+          correction_note: correction || undefined,
           rating,
         }),
       });
