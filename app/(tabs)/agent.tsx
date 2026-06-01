@@ -71,6 +71,7 @@ type Msg = {
   tools?: string[];
   loading?: boolean;
   answerCard?: AgentAnswerCard | null;
+  feedbackSent?: boolean;
 };
 
 type VoiceMode = 'dictate' | 'wake' | null;
@@ -354,6 +355,41 @@ export default function AgentScreen() {
     ]);
   }
 
+  function previousUserMessage(agentIndex: number) {
+    for (let i = agentIndex - 1; i >= 0; i--) {
+      if (msgs[i]?.role === 'user') return msgs[i].text;
+    }
+    return '';
+  }
+
+  async function sendFeedback(agentIndex: number, rating: 'correct' | 'wrong') {
+    const agentMsg = msgs[agentIndex];
+    const message = previousUserMessage(agentIndex);
+    if (!agentMsg || agentMsg.role !== 'agent' || !message || agentMsg.feedbackSent) return;
+
+    setMsgs(prev => prev.map((msg, idx) => idx === agentIndex ? { ...msg, feedbackSent: true } : msg));
+
+    try {
+      const token = getUserToken();
+      const headers: any = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`${API}/agent/feedback`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          session_id: sessionId,
+          guest_session_id: getGuestSessionId() || undefined,
+          message,
+          response: agentMsg.text,
+          rating,
+        }),
+      });
+    } catch {
+      setMsgs(prev => prev.map((msg, idx) => idx === agentIndex ? { ...msg, feedbackSent: false } : msg));
+      Alert.alert('Feedback not saved', 'Please try again when the backend is reachable.');
+    }
+  }
+
   function renderAnswerCard(card?: AgentAnswerCard | null) {
     if (!card) return null;
     const rows = card.rows || [];
@@ -466,6 +502,7 @@ export default function AgentScreen() {
 
     const formattedText = msg.answerCard ? formatAgentText(msg.text).split('\n')[0] : formatAgentText(msg.text);
     const tableLike = msg.text.includes('|');
+    const canSendFeedback = Boolean(previousUserMessage(index));
 
     return (
       <View key={index} style={s.msgRow}>
@@ -479,6 +516,30 @@ export default function AgentScreen() {
             </View>
           ) : null}
           {renderAnswerCard(msg.answerCard)}
+          {canSendFeedback ? <View style={s.feedbackRow}>
+            {msg.feedbackSent ? (
+              <Text style={[s.feedbackSaved, { color: C.text3 }]}>Feedback saved</Text>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[s.feedbackBtn, { borderColor: C.border, backgroundColor: C.surface2 }]}
+                  onPress={() => sendFeedback(index, 'correct')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="thumbs-up-outline" size={13} color={C.accent3} />
+                  <Text style={[s.feedbackTxt, { color: C.text2 }]}>Correct</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.feedbackBtn, { borderColor: C.border, backgroundColor: C.surface2 }]}
+                  onPress={() => sendFeedback(index, 'wrong')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="thumbs-down-outline" size={13} color={C.text3} />
+                  <Text style={[s.feedbackTxt, { color: C.text2 }]}>Wrong</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View> : null}
         </View>
       </View>
     );
@@ -680,6 +741,10 @@ const s = StyleSheet.create({
   answerNote:{ fontSize: 11, lineHeight: 15, marginTop: 9 },
   answerAction:{ marginTop: 10, borderWidth: 1, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   answerActionText:{ fontSize: 11, fontWeight: '900' },
+  feedbackRow:  { flexDirection: 'row', gap: 7, marginTop: 7, marginLeft: 2 },
+  feedbackBtn:  { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 99, paddingHorizontal: 9, paddingVertical: 5 },
+  feedbackTxt:  { fontSize: 10, fontWeight: '800' },
+  feedbackSaved:{ fontSize: 10, fontWeight: '800', paddingVertical: 5 },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
   inputBar:     { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 8, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
