@@ -13,6 +13,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -291,6 +292,11 @@ export default function ScanScreen(){
   const [previousReceipt,setPreviousReceipt] = useState<any>(null);
   const [previousReceiptItem,setPreviousReceiptItem] = useState<any>(null);
   const [previousReceiptLoading,setPreviousReceiptLoading] = useState(false);
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
+  const [reviewSavedId, setReviewSavedId] = useState<string | number | null>(null);
+  const [reviewItems, setReviewItems] = useState<any[]>([]);
+  const [reviewEdits, setReviewEdits] = useState<Record<number, string>>({});
+  const [reviewSaving, setReviewSaving] = useState(false);
 
   // Re-check login every time this screen is focused
   // This fixes the issue where sign out doesn't update the scan screen
@@ -640,6 +646,14 @@ export default function ScanScreen(){
       if (!data.duplicate) {
         await loadPriceInsights(normalizedReceipt, data.saved_id);
         await loadStats();
+        // Show item review sheet so user can fix OCR errors before they pollute price memory
+        const scannedItems: any[] = normalizedReceipt?.items || [];
+        if (scannedItems.length > 0 && data.saved_id) {
+          setReviewSavedId(data.saved_id);
+          setReviewItems(scannedItems);
+          setReviewEdits({});
+          setReviewModalVisible(true);
+        }
       } else {
         setPriceInsights([]);
       }
@@ -662,9 +676,115 @@ export default function ScanScreen(){
     setIsPDF(false);
   }
 
+  async function saveReviewCorrections() {
+    const token = getUserToken();
+    const entries = Object.entries(reviewEdits).filter(([, v]) => v.trim());
+    if (!entries.length || !reviewSavedId) {
+      setReviewModalVisible(false);
+      return;
+    }
+    setReviewSaving(true);
+    const headers: any = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const guestId = useAuth.getState().user?.guest_session_id;
+
+    for (const [idxStr, newName] of entries) {
+      const idx = Number(idxStr);
+      try {
+        await fetch(`${API}/receipts/${reviewSavedId}/items/${idx}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({
+            name: newName.trim(),
+            session_id: guestId || undefined,
+          }),
+        });
+      } catch {
+        // silent — best-effort
+      }
+    }
+    setReviewSaving(false);
+    setReviewModalVisible(false);
+    Alert.alert('Corrections saved', 'Item names updated in your price memory.');
+  }
+
+  function renderReviewModal() {
+    if (!reviewModalVisible) return null;
+    const C2 = C || FALLBACK_COLORS;
+    return (
+      <Modal visible={reviewModalVisible} animationType="slide" transparent onRequestClose={() => setReviewModalVisible(false)}>
+        <View style={[rs.overlay]}>
+          <View style={[rs.sheet, { backgroundColor: C2.surface }]}>
+            <View style={[rs.header, { borderBottomColor: C2.border }]}>
+              <View>
+                <Text style={[rs.title, { color: C2.text }]}>Review scanned items</Text>
+                <Text style={[rs.subtitle, { color: C2.text3 }]}>Fix any OCR errors before they affect your price memory</Text>
+              </View>
+              <TouchableOpacity onPress={() => setReviewModalVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color={C2.text2} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={rs.list} showsVerticalScrollIndicator={false}>
+              {reviewItems.map((item: any, idx: number) => {
+                const originalName: string = item?.name || item?.item || '';
+                const editedName: string = reviewEdits[idx] ?? originalName;
+                const changed = editedName.trim() !== originalName.trim();
+                return (
+                  <View key={idx} style={[rs.itemRow, { borderBottomColor: C2.border }]}>
+                    <View style={{ flex: 1 }}>
+                      <TextInput
+                        style={[rs.itemInput, { color: C2.text, borderColor: changed ? C2.accent : C2.border, backgroundColor: C2.surface2 }]}
+                        value={editedName}
+                        onChangeText={(v) => setReviewEdits(prev => ({ ...prev, [idx]: v }))}
+                        placeholder="Item name"
+                        placeholderTextColor={C2.text3}
+                        returnKeyType="done"
+                      />
+                      {changed && (
+                        <Text style={[rs.originalTxt, { color: C2.text3 }]} numberOfLines={1}>
+                          Original: {originalName}
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={[rs.itemPrice, { color: C2.text2 }]}>
+                      {item?.price != null ? `$${n(item.price).toFixed(2)}` : ''}
+                    </Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <View style={[rs.footer, { borderTopColor: C2.border }]}>
+              <TouchableOpacity
+                style={[rs.skipBtn, { borderColor: C2.border }]}
+                onPress={() => setReviewModalVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={[rs.skipTxt, { color: C2.text2 }]}>Skip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[rs.saveBtn, { backgroundColor: C2.accent }, reviewSaving && { opacity: 0.5 }]}
+                onPress={saveReviewCorrections}
+                disabled={reviewSaving}
+                activeOpacity={0.85}
+              >
+                {reviewSaving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={rs.saveTxt}>Save corrections</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   const displayResult = result ? normalizeScannedReceipt(result) : null;
 
   return(
+    <>
+    {renderReviewModal()}
     <ScrollView style={s.scroll} contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
 
       <View style={s.heroCard}>
@@ -1083,6 +1203,7 @@ export default function ScanScreen(){
         </View>
       </Modal>
     </ScrollView>
+    </>
   );
 }
 
@@ -1214,6 +1335,7 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   resultActionNote:{marginHorizontal:16,marginBottom:4,backgroundColor:'rgba(124,109,255,0.08)',borderWidth:1,borderColor:'rgba(124,109,255,0.22)',borderRadius:14,padding:12},
   resultActionTitle:{color:C.text,fontSize:13,fontWeight:'900',marginBottom:3},
   resultActionText:{color:C.text2,fontSize:12,lineHeight:17},
+  voicePagination:{flexDirection:'row',gap:8,marginTop:12},
   invoicePager:{marginHorizontal:16,marginTop:12,backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:12,flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10},
   invoicePagerTitle:{color:C.text,fontSize:13,fontWeight:'900'},
   invoicePagerText:{color:C.text2,fontSize:11,marginTop:2},
@@ -1272,4 +1394,22 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   receiptItemPrice:{color:C.text,fontSize:13,fontWeight:'800'},
   receiptModalTotals:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingTop:12,marginTop:4},
   receiptModalTotal:{color:C.accent,fontSize:17,fontWeight:'900'},
+});
+
+const rs = StyleSheet.create({
+  overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  sheet:     { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 34, maxHeight: '85%' },
+  header:    { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', padding: 18, borderBottomWidth: 1 },
+  title:     { fontSize: 17, fontWeight: '900' },
+  subtitle:  { fontSize: 12, marginTop: 3, lineHeight: 17 },
+  list:      { paddingHorizontal: 16, paddingTop: 8 },
+  itemRow:   { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1 },
+  itemInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8, fontSize: 13 },
+  originalTxt:{ fontSize: 10, marginTop: 3 },
+  itemPrice: { fontSize: 13, fontWeight: '700', minWidth: 52, textAlign: 'right' },
+  footer:    { flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: 1 },
+  skipBtn:   { flex: 1, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingVertical: 13 },
+  skipTxt:   { fontSize: 14, fontWeight: '700' },
+  saveBtn:   { flex: 2, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingVertical: 13 },
+  saveTxt:   { color: '#fff', fontSize: 14, fontWeight: '900' },
 });

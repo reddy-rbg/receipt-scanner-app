@@ -65,13 +65,32 @@ function formatAgentText(text: string) {
     .trim();
 }
 
+type RagTraceRow = {
+  item?: string;
+  store?: string;
+  date?: string;
+  price?: string | number;
+  receipt_id?: string | number;
+  line_index?: string | number;
+  match_score?: number;
+};
+
+type RagTrace = {
+  intent?: string;
+  retrieval?: string;
+  evidence?: RagTraceRow[];
+  note?: string;
+};
+
 type Msg = {
   role: 'user' | 'agent';
   text: string;
   tools?: string[];
   loading?: boolean;
   answerCard?: AgentAnswerCard | null;
+  ragTrace?: RagTrace | null;
   feedbackSent?: boolean;
+  traceExpanded?: boolean;
 };
 
 type VoiceMode = 'dictate' | 'wake' | null;
@@ -314,7 +333,9 @@ export default function AgentScreen() {
         role:  'agent',
         text:  data.response || 'I could not get an answer. Please try again.',
         answerCard: data.answer_card || null,
+        ragTrace: data.rag_trace || null,
         tools: data.tools_used || [],
+        traceExpanded: false,
       };
 
       setMsgs(prev => [...prev.slice(0, -1), agentMsg]);
@@ -414,6 +435,104 @@ export default function AgentScreen() {
       setMsgs(prev => prev.map((msg, idx) => idx === agentIndex ? { ...msg, feedbackSent: false } : msg));
       Alert.alert('Feedback not saved', 'Please try again when the backend is reachable.');
     }
+  }
+
+  async function sendMatchCorrection(agentIndex: number, matchedItem: string) {
+    const message = previousUserMessage(agentIndex);
+    if (!message) return;
+
+    const correction = await (() => {
+      if (Platform.OS === 'web' && typeof globalThis.prompt === 'function') {
+        return Promise.resolve(globalThis.prompt(`"${matchedItem}" was matched. What should it actually be?\n(Leave blank to just mark it wrong)`) || '');
+      }
+      const alertPrompt = (Alert as any).prompt;
+      if (typeof alertPrompt === 'function') {
+        return new Promise<string>((resolve) => {
+          alertPrompt(
+            'Wrong match',
+            `"${matchedItem}" was matched incorrectly.\nWhat should it be? (optional)`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve('') },
+              { text: 'Report', onPress: (v: string) => resolve(v || '') },
+            ],
+            'plain-text'
+          );
+        });
+      }
+      return Promise.resolve('');
+    })();
+
+    // Don't send if user cancelled
+    if (correction === null) return;
+
+    try {
+      const token = getUserToken();
+      const headers: any = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`${API}/agent/feedback`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          session_id: sessionId,
+          guest_session_id: getGuestSessionId() || undefined,
+          message,
+          response: matchedItem,
+          rating: 'wrong',
+          correction_note: correction || undefined,
+          alias_term: matchedItem,
+          alias_value: correction || undefined,
+        }),
+      });
+      Alert.alert('Reported', 'ReceiptAI will avoid this match for you going forward.');
+    } catch {
+      Alert.alert('Not saved', 'Could not save correction. Try again when connected.');
+    }
+  }
+
+  function renderRagTrace(msg: Msg, index: number) {
+    const trace = msg.ragTrace;
+    if (!trace) return null;
+    const rows: RagTraceRow[] = Array.isArray(trace.evidence) ? trace.evidence.slice(0, 8) : [];
+    if (!rows.length) return null;
+
+    const expanded = msg.traceExpanded ?? false;
+
+    return (
+      <View style={[s.traceBox, { borderColor: C.border, backgroundColor: C.surface }]}>
+        <TouchableOpacity
+          style={s.traceHeader}
+          onPress={() => setMsgs(prev => prev.map((m, i) => i === index ? { ...m, traceExpanded: !m.traceExpanded } : m))}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="search-outline" size={12} color={C.text3} />
+          <Text style={[s.traceHeaderTxt, { color: C.text3 }]}>
+            Matched {rows.length} item{rows.length !== 1 ? 's' : ''} from your receipts
+          </Text>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={12} color={C.text3} />
+        </TouchableOpacity>
+        {expanded && rows.map((row, ri) => (
+          <View key={ri} style={[s.traceRow, { borderTopColor: C.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.traceItem, { color: C.text2 }]} numberOfLines={1}>{row.item || 'Unknown item'}</Text>
+              <Text style={[s.traceMeta, { color: C.text3 }]} numberOfLines={1}>
+                {[row.store, row.date].filter(Boolean).join('  ·  ')}
+                {row.match_score != null ? `  ·  score ${(row.match_score * 100).toFixed(0)}%` : ''}
+              </Text>
+            </View>
+            <View style={s.traceRight}>
+              {row.price != null ? <Text style={[s.tracePrice, { color: C.text2 }]}>${Number(row.price).toFixed(2)}</Text> : null}
+              <TouchableOpacity
+                style={[s.traceWrongBtn, { borderColor: C.border }]}
+                onPress={() => sendMatchCorrection(index, row.item || '')}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.traceWrongTxt, { color: C.red }]}>Wrong</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+      </View>
+    );
   }
 
   function renderAnswerCard(card?: AgentAnswerCard | null) {
@@ -542,6 +661,7 @@ export default function AgentScreen() {
             </View>
           ) : null}
           {renderAnswerCard(msg.answerCard)}
+          {renderRagTrace(msg, index)}
           {canSendFeedback ? <View style={s.feedbackRow}>
             {msg.feedbackSent ? (
               <Text style={[s.feedbackSaved, { color: C.text3 }]}>Feedback saved</Text>
@@ -780,4 +900,14 @@ const s = StyleSheet.create({
   sendIcon:     { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 },
   voiceHint:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, paddingHorizontal: 16, paddingVertical: 8, gap: 10 },
   voiceHintTxt: { flex: 1, fontSize: 12 },
+  traceBox:     { maxWidth: '86%', borderWidth: 1, borderRadius: 12, marginTop: 6, overflow: 'hidden' },
+  traceHeader:  { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 8 },
+  traceHeaderTxt: { flex: 1, fontSize: 10, fontWeight: '700' },
+  traceRow:     { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, paddingHorizontal: 10, paddingVertical: 7 },
+  traceItem:    { fontSize: 11, fontWeight: '700' },
+  traceMeta:    { fontSize: 10, marginTop: 1 },
+  traceRight:   { alignItems: 'flex-end', gap: 4 },
+  tracePrice:   { fontSize: 11, fontWeight: '700' },
+  traceWrongBtn:{ borderWidth: 1, borderRadius: 99, paddingHorizontal: 7, paddingVertical: 3 },
+  traceWrongTxt:{ fontSize: 9, fontWeight: '900' },
 });
