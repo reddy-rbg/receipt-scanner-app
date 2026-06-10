@@ -65,6 +65,25 @@ function formatAgentText(text: string) {
     .trim();
 }
 
+function parsePrice(value: unknown) {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const cleaned = String(value).replace(/[^0-9.-]/g, '');
+  if (!cleaned) return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function displayPrice(value: unknown, fallback = '') {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || /^n\/?a$/i.test(trimmed) || /not found/i.test(trimmed)) return trimmed || fallback;
+    if (trimmed.startsWith('$') || /price not shown/i.test(trimmed)) return trimmed;
+  }
+  const parsed = parsePrice(value);
+  return parsed == null ? fallback : `$${parsed.toFixed(2)}`;
+}
+
 type RagTraceRow = {
   item?: string;
   store?: string;
@@ -384,9 +403,6 @@ export default function AgentScreen() {
   }
 
   async function askForCorrection() {
-    if (Platform.OS === 'web' && typeof globalThis.prompt === 'function') {
-      return globalThis.prompt('What should ReceiptAI have answered or matched instead?') || '';
-    }
     const alertPrompt = (Alert as any).prompt;
     if (typeof alertPrompt === 'function') {
       return await new Promise<string>((resolve) => {
@@ -410,7 +426,6 @@ export default function AgentScreen() {
     if (!agentMsg || agentMsg.role !== 'agent' || !message || agentMsg.feedbackSent) return;
 
     const correction = rating === 'wrong' ? (await askForCorrection()).trim() : '';
-    if (rating === 'wrong' && !correction) return;
 
     setMsgs(prev => prev.map((msg, idx) => idx === agentIndex ? { ...msg, feedbackSent: true } : msg));
 
@@ -442,9 +457,6 @@ export default function AgentScreen() {
     if (!message) return;
 
     const correction = await (() => {
-      if (Platform.OS === 'web' && typeof globalThis.prompt === 'function') {
-        return Promise.resolve(globalThis.prompt(`"${matchedItem}" was matched. What should it actually be?\n(Leave blank to just mark it wrong)`) || '');
-      }
       const alertPrompt = (Alert as any).prompt;
       if (typeof alertPrompt === 'function') {
         return new Promise<string>((resolve) => {
@@ -461,9 +473,6 @@ export default function AgentScreen() {
       }
       return Promise.resolve('');
     })();
-
-    // Don't send if user cancelled
-    if (correction === null) return;
 
     try {
       const token = getUserToken();
@@ -520,7 +529,7 @@ export default function AgentScreen() {
               </Text>
             </View>
             <View style={s.traceRight}>
-              {row.price != null ? <Text style={[s.tracePrice, { color: C.text2 }]}>${Number(row.price).toFixed(2)}</Text> : null}
+              {displayPrice(row.price) ? <Text style={[s.tracePrice, { color: C.text2 }]}>{displayPrice(row.price)}</Text> : null}
               <TouchableOpacity
                 style={[s.traceWrongBtn, { borderColor: C.border }]}
                 onPress={() => sendMatchCorrection(index, row.item || '')}
@@ -573,7 +582,7 @@ export default function AgentScreen() {
                   </Text>
                 </View>
                 <View style={s.answerRowRight}>
-                  <Text style={[s.answerRowPrice, { color: C.accent3 }]}>{row.price || ''}</Text>
+                  <Text style={[s.answerRowPrice, { color: C.accent3 }]}>{displayPrice(row.price, row.price || '')}</Text>
                   {rowCanOpen ? <Ionicons name="open-outline" size={13} color={C.accent} /> : null}
                 </View>
               </TouchableOpacity>
@@ -585,7 +594,7 @@ export default function AgentScreen() {
             <View style={s.answerMetrics}>
               <View style={[s.answerMetric, { backgroundColor: C.surface2, borderColor: C.border }]}>
                 <Text style={[s.answerMetricLabel, { color: C.text3 }]}>Price</Text>
-                <Text style={[s.answerMetricValue, { color: C.accent3 }]} numberOfLines={1}>{card.price || 'N/A'}</Text>
+                <Text style={[s.answerMetricValue, { color: C.accent3 }]} numberOfLines={1}>{displayPrice(card.price, card.price || 'N/A')}</Text>
               </View>
               <View style={[s.answerMetric, { backgroundColor: C.surface2, borderColor: C.border }]}>
                 <Text style={[s.answerMetricLabel, { color: C.text3 }]}>Store</Text>
