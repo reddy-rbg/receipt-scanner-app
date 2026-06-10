@@ -41,6 +41,7 @@ export function resolveApiBase() {
 
   const webHost = Platform.OS === 'web' ? String((globalThis as any)?.location?.hostname || '') : '';
   if (webHost === 'localhost' || webHost === '127.0.0.1') return LOCAL_WEB_API;
+  if (Platform.OS === 'web' && isPrivateLanHost(webHost)) return `http://${webHost}:8000`;
 
   const devHost = getExpoDevHost();
   if (Constants.appOwnership === 'expo' && isPrivateLanHost(devHost)) {
