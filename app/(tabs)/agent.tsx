@@ -10,7 +10,10 @@ import {
   Platform, Alert, NativeModules,
 } from 'react-native';
 
-const API = 'https://web-production-3605f4.up.railway.app';
+const RAILWAY_API = 'https://web-production-3605f4.up.railway.app';
+const LOCAL_API = 'http://127.0.0.1:8000';
+const host = Platform.OS === 'web' ? String((globalThis as any)?.location?.hostname || '') : '';
+const API = host === 'localhost' || host === '127.0.0.1' ? LOCAL_API : RAILWAY_API;
 declare const require: any;
 let VoiceModule: any = null;
 let VoiceModuleChecked = false;
