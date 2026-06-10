@@ -4,44 +4,12 @@ import { getUserToken, getGuestSessionId } from '../../stores/authStore';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import { API } from '../../config/api';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
   Platform, Alert, NativeModules,
 } from 'react-native';
-
-const RAILWAY_API = 'https://web-production-3605f4.up.railway.app';
-const LOCAL_WEB_API = 'http://127.0.0.1:8000';
-const LOCAL_NATIVE_API = 'http://192.168.0.80:8000';
-
-function getExpoDevHost() {
-  const expoConstants = Constants as any;
-  const hostUri =
-    expoConstants?.expoConfig?.hostUri ||
-    expoConstants?.manifest?.debuggerHost ||
-    expoConstants?.manifest?.hostUri ||
-    expoConstants?.manifest2?.extra?.expoClient?.hostUri ||
-    '';
-  return String(hostUri).split(':')[0];
-}
-
-function resolveApiBase() {
-  const envApi = String((globalThis as any)?.process?.env?.EXPO_PUBLIC_API_URL || '').trim();
-  if (envApi) return envApi;
-
-  const webHost = Platform.OS === 'web' ? String((globalThis as any)?.location?.hostname || '') : '';
-  if (webHost === 'localhost' || webHost === '127.0.0.1') return LOCAL_WEB_API;
-  if (Platform.OS !== 'web') return LOCAL_NATIVE_API;
-
-  const devHost = getExpoDevHost();
-  if (devHost && devHost !== 'localhost' && devHost !== '127.0.0.1') {
-    return `http://${devHost}:8000`;
-  }
-
-  return RAILWAY_API;
-}
-
-const API = resolveApiBase();
 declare const require: any;
 let VoiceModule: any = null;
 let VoiceModuleChecked = false;

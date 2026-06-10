@@ -17,8 +17,7 @@ import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from 'expo-router';
 import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
 import { DARK_COLORS, useTheme } from '../../stores/themeStore';
-
-const API = 'https://web-production-3605f4.up.railway.app';
+import { API } from '../../config/api';
 
 type PriceMemoryItem = {
   item_name: string;

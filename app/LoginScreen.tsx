@@ -11,8 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { saveUser, startGuestSession } from '../stores/authStore';
 import { DARK_COLORS, useTheme } from '../stores/themeStore';
-
-const API = 'https://web-production-3605f4.up.railway.app';
+import { API } from '../config/api';
 
 function validatePassword(password: string): string[] {
   const errors: string[] = [];

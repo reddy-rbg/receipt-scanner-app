@@ -16,8 +16,7 @@ import {
 } from 'react-native';
 import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
-
-const API = 'https://web-production-3605f4.up.railway.app';
+import { API } from '../../config/api';
 const STORAGE_KEY = 'receiptai_shop_list_v1';
 
 type PriceMatch = {

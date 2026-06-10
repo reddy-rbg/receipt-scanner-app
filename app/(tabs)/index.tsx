@@ -4,6 +4,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
+import { API } from '../../config/api';
 import { useState, useEffect, useCallback } from 'react';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,7 +32,6 @@ function getInitial(user: any) {
   return value.trim().charAt(0).toUpperCase();
 }
 
-const API = 'https://web-production-3605f4.up.railway.app';
 // Claude's 5 MB limit is after base64 encoding, so keep raw images well below it.
 const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
 const MAX_SCAN_IMAGE_PAGES = 8;

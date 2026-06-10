@@ -7,8 +7,7 @@ import {
   Linking, Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
-const API = 'https://web-production-3605f4.up.railway.app';
+import { API } from '../../config/api';
 
 const FALLBACK_COLORS = {
   bg:'#06070D', surface:'#0D0F18', surface2:'#151824', surface3:'#202432', card:'#10131F',

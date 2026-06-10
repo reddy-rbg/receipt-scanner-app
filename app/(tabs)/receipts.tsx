@@ -3,6 +3,7 @@ import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore
 import { DARK_COLORS } from '../../stores/themeStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
+import { API } from '../../config/api';
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
@@ -10,7 +11,6 @@ import {
   Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 
-const API = 'https://web-production-3605f4.up.railway.app';
 const RECEIPTS_CACHE_KEY = 'receiptai:receipts-cache:v1';
 const INVOICE_ITEM_PAGE_SIZE = 25;
 
