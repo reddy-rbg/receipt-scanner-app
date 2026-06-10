@@ -12,6 +12,7 @@ import {
 
 const RAILWAY_API = 'https://web-production-3605f4.up.railway.app';
 const LOCAL_WEB_API = 'http://127.0.0.1:8000';
+const LOCAL_NATIVE_API = 'http://192.168.0.80:8000';
 
 function getExpoDevHost() {
   const expoConstants = Constants as any;
@@ -30,6 +31,7 @@ function resolveApiBase() {
 
   const webHost = Platform.OS === 'web' ? String((globalThis as any)?.location?.hostname || '') : '';
   if (webHost === 'localhost' || webHost === '127.0.0.1') return LOCAL_WEB_API;
+  if (Platform.OS !== 'web') return LOCAL_NATIVE_API;
 
   const devHost = getExpoDevHost();
   if (devHost && devHost !== 'localhost' && devHost !== '127.0.0.1') {
