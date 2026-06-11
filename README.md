@@ -1,39 +1,54 @@
+<div align="center">
+
+<img src="./assets/readme/receiptai-flow.svg" alt="ReceiptAI animated product flow" width="100%" />
+
 # ReceiptAI
 
-ReceiptAI is a full-stack receipt scanner and shopping intelligence app. It scans receipts, stores clean purchase history, and answers natural-language questions with evidence from the user's own receipt data.
+### A receipt scanner and shopping intelligence agent that answers from real purchase evidence.
+
+<p>
+  <img alt="Expo" src="https://img.shields.io/badge/Mobile-Expo-7C6AFF?style=for-the-badge&logo=expo&logoColor=white" />
+  <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
+  <img alt="Supabase" src="https://img.shields.io/badge/Data-Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" />
+  <img alt="Railway" src="https://img.shields.io/badge/Deploy-Railway-111827?style=for-the-badge&logo=railway&logoColor=white" />
+</p>
+
+<p>
+  <b>Scan receipts</b> -> <b>save clean purchase memory</b> -> <b>ask the AI Agent</b> -> <b>get evidence-backed answers</b>
+</p>
+
+</div>
+
+---
+
+## Why ReceiptAI Exists
+
+ReceiptAI turns messy receipts into a personal shopping memory. It helps answer practical questions like:
+
+- What did I buy from Walmart?
+- Which store gives me the best price for rice, milk, or vegetables?
+- How much did I spend this month?
+- Did I actually buy this item before?
+- What should I buy next based on my receipt history?
+
+The important rule is simple:
 
 ```text
-Mobile app -> Backend API -> Supabase receipt data -> Evidence-first AI Agent
+No receipt evidence -> no purchase claim.
 ```
 
-## What It Does
+## Product Highlights
 
-| Area | Capability |
+| Capability | What it means |
 | --- | --- |
 | Receipt scanning | Upload receipt images or PDFs and extract structured purchase data |
-| Purchase memory | Save receipts, line items, totals, stores, dates, quantities, and guest sessions |
-| AI Agent | Ask about prices, stores, spending, item history, comparisons, and shopping decisions |
+| Purchase memory | Store receipts, line items, totals, stores, dates, quantities, and guest sessions |
+| AI Agent | Ask about prices, stores, item history, spending, comparisons, and shopping plans |
 | Evidence gate | Receipt facts must come from saved receipt evidence, not model guesses |
-| General advice | Food, shopping, and savings advice is allowed when clearly separated from receipt facts |
-| Deployment | Mobile app runs with Expo; backend deploys from `backend/` on Railway |
+| General advice | Food, shopping, and savings advice is supported without pretending it came from receipts |
+| Mobile first | Built for Expo Go, local LAN testing, and future app-store builds |
 
-## Repository Layout
-
-```text
-ReceiptScanner/
-  mobile/                 Expo / React Native app
-  backend/                FastAPI backend
-    app/
-      routes/             Auth, receipt, query, and agent routes
-      services/           Scanning, storage, retrieval, and agent logic
-    main.py               FastAPI entrypoint
-    requirements.txt      Python dependencies
-    Procfile              Railway start command
-    nixpacks.toml         Railway build config
-    supabase_*.sql        Supabase migrations
-```
-
-## System Flow
+## Architecture At A Glance
 
 ```mermaid
 flowchart TD
@@ -49,9 +64,26 @@ flowchart TD
   G --> I["Evidence-gated answer"]
 ```
 
-## Agent Architecture
+## Repository Layout
 
-The Agent is designed to behave like a helpful shopping assistant without inventing receipt facts.
+```text
+ReceiptScanner/
+  mobile/                 Expo / React Native app
+  backend/                FastAPI backend
+    app/
+      routes/             Auth, receipt, query, and agent routes
+      services/           Scanning, storage, retrieval, and agent logic
+    main.py               FastAPI entrypoint
+    requirements.txt      Python dependencies
+    Procfile              Railway start command
+    nixpacks.toml         Railway build config
+    supabase_*.sql        Supabase migrations
+  assets/readme/          README visuals
+```
+
+## Agent Brain
+
+The Agent is structured so it can feel conversational while staying grounded.
 
 | Module | Responsibility |
 | --- | --- |
@@ -61,18 +93,11 @@ The Agent is designed to behave like a helpful shopping assistant without invent
 | `backend/app/services/agent_analytics.py` | Spending, summary, and trend routing |
 | `backend/app/services/receipt_intelligence.py` | Deterministic receipt Q&A and item matching |
 
-Core rule:
+Receipt fact answers are allowed only when matching receipt evidence is found.
 
-```text
-If the user asks what they bought, where they bought it, or how much they paid,
-the answer must be backed by matching receipt evidence.
-```
-
-## Local Development
+## Run Locally
 
 ### Mobile App
-
-From the repository root:
 
 ```powershell
 cd mobile
@@ -83,8 +108,6 @@ npx expo start --lan -c
 Use `--lan` when testing with Expo Go on a phone connected to the same Wi-Fi network.
 
 ### Backend
-
-From the repository root:
 
 ```powershell
 cd backend
@@ -190,9 +213,7 @@ mobile/
 
 ## Quality Gates
 
-The backend includes hard-scenario tests for the Agent, including typo-heavy questions, missing punctuation, item matching, store matching, spending summaries, and evidence gating.
-
-Useful checks:
+The backend includes hard-scenario tests for typo-heavy questions, missing punctuation, item matching, store matching, spending summaries, and evidence gating.
 
 ```powershell
 cd backend
@@ -214,17 +235,9 @@ Commit from the monorepo root using repository-relative paths:
 
 ```powershell
 git status
-git add README.md backend mobile
+git add README.md assets/readme backend mobile
 git commit -m "Describe your change"
 git push
-```
-
-## Project Rule
-
-ReceiptAI should feel intelligent, but receipt answers must stay honest:
-
-```text
-No receipt evidence -> no purchase claim.
 ```
 
 ## License
