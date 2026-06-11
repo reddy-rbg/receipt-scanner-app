@@ -26,15 +26,10 @@ from app.services import agent_analytics
 
 MODEL = os.getenv("CLAUDE_AGENT_MODEL", "claude-opus-4-5-20251101")
 SONNET_MODEL = os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
-OPENAI_ROUTER_MODEL = os.getenv("OPENAI_ROUTER_MODEL", "gpt-4o-mini")
-OPENAI_GENERAL_MODEL = os.getenv("OPENAI_GENERAL_MODEL", OPENAI_ROUTER_MODEL)
-OPENAI_MEMORY_MODEL = os.getenv("OPENAI_MEMORY_MODEL", OPENAI_GENERAL_MODEL)
-OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
-AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
-AGENT_BUILD = "analytics-routing-extracted-6d87034"
+AGENT_BUILD = "claude-only-agent-2026-06-11"
 AGENT_CAPABILITIES = {
     "structured_rag": True,
     "adaptive_query_recovery": True,
@@ -43,7 +38,7 @@ AGENT_CAPABILITIES = {
     "non_food_grocery_guard": True,
     "descriptor_safe_matching": True,
     "multi_item_splitter": True,
-    "optional_embedding_boosts": AGENT_EMBEDDING_RETRIEVAL_ENABLED,
+    "claude_only": True,
 }
 RECEIPT_SELECT = "id,store,address,date,time,total,subtotal,discount,tax,total_savings,items,created_at"
 ITEM_SELECT = "receipt_id,line_index,store,purchase_date,receipt_created_at,code,item_name_original,item_name_normalized,product_size,quantity,raw_quantity,unit,unit_price,line_price,source,confidence,explicit_quantity,metadata"
@@ -54,131 +49,12 @@ _FEEDBACK_CACHE: dict[tuple[str, str], list[dict]] = {}
 _PUBLIC_MEANING_CACHE: dict[str, list[set[str]]] = {}
 
 
-def openai_enabled() -> bool:
-    value = os.getenv("AGENT_OPENAI_ENABLED", "true").strip().lower()
-    return value not in {"0", "false", "no", "off"} and bool(os.getenv("OPENAI_API_KEY"))
-
-
-def openai_chat_text(
-    messages: list[dict[str, str]],
-    model: str | None = None,
-    temperature: float = 0.0,
-    max_tokens: int = 420,
-) -> str:
-    """
-    Optional OpenAI chat layer without a required SDK dependency.
-    Used for intent/query understanding and general advice only; receipt facts still come from RAG.
-    """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return ""
-    payload = {
-        "model": model or OPENAI_ROUTER_MODEL,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-    request = Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=12) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        return str(data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
-    except Exception as e:
-        print(f"[openai] unavailable: {e}")
-        return ""
-
-
-def openai_chat_json(
-    messages: list[dict[str, str]],
-    model: str | None = None,
-    max_tokens: int = 260,
-) -> dict:
-    text = openai_chat_text(messages, model=model, temperature=0.0, max_tokens=max_tokens)
-    return parse_json_object(text)
-
-
-def openai_embedding(text: str) -> list[float]:
-    """Optional query embedding for vector retrieval. Safe no-op without OpenAI."""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key or not text:
-        return []
-    payload = {
-        "model": OPENAI_EMBEDDING_MODEL,
-        "input": text[:8000],
-    }
-    request = Request(
-        "https://api.openai.com/v1/embeddings",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=12) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        embedding = (data.get("data") or [{}])[0].get("embedding") or []
-        return [float(value) for value in embedding]
-    except Exception as e:
-        print(f"[openai_embedding] unavailable: {e}")
-        return []
-
-
 def receipt_event_key(event: dict) -> tuple[str, str, str]:
     return (
         str(event.get("receipt_id") or ""),
         str(event.get("line_index") or ""),
         normalize_text(event.get("item_original") or ""),
     )
-
-
-def fetch_embedding_rank_boosts(
-    query: str,
-    user_id: str | None = None,
-    guest_session_id: str | None = None,
-) -> dict[tuple[str, str, str], float]:
-    """
-    Optional pgvector retrieval boost.
-    Requires supabase_agent_ml.sql plus populated receipt_item_embeddings.
-    """
-    if not AGENT_EMBEDDING_RETRIEVAL_ENABLED or not openai_enabled():
-        return {}
-    embedding = openai_embedding(query)
-    if not embedding:
-        return {}
-    try:
-        rows = supabase.rpc("match_receipt_item_embeddings", {
-            "query_embedding": embedding,
-            "match_count": 50,
-            "p_user_id": user_id,
-            "p_guest_session_id": guest_session_id,
-        }).execute().data or []
-    except Exception as e:
-        print(f"[embeddings] Vector retrieval unavailable: {e}")
-        return {}
-
-    boosts: dict[tuple[str, str, str], float] = {}
-    for row in rows:
-        similarity = _safe_float(row.get("similarity"), 0.0)
-        if similarity <= 0:
-            continue
-        key = (
-            str(row.get("receipt_id") or ""),
-            str(row.get("line_index") or ""),
-            normalize_text(row.get("item_name") or ""),
-        )
-        boosts[key] = max(boosts.get(key, 0.0), min(0.18, max(0.0, (similarity - 0.74) * 0.7)))
-    return boosts
-
 
 AGENT_TOOLS = [
     {
@@ -1074,19 +950,9 @@ Google snippets:
 {snippets}
 """
     aliases = []
-    if openai_enabled():
-        data = openai_chat_json(
-            [
-                {"role": "system", "content": "Return only valid JSON with an aliases array."},
-                {"role": "user", "content": prompt},
-            ],
-            model=OPENAI_ROUTER_MODEL,
-            max_tokens=220,
-        )
-        aliases = [clean_item_query_for_display(str(a)) for a in data.get("aliases") or []] if data else []
 
     try:
-        if not aliases and claude_client is not None:
+        if claude_client is not None:
             response = claude_client.messages.create(
                 model=SONNET_MODEL,
                 max_tokens=220,
@@ -2052,8 +1918,6 @@ def retrieve_item_events(
     match_threshold = minimum_match_score(query, semantic_family)
     candidate_threshold = minimum_candidate_score(query, semantic_family)
     feedback_examples = fetch_owner_feedback_examples(user_id, guest_session_id)
-    embedding_boosts = fetch_embedding_rank_boosts(query, user_id, guest_session_id)
-
     blocklist = fetch_owner_blocklist(user_id, guest_session_id)
     scored = []
     for event in all_events:
@@ -2067,14 +1931,12 @@ def retrieve_item_events(
         scores = [(variant, item_match_score(variant, event["item_original"], event.get("code"))) for variant in query_variants]
         matched_query, score = max(scores, key=lambda item: item[1]) if scores else (query, 0.0)
         learned_adjustment = learned_rank_adjustment(query, event, feedback_examples)
-        embedding_adjustment = embedding_boosts.get(receipt_event_key(event), 0.0)
-        adjusted_score = max(0.0, min(1.0, score + learned_adjustment + embedding_adjustment))
+        adjusted_score = max(0.0, min(1.0, score + learned_adjustment))
         match_level = verified_match_level(event, query, score, extra_families)
         if match_level != "none" and adjusted_score >= match_threshold:
             event_copy = dict(event)
             event_copy["match_score"] = score
             event_copy["learned_rank_adjustment"] = round(learned_adjustment, 4)
-            event_copy["embedding_rank_adjustment"] = round(embedding_adjustment, 4)
             event_copy["adjusted_match_score"] = round(adjusted_score, 4)
             event_copy["matched_query"] = matched_query
             event_copy["match_confidence"] = match_level
@@ -2083,7 +1945,7 @@ def retrieve_item_events(
     scored.sort(
         key=lambda x: (
             x.get("adjusted_match_score", x["match_score"]),
-            x.get("learned_rank_adjustment", 0.0) + x.get("embedding_rank_adjustment", 0.0),
+            x.get("learned_rank_adjustment", 0.0),
             x["match_score"],
             x.get("date") or "",
             x.get("created_at") or "",
@@ -2103,8 +1965,7 @@ def retrieve_item_events(
             scores = [(variant, item_match_score(variant, event["item_original"], event.get("code"))) for variant in query_variants]
             matched_query, score = max(scores, key=lambda item: item[1]) if scores else (query, 0.0)
             learned_adjustment = learned_rank_adjustment(query, event, feedback_examples)
-            embedding_adjustment = embedding_boosts.get(receipt_event_key(event), 0.0)
-            adjusted_score = max(0.0, min(1.0, score + learned_adjustment + embedding_adjustment))
+            adjusted_score = max(0.0, min(1.0, score + learned_adjustment))
             match_level = verified_match_level(event, query, score, extra_families)
             if match_level != "none" and adjusted_score >= candidate_threshold:
                 candidates.append({
@@ -2114,7 +1975,6 @@ def retrieve_item_events(
                     "price": event["line_price"],
                     "match_score": score,
                     "learned_rank_adjustment": round(learned_adjustment, 4),
-                    "embedding_rank_adjustment": round(embedding_adjustment, 4),
                     "adjusted_match_score": round(adjusted_score, 4),
                     "matched_query": matched_query,
                     "match_confidence": match_level,
@@ -2122,7 +1982,7 @@ def retrieve_item_events(
         candidates.sort(
             key=lambda x: (
                 x.get("adjusted_match_score", x["match_score"]),
-                x.get("learned_rank_adjustment", 0.0) + x.get("embedding_rank_adjustment", 0.0),
+                x.get("learned_rank_adjustment", 0.0),
                 x["match_score"],
             ),
             reverse=True,
@@ -2324,7 +2184,7 @@ GENERAL_KNOWLEDGE_SNIPPETS = [
 
 def query_understanding_enabled() -> bool:
     value = os.getenv("AGENT_QUERY_UNDERSTANDING_ENABLED", "true").strip().lower()
-    return value not in {"0", "false", "no", "off"} and (openai_enabled() or claude_client is not None)
+    return value not in {"0", "false", "no", "off"} and claude_client is not None
 
 
 def parse_json_object(text: str) -> dict:
@@ -2597,18 +2457,6 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
         return {}
 
     prompt = query_understanding_prompt(message, conversation_history)
-    if openai_enabled():
-        data = openai_chat_json(
-            [
-                {"role": "system", "content": "Return only valid JSON. You are a query router, not an answer generator."},
-                {"role": "user", "content": prompt},
-            ],
-            model=OPENAI_ROUTER_MODEL,
-            max_tokens=260,
-        )
-        if data:
-            return normalize_understanding_payload(data)
-
     if claude_client is None:
         return {}
 
@@ -2736,84 +2584,11 @@ def general_advice_answer(message: str, context: list[dict] | None = None) -> st
         message,
         context,
         retrieve_context=retrieve_general_context,
-        openai_enabled=openai_enabled,
-        openai_chat_text=openai_chat_text,
-        openai_model=OPENAI_GENERAL_MODEL,
         claude_client=claude_client,
         claude_model=SONNET_MODEL,
         correct_query_words=correct_query_words,
         normalize_text=normalize_text,
     )
-    """Answer non-receipt questions without forcing them through receipt RAG."""
-    context = context or retrieve_general_context(message)
-    context_text = general_context_text(context)
-    system = (
-        "You are ReceiptAI's helpful shopping and household assistant. "
-        "Answer general consumer, cooking, food safety, storage, and product questions clearly. "
-        "Use the provided general context when relevant. "
-        "Do not claim anything from the user's receipts unless receipt data is provided. "
-        "Keep the answer concise, practical, and mobile-friendly. "
-        "For safety topics, include the key safe number or rule and a short caution."
-    )
-    user_content = message
-    if context_text:
-        user_content = f"General context:\n{context_text}\n\nUser question:\n{message}"
-    if openai_enabled():
-        text = openai_chat_text(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_content},
-            ],
-            model=OPENAI_GENERAL_MODEL,
-            temperature=0.2,
-            max_tokens=420,
-        )
-        if text:
-            return text
-
-    if claude_client is not None:
-        try:
-            response = claude_client.messages.create(
-                model=SONNET_MODEL,
-                max_tokens=420,
-                temperature=0.2,
-                system=system,
-                messages=[{"role": "user", "content": user_content}],
-            )
-            text = "".join(block.text for block in response.content if hasattr(block, "text") and block.text).strip()
-            if text:
-                return text
-        except Exception as e:
-            print(f"[general_advice] unavailable: {e}")
-
-    m = correct_query_words(normalize_text(message))
-    if "boil" in m and ("egg" in m or "eggs" in m):
-        return "For boiled eggs, simmer large eggs for about 9-12 minutes, then cool them in ice water. Use 6-7 minutes for softer yolks."
-    if ("store" in m or "keep" in m or "fresh" in m) and ("cilantro" in m or "coriander" in m):
-        return "To keep cilantro fresh, trim the stems, place it upright in a jar with a little water, cover loosely with a bag, and refrigerate. Change the water every few days."
-    if ("store" in m or "keep" in m or "fresh" in m) and ("tomato" in m or "tomatoes" in m):
-        return "To keep tomatoes fresh, store uncut ripe tomatoes at room temperature away from direct sun and use them within a few days. Refrigerate only very ripe or cut tomatoes, then let chilled whole tomatoes come back to room temperature before eating for better flavor."
-    if "freeze" in m and "meat" in m:
-        return "To freeze meat, wrap it tightly, press out air, label the date, and freeze at 0°F / -18°C. Use raw ground meat within 3-4 months and larger cuts within 6-12 months for best quality."
-    if "expired" in m and ("yogurt" in m or "yoghurt" in m):
-        return "Do not eat yogurt if it smells sour beyond normal, has mold, gas pressure, or unusual texture. If it is only slightly past the date and looks/smells normal, use caution and discard when unsure."
-    if "milk" in m and ("bacteria" in m or "pasteur" in m or "temperature" in m):
-        return (
-            "To pasteurize milk at home, heat it to 161°F / 72°C for 15 seconds, "
-            "then cool it quickly and refrigerate it. Another common method is "
-            "145°F / 63°C for 30 minutes. Do not rely on this to make spoiled milk safe."
-        )
-    if "basmati" in m and "rice" in m:
-        return "Basmati rice is a long-grain aromatic rice known for a fluffy texture and nutty aroma. It works well with biryani, curries, pilaf, and simple dal meals."
-    if "goat" in m and ("cook" in m or "cooking" in m or "recipe" in m or "prepare" in m):
-        return "To cook goat meat, use moist heat or a pressure cooker for tougher cuts, season well, and cook until tender. It works well in curry, stew, biryani, or slow braises."
-    if "goat" in m and ("healthy" in m or "health" in m):
-        return "Goat meat can be a healthy protein choice when eaten in moderation. It is typically leaner than some red meats, but portion size, cooking method, and overall diet still matter."
-    if "shopping" in m and ("cheaper" in m or "save" in m):
-        return "To make grocery shopping cheaper, plan meals around repeat items, compare unit prices, buy only sale items you will actually use, and avoid stocking up on products without price history."
-    if "vegetable" in m and "curry" in m:
-        return "Good vegetables with chicken curry include potato, carrot, peas, bell pepper, spinach, cauliflower, green beans, and eggplant. Add quick-cooking vegetables near the end so they do not get mushy."
-    return "I can help with that. Please ask the question with a little more detail."
 
 
 def find_recent_item_topic(conversation_history: list[dict] | None) -> str | None:
@@ -4720,19 +4495,6 @@ User request:
 Receipt memory JSON:
 {json.dumps(context, ensure_ascii=True)}
 """.strip()
-
-    if openai_enabled():
-        answer = openai_chat_text(
-            [
-                {"role": "system", "content": "You answer as a precise receipt-memory analyst. Use only the supplied JSON facts."},
-                {"role": "user", "content": prompt},
-            ],
-            model=OPENAI_MEMORY_MODEL,
-            temperature=0.1,
-            max_tokens=900,
-        )
-        if answer:
-            return answer
 
     if claude_client is not None:
         try:

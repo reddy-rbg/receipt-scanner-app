@@ -8,7 +8,7 @@ It covers the failure classes that repeatedly caused bad answers:
 - non-food/supplement rows matching grocery items
 - descriptors like round/cut becoming standalone products
 - multi-item splitting and adaptive recovery
-- feedback/embedding rank adjustments
+- feedback rank adjustments
 """
 
 from test_agent_rag_regression import (

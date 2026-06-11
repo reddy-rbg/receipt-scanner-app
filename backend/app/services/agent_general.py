@@ -170,9 +170,6 @@ def general_advice_answer(
     context: list[dict] | None = None,
     *,
     retrieve_context,
-    openai_enabled,
-    openai_chat_text,
-    openai_model: str,
     claude_client,
     claude_model: str,
     correct_query_words,
@@ -191,18 +188,6 @@ def general_advice_answer(
     user_content = message
     if context_text:
         user_content = f"General context:\n{context_text}\n\nUser question:\n{message}"
-    if openai_enabled():
-        text = openai_chat_text(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_content},
-            ],
-            model=openai_model,
-            temperature=0.2,
-            max_tokens=420,
-        )
-        if text:
-            return text
 
     if claude_client is not None:
         try:

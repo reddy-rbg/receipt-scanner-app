@@ -141,7 +141,6 @@ EVENTS = [
 
 def setup_module():
     agent.fetch_owner_item_events = lambda user_id=None, guest_session_id=None, limit=1000: EVENTS
-    agent.fetch_embedding_rank_boosts = lambda query, user_id=None, guest_session_id=None: {}
     agent.fetch_owner_receipts = lambda user_id=None, guest_session_id=None, limit=300: [
         {
             "id": "r1",
@@ -692,48 +691,6 @@ def test_feedback_examples_boost_corrected_receipt_item_rank():
     assert rag["events"][0]["learned_rank_adjustment"] > 0
 
 
-def test_embedding_boost_can_rerank_semantic_candidate_when_available():
-    extra_events = EVENTS + [
-        {
-            "receipt_id": "tomato-sauce",
-            "line_index": 1,
-            "store": "Market A",
-            "date": "2026-05-28",
-            "created_at": "2026-05-28",
-            "code": None,
-            "item_original": "TOMATO SAUCE",
-            "item_normalized": "tomato sauce",
-            "quantity": 1,
-            "unit": "each",
-            "line_price": 2.49,
-        },
-        {
-            "receipt_id": "tomato-roma",
-            "line_index": 1,
-            "store": "Market B",
-            "date": "2026-05-20",
-            "created_at": "2026-05-20",
-            "code": None,
-            "item_original": "TOMATO ROMA",
-            "item_normalized": "tomato roma",
-            "quantity": 3.07,
-            "unit": "lb",
-            "line_price": 2.82,
-        },
-    ]
-    agent.fetch_owner_item_events = lambda user_id=None, guest_session_id=None, limit=1000: extra_events
-    agent.fetch_embedding_rank_boosts = lambda query, user_id=None, guest_session_id=None: {
-        ("tomato-roma", "1", "tomato roma"): 0.16
-    }
-    try:
-        rag = agent.retrieve_item_events("best price for tomato", user_id="u1", limit=5)
-    finally:
-        setup_module()
-
-    assert rag["events"][0]["item_original"] == "TOMATO ROMA"
-    assert rag["events"][0]["embedding_rank_adjustment"] == 0.16
-
-
 def test_failed_single_item_rag_uses_adaptive_recovery_before_giving_up():
     result = agent.run_agent(
         "Can you find what I paid for clantro sweet potato coconut",
@@ -1198,7 +1155,6 @@ if __name__ == "__main__":
     test_compare_multi_item_request_keeps_unknown_as_missing_row()
     test_avoid_above_usual_price_routes_to_price_memory()
     test_feedback_examples_boost_corrected_receipt_item_rank()
-    test_embedding_boost_can_rerank_semantic_candidate_when_available()
     test_failed_single_item_rag_uses_adaptive_recovery_before_giving_up()
     test_category_question_without_price_word_uses_rag()
     test_incomplete_cheapest_question_is_global_price_question()

@@ -97,7 +97,6 @@ def agent_health():
         (os.getenv("GOOGLE_SEARCH_API_KEY") or os.getenv("GOOGLE_API_KEY"))
         and (os.getenv("GOOGLE_SEARCH_ENGINE_ID") or os.getenv("GOOGLE_CSE_ID"))
     )
-    openai_brain_enabled = bool(os.getenv("OPENAI_API_KEY")) and os.getenv("AGENT_OPENAI_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
     supabase_key_mode = "service" if (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")) else "anon"
     return {
         "success": True,
@@ -109,6 +108,6 @@ def agent_health():
         "agent_build": agent_service.AGENT_BUILD,
         "agent_capabilities": agent_service.AGENT_CAPABILITIES,
         "google_meaning_enabled": google_meaning_enabled,
-        "openai_brain_enabled": openai_brain_enabled,
+        "ai_provider": "claude",
         "supabase_key_mode": supabase_key_mode,
     }
