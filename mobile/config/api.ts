@@ -21,17 +21,6 @@ function isPrivateLanHost(host: string) {
   );
 }
 
-function getExpoDevHost() {
-  const expoConstants = Constants as any;
-  const hostUri =
-    expoConstants?.expoConfig?.hostUri ||
-    expoConstants?.manifest?.debuggerHost ||
-    expoConstants?.manifest?.hostUri ||
-    expoConstants?.manifest2?.extra?.expoClient?.hostUri ||
-    '';
-  return String(hostUri).split(':')[0];
-}
-
 export function resolveApiBase() {
   const envApi = cleanApiUrl(typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_API_URL : undefined);
   if (envApi) return envApi;
@@ -42,11 +31,6 @@ export function resolveApiBase() {
   const webHost = Platform.OS === 'web' ? String((globalThis as any)?.location?.hostname || '') : '';
   if (webHost === 'localhost' || webHost === '127.0.0.1') return LOCAL_WEB_API;
   if (Platform.OS === 'web' && isPrivateLanHost(webHost)) return `http://${webHost}:8000`;
-
-  const devHost = getExpoDevHost();
-  if (Constants.appOwnership === 'expo' && isPrivateLanHost(devHost)) {
-    return `http://${devHost}:8000`;
-  }
 
   return PRODUCTION_API;
 }
