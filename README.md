@@ -229,4 +229,6 @@ No receipt evidence -> no purchase claim.
 
 ## License
 
-Private project. Add a license before making the repository public.
+Copyright (c) 2026 Ajay Kumar Reddy Poreddy. All rights reserved.
+
+This repository and the ReceiptAI project are proprietary and confidential. No permission is granted to copy, clone, fork, distribute, modify, reuse, commercialize, or create derivative works from this codebase, design, architecture, workflows, or product concept without prior written permission from the owner. Patent and copyright protections may apply.
