@@ -4,6 +4,7 @@ import { getUserToken, getGuestSessionId } from '../../stores/authStore';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as Clipboard from 'expo-clipboard';
 import { API } from '../../config/api';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
@@ -408,6 +409,28 @@ export default function AgentScreen() {
     return '';
   }
 
+  async function copyMessage(text: string, label = 'Message') {
+    const value = text.trim();
+    if (!value) return;
+    try {
+      await Clipboard.setStringAsync(value);
+      Alert.alert('Copied', `${label} copied to clipboard.`);
+    } catch {
+      Alert.alert('Copy failed', 'Please try again.');
+    }
+  }
+
+  function editUserMessage(text: string) {
+    setInput(text);
+    scrollToBottom();
+  }
+
+  function retryAgentMessage(agentIndex: number) {
+    const message = previousUserMessage(agentIndex);
+    if (!message || loading) return;
+    sendMessage(message);
+  }
+
   async function askForCorrection() {
     const alertPrompt = (Alert as any).prompt;
     if (typeof alertPrompt === 'function') {
@@ -653,8 +676,30 @@ export default function AgentScreen() {
     if (isUser) {
       return (
         <View key={index} style={[s.msgRow, s.userRow]}>
-          <View style={[s.bubble, s.userBubble, { backgroundColor: C.accent }]}>
-            <Text style={[s.bubbleTxt, { color: '#fff' }]}>{msg.text}</Text>
+          <View style={s.userMessageWrap}>
+            <View style={[s.bubble, s.userBubble, { backgroundColor: C.accent }]}>
+              <Text style={[s.bubbleTxt, { color: '#fff' }]}>{msg.text}</Text>
+            </View>
+            <View style={s.userActionRow}>
+              <TouchableOpacity
+                style={s.iconActionBtn}
+                onPress={() => copyMessage(msg.text, 'Question')}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Copy question"
+              >
+                <Ionicons name="copy-outline" size={16} color={C.text3} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.iconActionBtn}
+                onPress={() => editUserMessage(msg.text)}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Edit question"
+              >
+                <Ionicons name="create-outline" size={16} color={C.text3} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       );
@@ -683,23 +728,44 @@ export default function AgentScreen() {
             ) : (
               <>
                 <TouchableOpacity
-                  style={[s.feedbackBtn, { borderColor: C.border, backgroundColor: C.surface2 }]}
+                  style={[s.iconFeedbackBtn, { borderColor: C.border, backgroundColor: C.surface2 }]}
                   onPress={() => sendFeedback(index, 'correct')}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Mark answer correct"
                 >
                   <Ionicons name="thumbs-up-outline" size={13} color={C.accent3} />
-                  <Text style={[s.feedbackTxt, { color: C.text2 }]}>Correct</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[s.feedbackBtn, { borderColor: C.border, backgroundColor: C.surface2 }]}
+                  style={[s.iconFeedbackBtn, { borderColor: C.border, backgroundColor: C.surface2 }]}
                   onPress={() => sendFeedback(index, 'wrong')}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Mark answer wrong"
                 >
                   <Ionicons name="thumbs-down-outline" size={13} color={C.text3} />
-                  <Text style={[s.feedbackTxt, { color: C.text2 }]}>Wrong</Text>
                 </TouchableOpacity>
               </>
             )}
+            <TouchableOpacity
+              style={[s.iconFeedbackBtn, { borderColor: C.border, backgroundColor: C.surface2 }]}
+              onPress={() => copyMessage(formatAgentText(msg.text), 'Answer')}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Copy answer"
+            >
+              <Ionicons name="copy-outline" size={13} color={C.text3} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.iconFeedbackBtn, { borderColor: C.border, backgroundColor: C.surface2 }, loading && { opacity: 0.45 }]}
+              onPress={() => retryAgentMessage(index)}
+              disabled={loading}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Retry answer"
+            >
+              <Ionicons name="refresh-outline" size={13} color={C.text3} />
+            </TouchableOpacity>
           </View> : null}
         </View>
       </View>
@@ -872,6 +938,9 @@ const s = StyleSheet.create({
   quickChipTxt: { fontSize: 12, fontWeight: '700' },
   msgRow:       { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14, gap: 8 },
   userRow:      { justifyContent: 'flex-end' },
+  userMessageWrap:{ alignItems: 'flex-end', maxWidth: '86%' },
+  userActionRow:{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6, marginTop: 5, paddingRight: 2 },
+  iconActionBtn:{ width: 26, height: 24, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   agentAvatar:  { width: 30, height: 30, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 },
   bubble:       { maxWidth: '86%', borderRadius: 16, padding: 13, paddingHorizontal: 15 },
   agentBubble:  { borderWidth: 1, borderBottomLeftRadius: 4 },
@@ -902,8 +971,9 @@ const s = StyleSheet.create({
   answerNote:{ fontSize: 11, lineHeight: 15, marginTop: 9 },
   answerAction:{ marginTop: 10, borderWidth: 1, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   answerActionText:{ fontSize: 11, fontWeight: '900' },
-  feedbackRow:  { flexDirection: 'row', gap: 7, marginTop: 7, marginLeft: 2 },
+  feedbackRow:  { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 7, marginLeft: 2 },
   feedbackBtn:  { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 99, paddingHorizontal: 9, paddingVertical: 5 },
+  iconFeedbackBtn:{ width: 32, height: 30, borderWidth: 1, borderRadius: 99, alignItems: 'center', justifyContent: 'center' },
   feedbackTxt:  { fontSize: 10, fontWeight: '800' },
   feedbackSaved:{ fontSize: 10, fontWeight: '800', paddingVertical: 5 },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
