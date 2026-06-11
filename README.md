@@ -12,10 +12,10 @@ ReceiptScanner/
 
 ## Mobile App
 
-Local path:
+From the repository root:
 
 ```powershell
-cd "C:\Users\ajayp\OneDrive\Documents\Ajay\Projects\Recepit Scanner\ReceiptScanner\mobile"
+cd mobile
 ```
 
 Install and run:
@@ -29,10 +29,10 @@ The mobile app should only use public/frontend-safe environment variables. Never
 
 ## Backend
 
-Local path:
+From the repository root:
 
 ```powershell
-cd "C:\Users\ajayp\OneDrive\Documents\Ajay\Projects\Recepit Scanner\ReceiptScanner\backend"
+cd backend
 ```
 
 Run locally:

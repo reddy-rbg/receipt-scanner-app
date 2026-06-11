@@ -42,23 +42,25 @@ flowchart TD
 ## Repository Layout
 
 ```text
-BS/
-  main.py
-  app/
-    config.py
-    routes/
-      auth.py
-      receipts.py
-      queries.py
-      agent_route.py
-    services/
-      claude.py
-      database.py
-      agent.py
-  supabase_receipt_items.sql
-  requirements.txt
-  Procfile
-  nixpacks.toml
+ReceiptScanner/
+  mobile/
+  backend/
+    main.py
+    app/
+      config.py
+      routes/
+        auth.py
+        receipts.py
+        queries.py
+        agent_route.py
+      services/
+        claude.py
+        database.py
+        agent.py
+    supabase_receipt_items.sql
+    requirements.txt
+    Procfile
+    nixpacks.toml
 ```
 
 ## Environment Variables
@@ -135,8 +137,10 @@ If these variables are missing, the backend still works. It uses built-in aliase
 
 ## Local Setup
 
+From the monorepo root:
+
 ```powershell
-cd "C:\Users\ajayp\OneDrive\Documents\Ajay\Projects\Recepit Scanner\BS"
+cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -296,10 +300,10 @@ Steps:
 1. Open Supabase Dashboard.
 2. Select project `okzsqmoxdzrbhhdrsazy`.
 3. Open SQL Editor.
-4. Copy the contents of `BS/supabase_receipt_items.sql`.
+4. Copy the contents of `backend/supabase_receipt_items.sql`.
 5. Paste into a new SQL query.
 6. Click Run.
-7. Repeat for `BS/supabase_item_aliases.sql`.
+7. Repeat for `backend/supabase_item_aliases.sql`.
 
 The migrations create:
 
@@ -348,12 +352,11 @@ nixpacks.toml
 requirements.txt
 ```
 
-Typical deploy flow:
+Typical deploy flow from the monorepo root:
 
 ```powershell
-cd "C:\Users\ajayp\OneDrive\Documents\Ajay\Projects\Recepit Scanner\BS"
 git status
-git add .
+git add backend
 git commit -m "Improve ReceiptAI backend"
 git push
 ```
@@ -393,13 +396,12 @@ Check:
 
 ## Commit Commands
 
-Backend repo:
+Use repository-relative paths so the commands work on any machine.
 
 ```powershell
-cd "C:\Users\ajayp\OneDrive\Documents\Ajay\Projects\Recepit Scanner\BS"
 git status
-git add README.md
-git commit -m "Add professional ReceiptAI backend README"
+git add backend/README.md
+git commit -m "Update backend documentation"
 git push
 ```
 
