@@ -83,10 +83,17 @@ function displayPrice(value: unknown, fallback = '') {
   return parsed == null ? fallback : `$${parsed.toFixed(2)}`;
 }
 
+function traceRowItem(row: RagTraceRow) {
+  return row.item || row.item_original || row.item_name_original || 'Receipt item';
+}
+
 type RagTraceRow = {
   item?: string;
+  item_original?: string;
+  item_name_original?: string;
   store?: string;
   date?: string;
+  purchase_date?: string;
   price?: string | number;
   receipt_id?: string | number;
   line_index?: string | number;
@@ -521,7 +528,7 @@ export default function AgentScreen() {
         {expanded && rows.map((row, ri) => (
           <View key={ri} style={[s.traceRow, { borderTopColor: C.border }]}>
             <View style={{ flex: 1 }}>
-              <Text style={[s.traceItem, { color: C.text2 }]} numberOfLines={1}>{row.item || 'Unknown item'}</Text>
+              <Text style={[s.traceItem, { color: C.text2 }]} numberOfLines={1}>{traceRowItem(row)}</Text>
               <Text style={[s.traceMeta, { color: C.text3 }]} numberOfLines={1}>
                 {[row.store, row.date].filter(Boolean).join('  ·  ')}
                 {row.match_score != null ? `  ·  score ${(row.match_score * 100).toFixed(0)}%` : ''}
@@ -531,7 +538,7 @@ export default function AgentScreen() {
               {displayPrice(row.price) ? <Text style={[s.tracePrice, { color: C.text2 }]}>{displayPrice(row.price)}</Text> : null}
               <TouchableOpacity
                 style={[s.traceWrongBtn, { borderColor: C.border }]}
-                onPress={() => sendMatchCorrection(index, row.item || '')}
+                onPress={() => sendMatchCorrection(index, traceRowItem(row))}
                 activeOpacity={0.7}
               >
                 <Text style={[s.traceWrongTxt, { color: C.red }]}>Wrong</Text>
