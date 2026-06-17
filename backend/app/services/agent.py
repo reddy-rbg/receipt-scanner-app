@@ -372,6 +372,7 @@ COMMON_ITEM_TYPO_CORRECTIONS = {
     "clantro": "cilantro",
     "cilanto": "cilantro",
     "cilntro": "cilantro",
+    "culantro": "cilantro",
     "corriander": "coriander",
     # Common non-English grocery words customers may type in simple queries.
     "huevo": "egg",

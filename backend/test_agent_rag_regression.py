@@ -359,6 +359,11 @@ def test_space_separated_cost_request_keeps_chili_and_cucumber_separate():
     assert items == ["cilantro", "red chili", "tomato", "cucumber"]
 
 
+def test_culantro_typo_maps_to_cilantro_in_multi_item_request():
+    items = agent.extract_shopping_list_items("The best price for culantro and tomato")
+    assert items == ["cilantro", "tomato"]
+
+
 def test_space_separated_multi_item_request_splits_on_product_anchors():
     items = agent.extract_shopping_list_items(
         "best prices mutton beef leg cilantro cinnamon stick"
