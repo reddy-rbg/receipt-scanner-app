@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth, clearUser, saveUser, getUserToken } from '../../stores/authStore';
+import { useAuth, clearUser } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
@@ -7,46 +7,9 @@ import {
   Linking, Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 import { API } from '../../config/api';
-
-const FALLBACK_COLORS = {
-  bg:'#06070D', surface:'#0D0F18', surface2:'#151824', surface3:'#202432', card:'#10131F',
-  border:'rgba(238,242,255,0.10)',
-  accent:'#7C6DFF', accent2:'#E85D97', accent3:'#52E6C8',
-  text:'#F5F3FF', text2:'#AAAEC3', text3:'#71768C',
-  green:'#42D987', red:'#FF6378', gold:'#F3C75C',
-};
-
-type User = { id:string; email:string; name:string; created_at:string; token?:string; guestStartTime?:number };
-
-function validatePassword(password: string): string[] {
-  const errors: string[] = [];
-  if (password.length < 8)                  errors.push('At least 8 characters');
-  if (!/[A-Z]/.test(password))             errors.push('At least 1 uppercase letter');
-  if (!/[a-z]/.test(password))             errors.push('At least 1 lowercase letter');
-  if (!/[.,?!@#$%&*_\-+]/.test(password)) errors.push('At least 1 special character');
-  return errors;
-}
-
-function PasswordStrengthBar({ password }: { password: string }) {
-  if (!password) return null;
-  const errors = validatePassword(password);
-  const strength = 4 - errors.length;
-  const colors = ['#ff6b6b','#ff6b6b','#fbbf24','#4ade80','#4ade80'];
-  return (
-    <View style={{ marginTop:8, marginBottom:4 }}>
-      <View style={{ flexDirection:'row', gap:4, marginBottom:4 }}>
-        {[0,1,2,3].map(i => (
-          <View key={i} style={{ flex:1, height:3, borderRadius:2, backgroundColor: i < strength ? colors[strength] : FALLBACK_COLORS.surface3 }} />
-        ))}
-      </View>
-      {strength < 4
-        ? <Text style={{ fontSize:11, color:FALLBACK_COLORS.text3 }}>Missing: {errors.join('  ')}</Text>
-        : <Text style={{ fontSize:11, color:FALLBACK_COLORS.green }}> Strong password</Text>
-      }
-    </View>
-  );
-}
 
 const n = (v:any) => parseFloat(v)||0;
 
@@ -54,13 +17,6 @@ export default function ProfileScreen() {
   const { theme, colors: C, setTheme } = useTheme();
   const s = createStyles(C);
   const { user } = useAuth();
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName]         = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [authLoading, setAuthLoading]   = useState(false);
-  const [authError, setAuthError]       = useState('');
-  const [authMode, setAuthMode] = useState<'login'|'signup'>('login');
 
   const [stats, setStats]             = useState({ receipts:0, spent:0, saved:0, stores:0 });
   const [statsLoading, setStatsLoading] = useState(true);
@@ -84,7 +40,7 @@ export default function ProfileScreen() {
   const [updateLoading, setUpdateLoading]     = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
-  useEffect(() => { if (user) loadStats(); }, [user]);
+  useEffect(() => { if (user) loadStats(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadStats() {
     setStatsLoading(true);
@@ -103,44 +59,6 @@ export default function ProfileScreen() {
     finally { setStatsLoading(false); }
   }
 
-  async function handleAuth() {
-    setAuthError('');
-    if (!email.trim())  { setAuthError('Please enter your email.'); return; }
-    if (!password)      { setAuthError('Please enter your password.'); return; }
-    if (authMode === 'signup') {
-      if (!name.trim()) { setAuthError('Please enter your name.'); return; }
-      const errors = validatePassword(password);
-      if (errors.length > 0) { setAuthError('Password requirements not met.'); return; }
-    }
-
-    setAuthLoading(true);
-    try {
-      const endpoint = authMode === 'login' ? '/auth/login' : '/auth/signup';
-      const body: any = { email: email.trim().toLowerCase(), password };
-      if (authMode === 'signup') body.name = name.trim();
-
-      const res  = await fetch(`${API}${endpoint}`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) { setAuthError(data.detail || 'Authentication failed.'); return; }
-
-      //  Save token globally for scan screen
-      
-
-      await saveUser({
-        id:         data.user.id,
-        email:      data.user.email,
-        name:       data.user.name,
-        created_at: data.user.created_at,
-        token:      data.session?.access_token,
-      });
-      setEmail(''); setPassword(''); setName('');
-    } catch { setAuthError('Could not connect. Please try again.'); }
-    finally  { setAuthLoading(false); }
-  }
-
   function handleSignOut() {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text:'Cancel', style:'cancel' },
@@ -149,9 +67,6 @@ export default function ProfileScreen() {
         style:'destructive',
         onPress: async () => {
           await clearUser();
-          setEmail('');
-          setPassword('');
-          setName('');
           setStats({ receipts:0, spent:0, saved:0, stores:0 });
         }
       },
@@ -181,8 +96,6 @@ export default function ProfileScreen() {
   async function checkForUpdates() {
     setUpdateLoading(true);
     try {
-      // Try expo-updates if available
-      const Updates = require('expo-updates');
       const update = await Updates.checkForUpdateAsync();
       if (update.isAvailable) {
         setUpdateAvailable(true);
@@ -427,7 +340,6 @@ export default function ProfileScreen() {
                   setNotifReceipts(val);
                   if (val) {
                     try {
-                      const Notifications = require('expo-notifications');
                       const { status } = await Notifications.requestPermissionsAsync();
                       if (status !== 'granted') {
                         Alert.alert('Permission Required', 'Please enable notifications in your device settings.');
@@ -452,7 +364,6 @@ export default function ProfileScreen() {
                   setNotifSavings(val);
                   if (val) {
                     try {
-                      const Notifications = require('expo-notifications');
                       const { status } = await Notifications.requestPermissionsAsync();
                       if (status !== 'granted') {
                         Alert.alert('Permission Required', 'Please enable notifications in your device settings.');
@@ -477,7 +388,6 @@ export default function ProfileScreen() {
                   setNotifDeals(val);
                   if (val) {
                     try {
-                      const Notifications = require('expo-notifications');
                       const { status } = await Notifications.requestPermissionsAsync();
                       if (status !== 'granted') {
                         Alert.alert('Permission Required', 'Please enable notifications in your device settings.');

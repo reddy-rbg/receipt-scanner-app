@@ -367,7 +367,7 @@ export default function PriceMemoryScreen() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 280);
   };
 
-  useFocusEffect(useCallback(() => { loadMemory(false); }, [user?.id, user?.guest_session_id]));
+  useFocusEffect(useCallback(() => { loadMemory(false); }, [user?.id, user?.guest_session_id])); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const q = query.trim();

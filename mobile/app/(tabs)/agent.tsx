@@ -318,7 +318,7 @@ export default function AgentScreen() {
       if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current);
       Voice.destroy().then(() => Voice.removeAllListeners()).catch(() => {});
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function sendMessage(text: string) {
     const message = text.trim();

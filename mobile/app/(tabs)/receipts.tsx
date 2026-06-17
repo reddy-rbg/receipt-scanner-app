@@ -221,7 +221,7 @@ export default function ReceiptsScreen() {
   const [editSaving, setEditSaving] = useState(false);
   const [detailItemPage, setDetailItemPage] = useState(0);
 
-  useEffect(() => { load(); }, [user?.id, user?.guest_session_id]);
+  useEffect(() => { load(); }, [user?.id, user?.guest_session_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setDetailItemPage(0); }, [selected?.id]);
 
@@ -251,7 +251,7 @@ export default function ReceiptsScreen() {
       getReceiptCategory(x).label.toLowerCase().includes(q)
     );
     showResults(r, `Search: "${storeQ.trim()}"`);
-  }, [storeQ, activeTab, all]);
+  }, [storeQ, activeTab, all]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load() {
     try {
@@ -294,7 +294,7 @@ export default function ReceiptsScreen() {
     finally { setLoading(false); setRefreshing(false); }
   }
 
-  const onRefresh = useCallback(() => { setRefreshing(true); load(); }, []);
+  const onRefresh = useCallback(() => { setRefreshing(true); load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // FILTER FUNCTIONS
   function applySort(recs: Receipt[], s: string) {
