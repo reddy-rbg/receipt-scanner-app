@@ -1086,7 +1086,7 @@ SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "table", "tabular", "form", "listing", "listed", "below", "following",
     "shop", "shopping", "available", "clear", "from", "best", "price",
     "prices", "cost", "costs", "rate", "rates", "buy", "where", "current", "market", "overpaid", "overpay",
-    "can", "you", "find", "paid", "please", "include", "including", "but",
+    "can", "you", "find", "paid", "please", "include", "including", "but", "or", "vs", "versus",
     "vegetable", "vegetables", "veggie", "veggies", "produce",
     "also", "same", "table", "grocery", "raw", "dont", "don", "count", "unknown", "as",
     "pantry", "if", "found",
@@ -1229,6 +1229,16 @@ def split_failed_shopping_item(item: str) -> list[str]:
 def extract_shopping_list_items(message: str) -> list[str]:
     """Extract multi-item shopping requests without letting request wording become an item."""
     import re as _sli_re
+    # Preserve the useful part when the user starts with an exclusion clause:
+    # "do not include potato, price cilantro tomato" should keep "price cilantro tomato".
+    message = _sli_re.sub(
+        r"^\s*(?:but\s+)?(?:do\s+not|dont|don\s+t)\s+(?:count|include|match|use|return|show)\b[^,;\n]*[,;\n]\s*",
+        " ", str(message or ""), flags=_sli_re.IGNORECASE,
+    )
+    message = _sli_re.sub(
+        r"^\s*(?:exclude|excluding|except|without|avoid|ignore|skip)\b[^,;\n]*[,;\n]\s*",
+        " ", str(message or ""), flags=_sli_re.IGNORECASE,
+    )
     # Drop exclusion tails before splitting, e.g. "..., but do not count oil burner,
     # mushroom gummies, fried rice, or cooked meals".
     message = _sli_re.sub(

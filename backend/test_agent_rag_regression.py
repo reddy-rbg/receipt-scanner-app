@@ -414,6 +414,25 @@ def test_fast_multi_item_understanding_shapes_screenshot_query():
     assert data["item_query"] == "cilantro"
 
 
+def test_comparison_separators_do_not_stick_to_items():
+    cases = {
+        "compare cilantro vs tomato vs cucumber vs red chili": ["cilantro", "tomato", "cucumber", "red chili"],
+        "cilantro tomato cucumber red chili cheaper or not": ["cilantro", "tomato", "cucumber", "red chili"],
+        "best price for cilantro / red chili / tomato / cucumber": ["cilantro", "red chili", "tomato", "cucumber"],
+        "best price for cilantro + red chili + tomato + cucumber": ["cilantro", "red chili", "tomato", "cucumber"],
+        "price for cilantro & red chili & tomato & cucumber": ["cilantro", "red chili", "tomato", "cucumber"],
+    }
+    for query, expected in cases.items():
+        assert agent.extract_shopping_list_items(query) == expected, query
+
+
+def test_leading_exclusion_clause_keeps_following_requested_items():
+    items = agent.extract_shopping_list_items(
+        "do not include potato, price cilantro red chili tomato cucumber"
+    )
+    assert items == ["cilantro", "red chili", "tomato", "cucumber"]
+
+
 def test_culantro_typo_maps_to_cilantro_in_multi_item_request():
     items = agent.extract_shopping_list_items("The best price for culantro and tomato")
     assert items == ["cilantro", "tomato"]
@@ -1252,6 +1271,8 @@ if __name__ == "__main__":
     test_messy_cost_request_variants_extract_same_items()
     test_query_words_never_become_items_in_cost_request()
     test_fast_multi_item_understanding_shapes_screenshot_query()
+    test_comparison_separators_do_not_stick_to_items()
+    test_leading_exclusion_clause_keeps_following_requested_items()
     test_culantro_typo_maps_to_cilantro_in_multi_item_request()
     test_semantic_multi_item_understanding_overrides_rule_splitter()
     test_space_separated_multi_item_request_splits_on_product_anchors()
