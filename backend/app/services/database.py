@@ -16,6 +16,9 @@
 
 # Import the supabase client we set up in config.py
 # We reuse the same connection — don't create a new one here
+import hashlib
+import math
+import os
 import re
 from typing import Any
 
@@ -27,6 +30,9 @@ PRODUCT_SIZE_RE = re.compile(
     re.IGNORECASE,
 )
 EXPLICIT_QTY_RE = re.compile(r"\b(QTY\s*\d+|\d+\s*@|\d+\s+EA\b|\d+\s+FOR\b|\d+\s+AT\b)", re.IGNORECASE)
+LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-local-hash-v1")
+EMBEDDING_DIMENSIONS = 1536
+RECEIPT_ITEM_EMBEDDINGS_ENABLED = os.getenv("RECEIPT_ITEM_EMBEDDINGS_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -57,6 +63,81 @@ def find_product_size(name: str | None) -> str | None:
         return None
     unit = re.sub(r"\s+", "", match.group(2).upper())
     return f"{match.group(1)}-{unit}"
+
+
+def local_text_embedding(text: str) -> list[float]:
+    """Create a deterministic local vector so receipt search stays Claude-only."""
+    if not RECEIPT_ITEM_EMBEDDINGS_ENABLED or not text:
+        return []
+
+    normalized = normalize_item_name(text)
+    tokens = normalized.split()
+    features = tokens[:]
+    compact = "".join(tokens)
+    if compact:
+        features.extend(compact[i:i + 3] for i in range(max(0, len(compact) - 2)))
+    if not features:
+        return []
+
+    vector = [0.0] * EMBEDDING_DIMENSIONS
+    for feature in features:
+        digest = hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest()
+        bucket = int.from_bytes(digest[:4], "big") % EMBEDDING_DIMENSIONS
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        vector[bucket] += sign
+
+    magnitude = math.sqrt(sum(value * value for value in vector))
+    if magnitude == 0:
+        return []
+    return [value / magnitude for value in vector]
+
+
+def _embedding_vector_literal(embedding: list[float]) -> str:
+    return "[" + ",".join(f"{value:.8f}" for value in embedding) + "]"
+
+
+def _receipt_item_embedding_text(row: dict) -> str:
+    parts = [
+        row.get("item_name_original"),
+        row.get("item_name_normalized"),
+        row.get("code"),
+        row.get("product_size"),
+        row.get("store"),
+        row.get("purchase_date"),
+    ]
+    return " | ".join(str(part) for part in parts if part)
+
+
+def save_receipt_item_embeddings(rows: list[dict], receipt_id: int | str) -> None:
+    """Populate pgvector rows for Claude-only receipt item retrieval."""
+    if not RECEIPT_ITEM_EMBEDDINGS_ENABLED or not rows:
+        return
+
+    embedding_rows = []
+    for row in rows:
+        item_text = _receipt_item_embedding_text(row)
+        embedding = local_text_embedding(item_text)
+        if not embedding:
+            continue
+        embedding_rows.append({
+            "user_id": row.get("user_id"),
+            "guest_session_id": row.get("guest_session_id"),
+            "receipt_id": row.get("receipt_id"),
+            "line_index": row.get("line_index"),
+            "item_name": row.get("item_name_original"),
+            "item_text": item_text,
+            "embedding": _embedding_vector_literal(embedding),
+            "model": LOCAL_EMBEDDING_MODEL,
+        })
+
+    if not embedding_rows:
+        return
+
+    try:
+        supabase.table("receipt_item_embeddings").delete().eq("receipt_id", receipt_id).execute()
+        supabase.table("receipt_item_embeddings").insert(embedding_rows).execute()
+    except Exception as e:
+        print(f"[receipt_item_embeddings] Skipped vector save: {e}")
 
 
 def save_receipt_items(
@@ -125,6 +206,7 @@ def save_receipt_items(
     try:
         supabase.table("receipt_items").delete().eq("receipt_id", receipt_id).execute()
         supabase.table("receipt_items").insert(rows).execute()
+        save_receipt_item_embeddings(rows, receipt_id)
     except Exception as e:
         print(f"[receipt_items] Skipped normalized item save: {e}")
 

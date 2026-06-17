@@ -10,6 +10,8 @@
 # ─────────────────────────────────────────
 
 import json
+import hashlib
+import math
 import os
 import re
 from urllib.parse import urlencode
@@ -26,8 +28,11 @@ from app.services import agent_analytics
 
 MODEL = os.getenv("CLAUDE_AGENT_MODEL", "claude-opus-4-5-20251101")
 SONNET_MODEL = os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
+LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-local-hash-v1")
+EMBEDDING_DIMENSIONS = 1536
 AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
+AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
 AGENT_BUILD = "claude-only-agent-2026-06-11"
 AGENT_CAPABILITIES = {
@@ -38,6 +43,7 @@ AGENT_CAPABILITIES = {
     "non_food_grocery_guard": True,
     "descriptor_safe_matching": True,
     "multi_item_splitter": True,
+    "optional_embedding_boosts": AGENT_EMBEDDING_RETRIEVAL_ENABLED,
     "claude_only": True,
 }
 RECEIPT_SELECT = "id,store,address,date,time,total,subtotal,discount,tax,total_savings,items,created_at"
@@ -49,12 +55,78 @@ _FEEDBACK_CACHE: dict[tuple[str, str], list[dict]] = {}
 _PUBLIC_MEANING_CACHE: dict[str, list[set[str]]] = {}
 
 
+def local_text_embedding(text: str) -> list[float]:
+    """Create a deterministic local vector so receipt search stays Claude-only."""
+    if not text:
+        return []
+
+    normalized = normalize_text(text)
+    tokens = normalized.split()
+    features = tokens[:]
+    compact = "".join(tokens)
+    if compact:
+        features.extend(compact[i:i + 3] for i in range(max(0, len(compact) - 2)))
+    if not features:
+        return []
+
+    vector = [0.0] * EMBEDDING_DIMENSIONS
+    for feature in features:
+        digest = hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest()
+        bucket = int.from_bytes(digest[:4], "big") % EMBEDDING_DIMENSIONS
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        vector[bucket] += sign
+
+    magnitude = math.sqrt(sum(value * value for value in vector))
+    if magnitude == 0:
+        return []
+    return [value / magnitude for value in vector]
+
+
 def receipt_event_key(event: dict) -> tuple[str, str, str]:
     return (
         str(event.get("receipt_id") or ""),
         str(event.get("line_index") or ""),
         normalize_text(event.get("item_original") or ""),
     )
+
+
+def fetch_embedding_rank_boosts(
+    query: str,
+    user_id: str | None = None,
+    guest_session_id: str | None = None,
+) -> dict[tuple[str, str, str], float]:
+    """
+    Optional pgvector retrieval boost.
+    Requires supabase_agent_ml.sql plus populated receipt_item_embeddings.
+    """
+    if not AGENT_EMBEDDING_RETRIEVAL_ENABLED:
+        return {}
+    embedding = local_text_embedding(query)
+    if not embedding:
+        return {}
+    try:
+        rows = supabase.rpc("match_receipt_item_embeddings", {
+            "query_embedding": embedding,
+            "match_count": 50,
+            "p_user_id": user_id,
+            "p_guest_session_id": guest_session_id,
+        }).execute().data or []
+    except Exception as e:
+        print(f"[embeddings] Vector retrieval unavailable: {e}")
+        return {}
+
+    boosts: dict[tuple[str, str, str], float] = {}
+    for row in rows:
+        similarity = _safe_float(row.get("similarity"), 0.0)
+        if similarity <= 0:
+            continue
+        key = (
+            str(row.get("receipt_id") or ""),
+            str(row.get("line_index") or ""),
+            normalize_text(row.get("item_name") or ""),
+        )
+        boosts[key] = max(boosts.get(key, 0.0), min(0.18, max(0.0, (similarity - 0.74) * 0.7)))
+    return boosts
 
 AGENT_TOOLS = [
     {
@@ -1918,6 +1990,7 @@ def retrieve_item_events(
     match_threshold = minimum_match_score(query, semantic_family)
     candidate_threshold = minimum_candidate_score(query, semantic_family)
     feedback_examples = fetch_owner_feedback_examples(user_id, guest_session_id)
+    embedding_boosts = fetch_embedding_rank_boosts(query, user_id, guest_session_id)
     blocklist = fetch_owner_blocklist(user_id, guest_session_id)
     scored = []
     for event in all_events:
@@ -1931,12 +2004,14 @@ def retrieve_item_events(
         scores = [(variant, item_match_score(variant, event["item_original"], event.get("code"))) for variant in query_variants]
         matched_query, score = max(scores, key=lambda item: item[1]) if scores else (query, 0.0)
         learned_adjustment = learned_rank_adjustment(query, event, feedback_examples)
-        adjusted_score = max(0.0, min(1.0, score + learned_adjustment))
+        embedding_adjustment = embedding_boosts.get(receipt_event_key(event), 0.0)
+        adjusted_score = max(0.0, min(1.0, score + learned_adjustment + embedding_adjustment))
         match_level = verified_match_level(event, query, score, extra_families)
         if match_level != "none" and adjusted_score >= match_threshold:
             event_copy = dict(event)
             event_copy["match_score"] = score
             event_copy["learned_rank_adjustment"] = round(learned_adjustment, 4)
+            event_copy["embedding_rank_adjustment"] = round(embedding_adjustment, 4)
             event_copy["adjusted_match_score"] = round(adjusted_score, 4)
             event_copy["matched_query"] = matched_query
             event_copy["match_confidence"] = match_level
@@ -1945,7 +2020,7 @@ def retrieve_item_events(
     scored.sort(
         key=lambda x: (
             x.get("adjusted_match_score", x["match_score"]),
-            x.get("learned_rank_adjustment", 0.0),
+            x.get("learned_rank_adjustment", 0.0) + x.get("embedding_rank_adjustment", 0.0),
             x["match_score"],
             x.get("date") or "",
             x.get("created_at") or "",
@@ -1965,7 +2040,8 @@ def retrieve_item_events(
             scores = [(variant, item_match_score(variant, event["item_original"], event.get("code"))) for variant in query_variants]
             matched_query, score = max(scores, key=lambda item: item[1]) if scores else (query, 0.0)
             learned_adjustment = learned_rank_adjustment(query, event, feedback_examples)
-            adjusted_score = max(0.0, min(1.0, score + learned_adjustment))
+            embedding_adjustment = embedding_boosts.get(receipt_event_key(event), 0.0)
+            adjusted_score = max(0.0, min(1.0, score + learned_adjustment + embedding_adjustment))
             match_level = verified_match_level(event, query, score, extra_families)
             if match_level != "none" and adjusted_score >= candidate_threshold:
                 candidates.append({
@@ -1975,6 +2051,7 @@ def retrieve_item_events(
                     "price": event["line_price"],
                     "match_score": score,
                     "learned_rank_adjustment": round(learned_adjustment, 4),
+                    "embedding_rank_adjustment": round(embedding_adjustment, 4),
                     "adjusted_match_score": round(adjusted_score, 4),
                     "matched_query": matched_query,
                     "match_confidence": match_level,
@@ -1982,7 +2059,7 @@ def retrieve_item_events(
         candidates.sort(
             key=lambda x: (
                 x.get("adjusted_match_score", x["match_score"]),
-                x.get("learned_rank_adjustment", 0.0),
+                x.get("learned_rank_adjustment", 0.0) + x.get("embedding_rank_adjustment", 0.0),
                 x["match_score"],
             ),
             reverse=True,
