@@ -1,6 +1,5 @@
-import { useTheme } from '../../stores/themeStore';
+import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore';
-import { DARK_COLORS } from '../../stores/themeStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
 import { API } from '../../config/api';

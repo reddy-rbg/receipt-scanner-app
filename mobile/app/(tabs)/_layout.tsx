@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Tabs } from 'expo-router';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { loadUser, useAuth, clearUser } from '../../stores/authStore';
+import { loadUser, useAuth } from '../../stores/authStore';
 import { loadTheme, useTheme } from '../../stores/themeStore';
 import LoginScreen from '../LoginScreen';
 
@@ -13,7 +13,7 @@ const FALLBACK_COLORS = {
 };
 
 export default function TabLayout() {
-  const { user, isLoggedIn } = useAuth();
+  const { isLoggedIn } = useAuth();
   const { colors: C } = useTheme();
   const [initializing, setInitializing] = useState(true);
 

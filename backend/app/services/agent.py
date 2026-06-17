@@ -1089,7 +1089,7 @@ SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "spice", "spices", "grocery", "groceries", "staple", "staples",
     "item", "items", "product", "products", "ingredient", "ingredients",
     # conversational yes/no replies — never item names
-    "no", "yes", "ok", "okay", "yeah", "yep", "nope", "sure", "fine",
+    "hi", "hello", "hey", "no", "yes", "ok", "okay", "yeah", "yep", "nope", "sure", "fine",
     # modifier words that describe HOW but not WHAT
     "only", "just", "separately", "together", "alone", "already",
     "fresh", "frozen", "organic", "natural", "cooked",
@@ -1789,10 +1789,15 @@ def fetch_owner_receipts(user_id: str | None = None, guest_session_id: str | Non
     if cache_key in _RECEIPT_CACHE:
         return _RECEIPT_CACHE[cache_key]
 
-    q = supabase.table("receipts").select(RECEIPT_SELECT)
-    q = apply_owner_filter(q, user_id, guest_session_id)
-    result = q.order("created_at", desc=True).limit(limit).execute()
-    receipts = result.data or []
+    try:
+        q = supabase.table("receipts").select(RECEIPT_SELECT)
+        q = apply_owner_filter(q, user_id, guest_session_id)
+        result = q.order("created_at", desc=True).limit(limit).execute()
+        receipts = result.data or []
+    except Exception as e:
+        print(f"[receipts] Could not fetch owner receipts: {e}")
+        receipts = []
+
     _RECEIPT_CACHE[cache_key] = receipts
     if len(_RECEIPT_CACHE) > 20:
         _RECEIPT_CACHE.clear()
