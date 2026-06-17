@@ -345,6 +345,13 @@ def test_messy_multi_item_request_with_commas_uses_table_path():
     assert "no clear tabular" not in response
 
 
+def test_cost_per_type_words_do_not_become_requested_items():
+    items = agent.extract_shopping_list_items(
+        "what is the cost per type of cilantro, red chili, tomato, cucumber, is it cheaper?"
+    )
+    assert items == ["cilantro", "red chili", "tomato", "cucumber"]
+
+
 def test_space_separated_multi_item_request_splits_on_product_anchors():
     items = agent.extract_shopping_list_items(
         "best prices mutton beef leg cilantro cinnamon stick"
@@ -1138,6 +1145,7 @@ if __name__ == "__main__":
     test_history_answer_includes_history_when_asked()
     test_multi_item_best_price_table_splits_requested_items()
     test_messy_multi_item_request_with_commas_uses_table_path()
+    test_cost_per_type_words_do_not_become_requested_items()
     test_space_separated_multi_item_request_splits_on_product_anchors()
     test_failed_combined_item_self_heals_into_sub_items()
     test_mixed_known_unknown_items_do_not_become_one_purchase_claim()

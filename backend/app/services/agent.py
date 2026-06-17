@@ -99,7 +99,7 @@ def fetch_embedding_rank_boosts(
     Optional pgvector retrieval boost.
     Requires supabase_agent_ml.sql plus populated receipt_item_embeddings.
     """
-    if not AGENT_EMBEDDING_RETRIEVAL_ENABLED:
+    if not AGENT_EMBEDDING_RETRIEVAL_ENABLED or supabase is None:
         return {}
     embedding = local_text_embedding(query)
     if not embedding:
@@ -239,6 +239,7 @@ STOP_WORDS = {
     "trend", "trends", "regularly", "often", "deal", "deals", "least", "all", "should", "good", "avoid", "above", "now", "wait", "low", "equal", "equals", "right",
     "is", "s", "are", "was", "were", "find", "give", "get", "please", "pls", "want", "need", "in", "at", "on", "near",
     "of", "with", "under", "over", "than", "by", "around", "inside", "between", "about", "list",
+    "per",
     "them", "those", "these", "ones", "top", "most", "common", "commonly", "usual", "usually", "frequent", "open",
     "am", "mostly", "frequently", "purchasing", "purpased", "purposed", "coming", "cmg", "month", "next",
     # Negation and exclusion words — strip from item names
@@ -1095,6 +1096,7 @@ SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "small", "medium", "large", "big", "little",
     "more", "less", "extra", "few", "some", "any", "each",
     "type", "types", "kind", "kinds", "variety",
+    "per",
     "above", "below", "usual", "normal", "regular",
 }
 
