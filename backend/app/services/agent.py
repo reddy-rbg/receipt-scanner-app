@@ -34,7 +34,7 @@ AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
 AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
-AGENT_BUILD = "claude-only-agent-2026-06-11"
+AGENT_BUILD = "semantic-parser-gate-2026-06-17"
 AGENT_CAPABILITIES = {
     "structured_rag": True,
     "adaptive_query_recovery": True,
@@ -43,6 +43,9 @@ AGENT_CAPABILITIES = {
     "non_food_grocery_guard": True,
     "descriptor_safe_matching": True,
     "multi_item_splitter": True,
+    "semantic_parser_gate": True,
+    "plural_item_normalization": True,
+    "generated_query_fuzz_tests": True,
     "optional_embedding_boosts": AGENT_EMBEDDING_RETRIEVAL_ENABLED,
     "claude_only": True,
 }

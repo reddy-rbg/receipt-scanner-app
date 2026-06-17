@@ -427,6 +427,19 @@ def test_plural_produce_words_are_singularized_before_splitting():
         assert agent.deterministic_multi_item_understanding(query)["items"] == expected
 
 
+def test_plural_chili_query_never_returns_combined_requested_rows():
+    result = agent.run_agent(
+        "what is the cost per type of cilantro red chilies tomato cucumber is it cheaper",
+        [],
+    )
+    rows = result["answer_card"]["rows"]
+    requested = [row["requested_item"] for row in rows]
+    assert requested == ["cilantro", "red chili", "tomato", "cucumber"]
+    assert "tomato cucumber" not in requested
+    assert not any(item.startswith("cilantro red") for item in requested)
+    assert result["answer_card"]["type"] == "shopping_list_prices"
+
+
 def test_query_words_never_become_items_in_cost_request():
     query = (
         "please tell me what is the best cheapest cost per type rate for "
@@ -1341,6 +1354,7 @@ if __name__ == "__main__":
     test_screenshot_cost_request_with_typo_stays_fast_multi_item()
     test_messy_cost_request_variants_extract_same_items()
     test_plural_produce_words_are_singularized_before_splitting()
+    test_plural_chili_query_never_returns_combined_requested_rows()
     test_query_words_never_become_items_in_cost_request()
     test_fast_multi_item_understanding_shapes_screenshot_query()
     test_uncertain_deterministic_items_require_semantic_review()

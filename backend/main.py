@@ -99,6 +99,8 @@ def agent_health():
         and (os.getenv("GOOGLE_SEARCH_ENGINE_ID") or os.getenv("GOOGLE_CSE_ID"))
     )
     supabase_key_mode = "service" if (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")) else "anon"
+    parser_self_check_query = "what is the cost per type of cilantro red chilies tomato cucumber is it cheaper"
+    parser_self_check_items = agent_service.extract_shopping_list_items(parser_self_check_query)
     return {
         "success": True,
         "message": "AI Agent routes are loaded",
@@ -108,6 +110,11 @@ def agent_health():
         "adaptive_query_recovery": True,
         "agent_build": agent_service.AGENT_BUILD,
         "agent_capabilities": agent_service.AGENT_CAPABILITIES,
+        "parser_self_check": {
+            "query": parser_self_check_query,
+            "items": parser_self_check_items,
+            "passed": parser_self_check_items == ["cilantro", "red chili", "tomato", "cucumber"],
+        },
         "workflow": agent_workflow.workflow_status(),
         "google_meaning_enabled": google_meaning_enabled,
         "ai_provider": "claude",
