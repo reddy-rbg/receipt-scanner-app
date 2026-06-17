@@ -6,6 +6,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.services import agent as agent_service
+from app.services import agent_workflow
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 conversation_store: dict[str, list[dict[str, str]]] = {}
@@ -67,7 +68,7 @@ async def handle_agent_request(request: Request, body: AgentMessage):
     history = conversation_store.get(session_key, [])
 
     try:
-        result = agent_service.run_agent(
+        result = agent_workflow.run_agent_workflow(
             message=message,
             conversation_history=history,
             user_id=user_id,

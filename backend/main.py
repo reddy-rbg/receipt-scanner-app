@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import receipts, queries, auth, agent_route
 from app.services import agent as agent_service
+from app.services import agent_workflow
 
 
 # ── Auto-cleanup task ──
@@ -107,6 +108,7 @@ def agent_health():
         "adaptive_query_recovery": True,
         "agent_build": agent_service.AGENT_BUILD,
         "agent_capabilities": agent_service.AGENT_CAPABILITIES,
+        "workflow": agent_workflow.workflow_status(),
         "google_meaning_enabled": google_meaning_enabled,
         "ai_provider": "claude",
         "supabase_key_mode": supabase_key_mode,
