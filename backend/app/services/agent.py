@@ -2478,11 +2478,59 @@ def semantic_extract_items(message: str, conversation_history: list[dict] | None
     return normalize_semantic_item_payload(data, message)
 
 
+def deterministic_items_need_semantic_review(message: str, items: list[str]) -> bool:
+    if not items:
+        return False
+
+    item_text = " ".join(items)
+    item_tokens = token_set(item_text)
+    for item in items:
+        tokens = token_set(item)
+        if not tokens:
+            return True
+        for token in tokens:
+            if (
+                len(token) > 3
+                and token not in SHOPPING_LIST_BOUNDARY_TERMS
+                and token not in SHOPPING_LIST_LEADING_DESCRIPTOR_TERMS
+                and token not in SHOPPING_LIST_TRAILING_DESCRIPTOR_TERMS
+            ):
+                return True
+        known = tokens & SHOPPING_LIST_BOUNDARY_TERMS
+        if not known:
+            return True
+        boundary_count = len([token for token in tokens if token in SHOPPING_LIST_BOUNDARY_TERMS])
+        if boundary_count >= 3 or len(tokens) > 5:
+            return True
+
+    raw = correct_query_words(normalize_text(strip_product_sizes(message)))
+    raw_tokens = [
+        token for token in raw.split()
+        if token
+        and token not in SHOPPING_LIST_NOISE_WORDS
+        and not token.isdigit()
+        and len(token) > 3
+    ]
+    for token in raw_tokens:
+        corrected = correct_item_typos(token)
+        corrected_tokens = token_set(corrected)
+        if corrected_tokens and corrected_tokens <= item_tokens:
+            continue
+        if token in KNOWN_ITEM_TERMS or token in SHOPPING_LIST_BOUNDARY_TERMS:
+            continue
+        # Unknown product-looking words are exactly where Claude should correct context/spelling.
+        return True
+
+    return False
+
+
 def deterministic_multi_item_understanding(message: str) -> dict:
     if not looks_like_shopping_list_price_request(message):
         return {}
     items = extract_shopping_list_items(message)
     if len(items) < 2:
+        return {}
+    if deterministic_items_need_semantic_review(message, items):
         return {}
     return {
         "intent": "item_price",

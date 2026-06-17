@@ -414,6 +414,44 @@ def test_fast_multi_item_understanding_shapes_screenshot_query():
     assert data["item_query"] == "cilantro"
 
 
+def test_uncertain_deterministic_items_require_semantic_review():
+    query = "what is cost cilanxro red chili tomato cucumber cheaper"
+    items = agent.extract_shopping_list_items(query)
+    assert items == ["cilanxro red chili", "tomato", "cucumber"]
+    assert agent.deterministic_items_need_semantic_review(query, items)
+    assert agent.deterministic_multi_item_understanding(query) == {}
+
+
+def test_uncertain_multi_item_query_uses_claude_semantic_correction():
+    original_semantic_extract = agent.semantic_extract_items
+    try:
+        agent.semantic_extract_items = lambda message, history=None: {
+            "intent": "item_price",
+            "canonical_message": "best price for cilantro, red chili, tomato, cucumber",
+            "item_query": "cilantro",
+            "items": ["cilantro", "red chili", "tomato", "cucumber"],
+            "category": "",
+            "is_receipt_question": True,
+            "semantic_extraction": True,
+            "semantic_confidence": 0.94,
+        }
+        result = agent.run_agent(
+            "what is cost cilanxro red chili tomato cucumber cheaper",
+            [],
+        )
+    finally:
+        agent.semantic_extract_items = original_semantic_extract
+
+    rows = result["answer_card"]["rows"]
+    assert [row["requested_item"] for row in rows] == [
+        "cilantro",
+        "red chili",
+        "tomato",
+        "cucumber",
+    ]
+    assert result["rag_trace"]["intent"] == "multi_item_price_from_classifier"
+
+
 def test_comparison_separators_do_not_stick_to_items():
     cases = {
         "compare cilantro vs tomato vs cucumber vs red chili": ["cilantro", "tomato", "cucumber", "red chili"],
@@ -1271,6 +1309,8 @@ if __name__ == "__main__":
     test_messy_cost_request_variants_extract_same_items()
     test_query_words_never_become_items_in_cost_request()
     test_fast_multi_item_understanding_shapes_screenshot_query()
+    test_uncertain_deterministic_items_require_semantic_review()
+    test_uncertain_multi_item_query_uses_claude_semantic_correction()
     test_comparison_separators_do_not_stick_to_items()
     test_leading_exclusion_clause_keeps_following_requested_items()
     test_culantro_typo_maps_to_cilantro_in_multi_item_request()
