@@ -352,6 +352,13 @@ def test_cost_per_type_words_do_not_become_requested_items():
     assert items == ["cilantro", "red chili", "tomato", "cucumber"]
 
 
+def test_space_separated_cost_request_keeps_chili_and_cucumber_separate():
+    items = agent.extract_shopping_list_items(
+        "what is the cost per type of cilantro red chili tomato cucumber is it cheaper"
+    )
+    assert items == ["cilantro", "red chili", "tomato", "cucumber"]
+
+
 def test_space_separated_multi_item_request_splits_on_product_anchors():
     items = agent.extract_shopping_list_items(
         "best prices mutton beef leg cilantro cinnamon stick"

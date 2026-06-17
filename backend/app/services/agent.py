@@ -363,6 +363,7 @@ GLOBAL_GROCERY_TERMS = [
     "scallion", "arugula", "rocket", "prawn", "shrimp", "yuca", "cassava", "manioc",
     "beetroot", "beet", "aubergine", "yoghurt", "maida", "plantain", "taro", "eddo",
     "yam", "sweet potato", "bok choy", "pak choi", "napa cabbage", "daikon",
+    "cucumber", "chili", "chilli", "red chili", "red chilli",
 ]
 
 INDIAN_GROCERY_TERMS = GLOBAL_GROCERY_TERMS
@@ -1108,6 +1109,7 @@ SHOPPING_LIST_BOUNDARY_TERMS = (
     | {
         "beef", "sirloin", "tomato", "potato", "sunflower", "cilantro",
         "coriander", "cinnamon", "mushroom", "chappal", "drumstick",
+        "cucumber", "chili", "chilli",
         "oil", "mutton", "goat", "lamb", "sweetpotato", "coconut",
         "saffron", "turmeric", "cardamom", "garam", "masala", "garammasala",
         "cumin", "fenugreek", "fennel", "clove", "cloves",
@@ -1127,6 +1129,7 @@ SHOPPING_LIST_TRAILING_DESCRIPTOR_TERMS = {
     "keema", "drumstick", "masala", "chunk", "slice", "sliced", "piece",
     "pieces", "bone", "boneless", "fresh", "raw", "whole", "half",
 }
+SHOPPING_LIST_LEADING_DESCRIPTOR_TERMS = {"red", "green", "yellow"}
 
 
 def _correct_preserving_separators(text: str) -> str:
@@ -1150,9 +1153,18 @@ def split_space_separated_shopping_items(text: str) -> list[str]:
 
     groups: list[list[str]] = []
     current: list[str] = []
-    for token in tokens:
+    for index, token in enumerate(tokens):
+        next_token = tokens[index + 1] if index + 1 < len(tokens) else ""
+        starts_forward_descriptor = (
+            token in SHOPPING_LIST_LEADING_DESCRIPTOR_TERMS
+            and next_token in SHOPPING_LIST_BOUNDARY_TERMS
+        )
         is_boundary = token in SHOPPING_LIST_BOUNDARY_TERMS
         current_has_boundary = any(t in SHOPPING_LIST_BOUNDARY_TERMS for t in current)
+        if current and starts_forward_descriptor and current_has_boundary:
+            groups.append(current)
+            current = [token]
+            continue
         if current and is_boundary and current_has_boundary and token not in SHOPPING_LIST_TRAILING_DESCRIPTOR_TERMS:
             groups.append(current)
             current = [token]
@@ -1176,12 +1188,22 @@ def split_failed_shopping_item(item: str) -> list[str]:
         return []
     parts: list[str] = []
     current: list[str] = []
-    for token in tokens:
+    for index, token in enumerate(tokens):
+        next_token = tokens[index + 1] if index + 1 < len(tokens) else ""
+        starts_forward_descriptor = (
+            token in SHOPPING_LIST_LEADING_DESCRIPTOR_TERMS
+            and next_token in SHOPPING_LIST_BOUNDARY_TERMS
+        )
         starts_new_item = (
             current
-            and token in SHOPPING_LIST_BOUNDARY_TERMS
+            and (
+                starts_forward_descriptor
+                or (
+                    token in SHOPPING_LIST_BOUNDARY_TERMS
+                    and token not in SHOPPING_LIST_TRAILING_DESCRIPTOR_TERMS
+                )
+            )
             and any(t in SHOPPING_LIST_BOUNDARY_TERMS for t in current)
-            and token not in SHOPPING_LIST_TRAILING_DESCRIPTOR_TERMS
         )
         if starts_new_item:
             parts.append(" ".join(current))
