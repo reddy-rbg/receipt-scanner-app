@@ -1085,7 +1085,7 @@ SHOPPING_LIST_MARKERS = [
 SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "table", "tabular", "form", "listing", "listed", "below", "following",
     "shop", "shopping", "available", "clear", "from", "best", "price",
-    "prices", "buy", "where", "current", "market", "overpaid", "overpay",
+    "prices", "cost", "costs", "rate", "rates", "buy", "where", "current", "market", "overpaid", "overpay",
     "can", "you", "find", "paid", "please", "include", "including", "but",
     "vegetable", "vegetables", "veggie", "veggies", "produce",
     "also", "same", "table", "grocery", "raw", "dont", "don", "count", "unknown", "as",

@@ -382,6 +382,38 @@ def test_screenshot_cost_request_with_typo_stays_fast_multi_item():
     assert result["rag_trace"]["intent"] == "multi_item_price_from_classifier"
 
 
+def test_messy_cost_request_variants_extract_same_items():
+    cases = [
+        "cost per type cilnatro red chilly tomatto cucmber cheaper",
+        "best rates for culantro, red chile, tomatoe and cumcumber",
+        "where is cheap cilantro red chili tomato cucumber",
+        "price listing:\ncilnatro\nred chilly\ntomatto\ncucamber",
+    ]
+    for query in cases:
+        items = agent.extract_shopping_list_items(query)
+        assert items == ["cilantro", "red chili", "tomato", "cucumber"], query
+
+
+def test_query_words_never_become_items_in_cost_request():
+    query = (
+        "please tell me what is the best cheapest cost per type rate for "
+        "cilnatro red chilly tomatto cucumber and is it cheaper"
+    )
+    items = agent.extract_shopping_list_items(query)
+    assert items == ["cilantro", "red chili", "tomato", "cucumber"]
+    forbidden = {"please", "tell", "best", "cheapest", "cost", "type", "rate", "cheaper"}
+    assert not (set(" ".join(items).split()) & forbidden)
+
+
+def test_fast_multi_item_understanding_shapes_screenshot_query():
+    data = agent.deterministic_multi_item_understanding(
+        "what is the cost per type of cilnatro red chili tomato cucumber is it cheaper"
+    )
+    assert data["items"] == ["cilantro", "red chili", "tomato", "cucumber"]
+    assert data["intent"] == "item_price"
+    assert data["item_query"] == "cilantro"
+
+
 def test_culantro_typo_maps_to_cilantro_in_multi_item_request():
     items = agent.extract_shopping_list_items("The best price for culantro and tomato")
     assert items == ["cilantro", "tomato"]
@@ -1215,6 +1247,13 @@ if __name__ == "__main__":
     test_multi_item_best_price_table_splits_requested_items()
     test_messy_multi_item_request_with_commas_uses_table_path()
     test_cost_per_type_words_do_not_become_requested_items()
+    test_space_separated_cost_request_keeps_chili_and_cucumber_separate()
+    test_screenshot_cost_request_with_typo_stays_fast_multi_item()
+    test_messy_cost_request_variants_extract_same_items()
+    test_query_words_never_become_items_in_cost_request()
+    test_fast_multi_item_understanding_shapes_screenshot_query()
+    test_culantro_typo_maps_to_cilantro_in_multi_item_request()
+    test_semantic_multi_item_understanding_overrides_rule_splitter()
     test_space_separated_multi_item_request_splits_on_product_anchors()
     test_failed_combined_item_self_heals_into_sub_items()
     test_mixed_known_unknown_items_do_not_become_one_purchase_claim()
