@@ -372,6 +372,7 @@ COMMON_ITEM_TYPO_CORRECTIONS = {
     "clantro": "cilantro",
     "cilanto": "cilantro",
     "cilntro": "cilantro",
+    "cilnatro": "cilantro",
     "culantro": "cilantro",
     "tomatto": "tomato",
     "tomatoe": "tomato",
@@ -2467,6 +2468,23 @@ def semantic_extract_items(message: str, conversation_history: list[dict] | None
     return normalize_semantic_item_payload(data, message)
 
 
+def deterministic_multi_item_understanding(message: str) -> dict:
+    if not looks_like_shopping_list_price_request(message):
+        return {}
+    items = extract_shopping_list_items(message)
+    if len(items) < 2:
+        return {}
+    return {
+        "intent": "item_price",
+        "canonical_message": f"best price for {', '.join(items)}",
+        "item_query": items[0],
+        "items": items,
+        "category": "",
+        "is_receipt_question": True,
+        "deterministic_multi_item_extraction": True,
+    }
+
+
 def local_understand_user_query(message: str, conversation_history: list[dict] | None = None) -> dict:
     """
     Fast deterministic intent router for the most common mobile chat patterns.
@@ -2702,6 +2720,10 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
     Normalize messy user wording into a receipt-search intent.
     This layer may understand typos/language/context, but never answers prices.
     """
+    deterministic_multi = deterministic_multi_item_understanding(message)
+    if deterministic_multi:
+        return deterministic_multi
+
     local = local_understand_user_query(message, conversation_history)
     semantic = semantic_extract_items(message, conversation_history)
     if semantic and len(semantic.get("items") or []) >= 2:

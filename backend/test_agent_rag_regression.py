@@ -328,7 +328,7 @@ def test_multi_item_best_price_table_splits_requested_items():
     assert "tabular form mutton" not in response
     assert "no clear" not in response
     assert result["answer_card"]["type"] == "shopping_list_prices"
-    assert result["rag_trace"]["intent"] == "shopping_list_price"
+    assert result["rag_trace"]["intent"] in {"shopping_list_price", "multi_item_price_from_classifier"}
 
 
 def test_messy_multi_item_request_with_commas_uses_table_path():
@@ -359,6 +359,29 @@ def test_space_separated_cost_request_keeps_chili_and_cucumber_separate():
     assert items == ["cilantro", "red chili", "tomato", "cucumber"]
 
 
+def test_screenshot_cost_request_with_typo_stays_fast_multi_item():
+    original_semantic_extract = agent.semantic_extract_items
+    try:
+        agent.semantic_extract_items = lambda message, history=None: (_ for _ in ()).throw(
+            AssertionError("semantic extraction should not run for deterministic multi-item requests")
+        )
+        result = agent.run_agent(
+            "what is the cost per type of cilnatro red chili tomato cucumber is it cheaper",
+            [],
+        )
+    finally:
+        agent.semantic_extract_items = original_semantic_extract
+
+    rows = result["answer_card"]["rows"]
+    assert [row["requested_item"] for row in rows] == [
+        "cilantro",
+        "red chili",
+        "tomato",
+        "cucumber",
+    ]
+    assert result["rag_trace"]["intent"] == "multi_item_price_from_classifier"
+
+
 def test_culantro_typo_maps_to_cilantro_in_multi_item_request():
     items = agent.extract_shopping_list_items("The best price for culantro and tomato")
     assert items == ["cilantro", "tomato"]
@@ -366,7 +389,9 @@ def test_culantro_typo_maps_to_cilantro_in_multi_item_request():
 
 def test_semantic_multi_item_understanding_overrides_rule_splitter():
     original_semantic_extract = agent.semantic_extract_items
+    original_deterministic_multi = agent.deterministic_multi_item_understanding
     try:
+        agent.deterministic_multi_item_understanding = lambda message: {}
         agent.semantic_extract_items = lambda message, history=None: {
             "intent": "item_price",
             "canonical_message": "best price for cilantro, red chili, tomato, cucumber",
@@ -383,6 +408,7 @@ def test_semantic_multi_item_understanding_overrides_rule_splitter():
         )
     finally:
         agent.semantic_extract_items = original_semantic_extract
+        agent.deterministic_multi_item_understanding = original_deterministic_multi
 
     rows = result["answer_card"]["rows"]
     assert [row["requested_item"] for row in rows] == [
