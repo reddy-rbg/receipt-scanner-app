@@ -147,10 +147,10 @@ def save_receipt_items(
     guest_session_id: str | None = None,
     is_guest: bool = False,
     expires_at: str | None = None,
-) -> None:
+) -> dict:
     """Write normalized item rows for fast agent queries. Safe no-op until receipt_items table exists."""
     if not receipt or not receipt.get("id") or not items:
-        return
+        return {"success": True, "receipt_id": receipt.get("id") if receipt else None, "items": 0}
 
     rows = []
     receipt_id = receipt.get("id")
@@ -201,14 +201,84 @@ def save_receipt_items(
         })
 
     if not rows:
-        return
+        return {"success": True, "receipt_id": receipt_id, "items": 0}
 
     try:
         supabase.table("receipt_items").delete().eq("receipt_id", receipt_id).execute()
         supabase.table("receipt_items").insert(rows).execute()
         save_receipt_item_embeddings(rows, receipt_id)
+        return {"success": True, "receipt_id": receipt_id, "items": len(rows)}
     except Exception as e:
         print(f"[receipt_items] Skipped normalized item save: {e}")
+        return {"success": False, "receipt_id": receipt_id, "items": 0, "error": str(e)}
+
+
+def backfill_receipt_vectors(
+    user_id: str | None = None,
+    guest_session_id: str | None = None,
+    limit: int = 1000,
+) -> dict:
+    """
+    Rebuild normalized receipt_items and local vector rows from existing receipt JSON.
+    With no owner filter this should be run only from a trusted service-role environment.
+    """
+    processed = 0
+    skipped = 0
+    failed = 0
+    items_written = 0
+    errors: list[dict] = []
+
+    page_size = 100
+    max_rows = max(1, min(int(limit or 1000), 10000))
+
+    for start in range(0, max_rows, page_size):
+        end = min(start + page_size - 1, max_rows - 1)
+        q = supabase.table("receipts").select(
+            "id,store,date,created_at,items,user_id,is_guest,guest_session_id,expires_at"
+        )
+        if user_id:
+            q = q.eq("user_id", user_id)
+        elif guest_session_id:
+            q = q.eq("is_guest", True).eq("guest_session_id", guest_session_id)
+        result = q.order("created_at", desc=True).range(start, end).execute()
+        receipts = result.data or []
+        if not receipts:
+            break
+
+        for receipt in receipts:
+            items = receipt.get("items") if isinstance(receipt.get("items"), list) else []
+            if not items:
+                skipped += 1
+                continue
+            outcome = save_receipt_items(
+                receipt,
+                items,
+                user_id=receipt.get("user_id"),
+                guest_session_id=receipt.get("guest_session_id"),
+                is_guest=bool(receipt.get("is_guest")),
+                expires_at=receipt.get("expires_at"),
+            )
+            if outcome.get("success"):
+                processed += 1
+                items_written += int(outcome.get("items") or 0)
+            else:
+                failed += 1
+                errors.append({
+                    "receipt_id": receipt.get("id"),
+                    "error": outcome.get("error") or "Unknown error",
+                })
+
+        if len(receipts) < page_size:
+            break
+
+    return {
+        "success": failed == 0,
+        "processed_receipts": processed,
+        "skipped_receipts": skipped,
+        "failed_receipts": failed,
+        "items_written": items_written,
+        "errors": errors[:20],
+    }
 
 
 def save_receipt(store: str, date: str, total: float, items: list,

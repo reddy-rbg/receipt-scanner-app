@@ -52,6 +52,11 @@ class LivePriceCheckRequest(BaseModel):
     live_search: bool = False
 
 
+class BackfillVectorsRequest(BaseModel):
+    session_id: str | None = None
+    limit: int = 1000
+
+
 def _receipt_duplicate_response(existing: dict, message: str = "This receipt was already scanned."):
     return {
         "success": False,
@@ -676,6 +681,24 @@ def search_price_memory(request: Request, item: str, session_id: str | None = No
 
     result = agent_service.search_price_memory(item, user_id=user_id, guest_session_id=guest_session_id)
     return {"success": True, **result}
+
+
+@router.post("/receipts/backfill-vectors")
+def backfill_vectors(request: Request, payload: BackfillVectorsRequest | None = None):
+    """Backfill normalized item rows and local vectors for existing receipts."""
+    payload = payload or BackfillVectorsRequest()
+    user_id = get_user_id_from_request(request)
+    guest_session_id = None if user_id else payload.session_id
+    if not user_id and not guest_session_id:
+        raise HTTPException(status_code=401, detail="Authentication or guest session required.")
+
+    result = database.backfill_receipt_vectors(
+        user_id=user_id,
+        guest_session_id=guest_session_id,
+        limit=max(1, min(payload.limit or 1000, 10000)),
+    )
+    clear_receipt_memory_caches()
+    return result
 
 
 @router.get("/shopping-plan")
