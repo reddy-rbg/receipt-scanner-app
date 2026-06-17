@@ -394,6 +394,39 @@ def test_messy_cost_request_variants_extract_same_items():
         assert items == ["cilantro", "red chili", "tomato", "cucumber"], query
 
 
+def test_plural_produce_words_are_singularized_before_splitting():
+    cases = {
+        "what is the cost per type of cilantro red chilies tomato cucumber is it cheaper": [
+            "cilantro",
+            "red chili",
+            "tomato",
+            "cucumber",
+        ],
+        "best prices tomatoes cucumbers chilies potatoes onions carrots": [
+            "tomato",
+            "cucumber",
+            "chili",
+            "potato",
+            "onion",
+            "carrot",
+        ],
+        "cilantro tomatoes cucumbers red chilies cheaper": [
+            "cilantro",
+            "tomato",
+            "cucumber",
+            "red chili",
+        ],
+        "best rates for red chiles tomatoes cucumbers": [
+            "red chili",
+            "tomato",
+            "cucumber",
+        ],
+    }
+    for query, expected in cases.items():
+        assert agent.extract_shopping_list_items(query) == expected, query
+        assert agent.deterministic_multi_item_understanding(query)["items"] == expected
+
+
 def test_query_words_never_become_items_in_cost_request():
     query = (
         "please tell me what is the best cheapest cost per type rate for "
@@ -1307,6 +1340,7 @@ if __name__ == "__main__":
     test_space_separated_cost_request_keeps_chili_and_cucumber_separate()
     test_screenshot_cost_request_with_typo_stays_fast_multi_item()
     test_messy_cost_request_variants_extract_same_items()
+    test_plural_produce_words_are_singularized_before_splitting()
     test_query_words_never_become_items_in_cost_request()
     test_fast_multi_item_understanding_shapes_screenshot_query()
     test_uncertain_deterministic_items_require_semantic_review()

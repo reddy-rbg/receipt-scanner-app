@@ -364,6 +364,7 @@ GLOBAL_GROCERY_TERMS = [
     "beetroot", "beet", "aubergine", "yoghurt", "maida", "plantain", "taro", "eddo",
     "yam", "sweet potato", "bok choy", "pak choi", "napa cabbage", "daikon",
     "cucumber", "chili", "chilli", "red chili", "red chilli",
+    "onion", "carrot",
 ]
 
 INDIAN_GROCERY_TERMS = GLOBAL_GROCERY_TERMS
@@ -611,6 +612,18 @@ def correct_item_token(token: str) -> str:
         return COMMON_ITEM_TYPO_CORRECTIONS[token]
     if token in KNOWN_ITEM_TERMS or len(token) < 4:
         return token
+
+    plural_candidates = []
+    if token.endswith("ies") and len(token) > 4:
+        plural_candidates.extend([token[:-3] + "y", token[:-3] + "i"])
+    if token.endswith("es") and len(token) > 4:
+        plural_candidates.extend([token[:-2], token[:-1]])
+    if token.endswith("s") and len(token) > 4:
+        plural_candidates.append(token[:-1])
+    for candidate in plural_candidates:
+        corrected = COMMON_ITEM_TYPO_CORRECTIONS.get(candidate, candidate)
+        if corrected in KNOWN_ITEM_TERMS:
+            return corrected
 
     best_term = None
     best_score = 0.0
