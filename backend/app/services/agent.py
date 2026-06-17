@@ -373,6 +373,13 @@ COMMON_ITEM_TYPO_CORRECTIONS = {
     "cilanto": "cilantro",
     "cilntro": "cilantro",
     "culantro": "cilantro",
+    "tomatto": "tomato",
+    "tomatoe": "tomato",
+    "cucmber": "cucumber",
+    "cucamber": "cucumber",
+    "cumcumber": "cucumber",
+    "chilly": "chili",
+    "chile": "chili",
     "corriander": "coriander",
     # Common non-English grocery words customers may type in simple queries.
     "huevo": "egg",
@@ -2294,6 +2301,11 @@ def query_understanding_enabled() -> bool:
     return value not in {"0", "false", "no", "off"} and claude_client is not None
 
 
+def semantic_item_extraction_enabled() -> bool:
+    value = os.getenv("AGENT_SEMANTIC_ITEM_EXTRACTION_ENABLED", "true").strip().lower()
+    return value not in {"0", "false", "no", "off"} and claude_client is not None
+
+
 def parse_json_object(text: str) -> dict:
     if not text:
         return {}
@@ -2319,6 +2331,140 @@ def recent_user_context(conversation_history: list[dict] | None) -> str:
         if role in {"user", "assistant"} and content:
             rows.append(f"{role}: {content[:220]}")
     return "\n".join(rows)
+
+
+def should_try_semantic_item_extraction(message: str) -> bool:
+    normalized = correct_item_typos(correct_query_words(normalize_text(message)))
+    tokens = set(normalized.split())
+    intent_terms = {
+        "price", "prices", "cost", "rate", "rates", "cheap", "cheaper",
+        "cheapest", "best", "lowest", "buy", "bought", "paid", "where",
+        "compare",
+    }
+    if not (tokens & intent_terms):
+        return False
+    if looks_like_general_advice_question(message) or looks_like_overview_question(message):
+        return False
+    return bool(tokens - STOP_WORDS)
+
+
+def semantic_item_extraction_prompt(message: str, conversation_history: list[dict] | None = None) -> str:
+    return f"""You are the semantic item extraction layer for a receipt shopping app.
+Return strict JSON only. Do not answer the user.
+
+Task:
+- Read messy grammar, typos, and missing punctuation like ChatGPT would.
+- Extract the grocery items the user wants priced or compared.
+- Split separate grocery items even when they are only space-separated.
+- Keep real compound item names together: "red chili", "coconut oil", "cinnamon stick".
+- Correct obvious spelling and language variants: culantro -> cilantro, tomatto -> tomato, chilly -> chili.
+- Never return request words as items: best, cheap, cheaper, cheapest, price, cost, rate, type, where, buy, compare.
+- If the user asks for a category only, set intent to category_price and leave items empty.
+- If unsure, return fewer items. Never combine two different groceries into one item.
+
+JSON schema:
+{{
+  "intent": "item_price",
+  "items": ["cilantro", "red chili", "tomato", "cucumber"],
+  "category": "",
+  "is_receipt_question": true,
+  "confidence": 0.0
+}}
+
+Examples:
+"cost per type of cilantro red chili tomato cucumber is it cheaper" -> {{"intent":"item_price","items":["cilantro","red chili","tomato","cucumber"],"category":"","is_receipt_question":true,"confidence":0.94}}
+"best price for culantro and tomato" -> {{"intent":"item_price","items":["cilantro","tomato"],"category":"","is_receipt_question":true,"confidence":0.95}}
+"what meat did I buy" -> {{"intent":"category_price","items":[],"category":"meat","is_receipt_question":true,"confidence":0.9}}
+
+Recent context:
+{recent_user_context(conversation_history)}
+
+User message:
+{message}
+"""
+
+
+def normalize_semantic_item_payload(data: dict, original_message: str) -> dict:
+    intent = str(data.get("intent") or "").strip().lower()
+    if intent not in {"item_price", "item_count", "category_price", "unknown"}:
+        intent = "item_price" if data.get("items") else "unknown"
+
+    try:
+        confidence = float(data.get("confidence", 0.0))
+    except Exception:
+        confidence = 0.0
+
+    raw_items = data.get("items") if isinstance(data.get("items"), list) else []
+    items: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        cleaned = clean_shopping_list_item(str(raw))
+        cleaned = clean_item_query_for_display(cleaned)
+        if not cleaned or cleaned == "that item":
+            continue
+        if not token_set(cleaned):
+            continue
+        if cleaned not in seen:
+            seen.add(cleaned)
+            items.append(cleaned)
+
+    category = clean_item_query_for_display(str(data.get("category") or ""))
+    if category == "that item":
+        category = ""
+
+    if len(items) < 2 and confidence < 0.55:
+        return {}
+
+    if items:
+        return {
+            "intent": "item_count" if intent == "item_count" else "item_price",
+            "canonical_message": f"best price for {', '.join(items)}",
+            "item_query": items[0],
+            "items": items[:20],
+            "category": "",
+            "is_receipt_question": bool(data.get("is_receipt_question", True)),
+            "semantic_extraction": True,
+            "semantic_confidence": confidence,
+        }
+
+    if intent == "category_price" and category:
+        return {
+            "intent": "category_price",
+            "canonical_message": f"cheap {category}",
+            "item_query": "",
+            "items": [],
+            "category": category,
+            "is_receipt_question": True,
+            "semantic_extraction": True,
+            "semantic_confidence": confidence,
+        }
+
+    return {}
+
+
+def semantic_extract_items(message: str, conversation_history: list[dict] | None = None) -> dict:
+    if not semantic_item_extraction_enabled() or not should_try_semantic_item_extraction(message):
+        return {}
+    if claude_client is None:
+        return {}
+
+    try:
+        response = claude_client.messages.create(
+            model=SONNET_MODEL,
+            max_tokens=360,
+            temperature=0,
+            messages=[{
+                "role": "user",
+                "content": semantic_item_extraction_prompt(message, conversation_history),
+            }],
+        )
+        text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
+        data = parse_json_object(text)
+    except Exception as e:
+        print(f"[semantic_item_extraction] unavailable: {e}")
+        return {}
+
+    return normalize_semantic_item_payload(data, message)
 
 
 def local_understand_user_query(message: str, conversation_history: list[dict] | None = None) -> dict:
@@ -2557,8 +2703,13 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
     This layer may understand typos/language/context, but never answers prices.
     """
     local = local_understand_user_query(message, conversation_history)
+    semantic = semantic_extract_items(message, conversation_history)
+    if semantic and len(semantic.get("items") or []) >= 2:
+        return semantic
     if local:
         return local
+    if semantic:
+        return semantic
 
     if not query_understanding_enabled():
         return {}
@@ -6019,12 +6170,11 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
     # rewrite the message so the shopping-list path picks it up correctly instead of treating
     # all words as one combined item name.
     classifier_items = [i for i in (understanding.get("items") or []) if i]
-    if len(classifier_items) >= 2 and not looks_like_shopping_list_price_request(original_message):
+    if len(classifier_items) >= 2:
         rejoined = ", ".join(classifier_items)
-        # Rebuild the message so extract_shopping_list_items can split it cleanly
-        original_message = f"price for {rejoined}"
-        message = original_message
-        answer, card = shopping_list_price_answer(original_message, user_id, guest_session_id, extra_families)
+        # Rebuild as one item per line so the receipt search uses the semantic split exactly.
+        shopping_message = "best price for listed items\n" + "\n".join(classifier_items)
+        answer, card = shopping_list_price_answer(shopping_message, user_id, guest_session_id, extra_families)
         evidence = evidence_rows_from_card(card)
         return finalize_agent_result({
             "response": answer,
@@ -6038,7 +6188,7 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
                 normalized_query=rejoined,
                 evidence=evidence,
                 strict=AGENT_STRICT_MATCHING,
-                note=f"Intent classifier split query into {len(classifier_items)} items: {rejoined}",
+                note=f"Semantic understanding split query into {len(classifier_items)} items: {rejoined}",
             ),
         }, original_message)
 

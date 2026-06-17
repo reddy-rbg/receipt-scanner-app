@@ -364,6 +364,37 @@ def test_culantro_typo_maps_to_cilantro_in_multi_item_request():
     assert items == ["cilantro", "tomato"]
 
 
+def test_semantic_multi_item_understanding_overrides_rule_splitter():
+    original_semantic_extract = agent.semantic_extract_items
+    try:
+        agent.semantic_extract_items = lambda message, history=None: {
+            "intent": "item_price",
+            "canonical_message": "best price for cilantro, red chili, tomato, cucumber",
+            "item_query": "cilantro",
+            "items": ["cilantro", "red chili", "tomato", "cucumber"],
+            "category": "",
+            "is_receipt_question": True,
+            "semantic_extraction": True,
+            "semantic_confidence": 0.95,
+        }
+        result = agent.run_agent(
+            "Can you please tell best rates for culantro red chilly tomatto cucumber is it cheap",
+            [],
+        )
+    finally:
+        agent.semantic_extract_items = original_semantic_extract
+
+    rows = result["answer_card"]["rows"]
+    assert [row["requested_item"] for row in rows] == [
+        "cilantro",
+        "red chili",
+        "tomato",
+        "cucumber",
+    ]
+    assert result["rag_trace"]["intent"] == "multi_item_price_from_classifier"
+    assert "best rates" not in " ".join(row["requested_item"] for row in rows)
+
+
 def test_space_separated_multi_item_request_splits_on_product_anchors():
     items = agent.extract_shopping_list_items(
         "best prices mutton beef leg cilantro cinnamon stick"
