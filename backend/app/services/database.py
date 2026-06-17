@@ -115,6 +115,8 @@ def save_receipt_item_embeddings(rows: list[dict], receipt_id: int | str) -> Non
 
     embedding_rows = []
     for row in rows:
+        if not row.get("user_id") and not row.get("guest_session_id"):
+            continue
         item_text = _receipt_item_embedding_text(row)
         embedding = local_text_embedding(item_text)
         if not embedding:

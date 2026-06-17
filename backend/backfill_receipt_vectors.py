@@ -15,8 +15,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
-
-from app.services.database import backfill_receipt_vectors  # noqa: E402
+load_dotenv(ROOT.parent.parent / "BS" / ".env")
 
 
 def main() -> int:
@@ -29,6 +28,8 @@ def main() -> int:
     if not os.getenv("SUPABASE_URL") or not os.getenv("SUPABASE_KEY"):
         print("Missing SUPABASE_URL or SUPABASE_KEY in backend/.env or environment.", file=sys.stderr)
         return 2
+
+    from app.services.database import backfill_receipt_vectors
 
     result = backfill_receipt_vectors(
         user_id=args.user_id,
