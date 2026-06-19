@@ -517,6 +517,9 @@ QUERY_WORD_CORRECTIONS = {
     "purpased": "purchased",
     "purposed": "purchased",
     "purcased": "purchased",
+    "purpasing": "purchasing",
+    "purposing": "purchasing",
+    "purcasing": "purchasing",
     "purchsing": "purchasing",
     "recipt": "receipt",
     "recipts": "receipts",
@@ -2649,6 +2652,8 @@ def local_understand_user_query(message: str, conversation_history: list[dict] |
             canonical = "this month expense chart" if "this month" in normalized else "monthly spending report"
         elif any(term in normalized for term in [
             "price trend", "price trends", "buy regularly", "regularly",
+            "what item i am frequently", "what items i am frequently",
+            "what item am i frequently", "what items am i frequently",
             "mostly purchased", "mostly purchase", "most purchased",
             "frequently purchasing", "frequently purchased", "frequent purchases",
             "frequent items", "repeat items", "repeat purchases",
@@ -4567,6 +4572,8 @@ def classify_receipt_action(message: str) -> str:
         return "best_deals"
     if any(term in m for term in [
         "mostly purchased", "mostly purchase", "most purchased",
+        "what item i am frequently", "what items i am frequently",
+        "what item am i frequently", "what items am i frequently",
         "frequently purchasing", "frequently purchased", "frequent purchases",
         "frequent items", "repeat items", "repeat purchases",
         "items purchased most", "products purchased most",

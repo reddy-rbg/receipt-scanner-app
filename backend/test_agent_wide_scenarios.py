@@ -197,6 +197,8 @@ def test_frequent_items_phrases_route_to_repeat_summary():
         "Top purchased items",
         "Items I buy most often",
         "What item i am frequently purchasing",
+        "what item i am frequently",
+        "what item i am frequently purpasing",
         "waht item i bought most",
         "top products i purchased",
     ]:

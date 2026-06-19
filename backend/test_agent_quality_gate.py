@@ -30,6 +30,7 @@ from test_agent_fuzz_queries import (
     test_generated_clean_multi_item_queries_extract_expected_items,
     test_uncertain_generated_queries_route_to_claude_correction,
 )
+from test_agent_wide_scenarios import test_frequent_items_phrases_route_to_repeat_summary
 
 
 QUALITY_GATE_TESTS = [
@@ -47,6 +48,7 @@ QUALITY_GATE_TESTS = [
     test_generated_clean_multi_item_queries_extract_expected_items,
     test_generated_answer_cards_keep_requested_items_clean,
     test_uncertain_generated_queries_route_to_claude_correction,
+    test_frequent_items_phrases_route_to_repeat_summary,
 ]
 
 
