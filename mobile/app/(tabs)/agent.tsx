@@ -563,8 +563,9 @@ export default function AgentScreen() {
                 style={[s.traceWrongBtn, { borderColor: C.border }]}
                 onPress={() => sendMatchCorrection(index, traceRowItem(row))}
                 activeOpacity={0.7}
+                accessibilityLabel="Report incorrect match"
               >
-                <Text style={[s.traceWrongTxt, { color: C.red }]}>Wrong</Text>
+                <Ionicons name="thumbs-down-outline" size={13} color={C.text3} />
               </TouchableOpacity>
             </View>
           </View>
@@ -993,6 +994,5 @@ const s = StyleSheet.create({
   traceMeta:    { fontSize: 10, marginTop: 1 },
   traceRight:   { alignItems: 'flex-end', gap: 4 },
   tracePrice:   { fontSize: 11, fontWeight: '700' },
-  traceWrongBtn:{ borderWidth: 1, borderRadius: 99, paddingHorizontal: 7, paddingVertical: 3 },
-  traceWrongTxt:{ fontSize: 9, fontWeight: '900' },
+  traceWrongBtn:{ borderWidth: 1, borderRadius: 99, padding: 6 },
 });
