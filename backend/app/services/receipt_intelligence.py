@@ -29,7 +29,8 @@ QUESTION_WORDS = STOP_WORDS | {
     "month", "week", "year", "price", "prices", "cost", "costs", "paid",
     "pay", "rate", "there", "having", "missing", "comma", "commas", "not",
     "all", "item", "items", "complete", "summary", "overview", "analysis",
-    "report", "deal", "deals", "recent", "recently",
+    "report", "deal", "deals", "recent", "recently", "time", "times",
+    "count", "often", "frequently",
 }
 
 TYPO_CORRECTIONS = {
@@ -350,6 +351,8 @@ def extract_items(message: str, store: str = "", category: str = "") -> list[str
         "show me receipts where i bought", "show receipts where i bought",
         "which receipts do not have", "which receipts dont have",
         "which receipts don t have", "how much did i spend on",
+        "how many times did i buy", "how many times i bought",
+        "how often did i buy", "how frequently did i buy",
         "receipts not having", "receipt not having", "which receipts missing",
         "receipts missing", "not having",
     ]:

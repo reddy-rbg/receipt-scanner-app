@@ -111,6 +111,11 @@ def test_item_history_questions_show_history_only_when_asked():
         includes=["price history", "keema"],
         excludes=["cinnamon", "mango"],
     )
+    assert_response(
+        "how many times did I buy keema",
+        includes=["keema"],
+        excludes=["times keema", "no clear times"],
+    )
 
 
 def test_followups_reuse_recent_item_but_not_report_topics():
