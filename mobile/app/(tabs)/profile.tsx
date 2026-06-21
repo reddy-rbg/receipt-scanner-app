@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth, clearUser } from '../../stores/authStore';
-import { useTheme } from '../../stores/themeStore';
+import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Modal, Switch,
@@ -544,7 +544,7 @@ export default function ProfileScreen() {
   );
 }
 
-const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
+const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   // AUTH
   authScroll:{ flex:1, backgroundColor:C.bg },
   authContainer:{ padding:24, paddingBottom:50, alignItems:'center' },
