@@ -366,6 +366,7 @@ GLOBAL_GROCERY_TERMS = [
     "scallion", "arugula", "rocket", "prawn", "shrimp", "yuca", "cassava", "manioc",
     "beetroot", "beet", "aubergine", "yoghurt", "maida", "plantain", "taro", "eddo",
     "yam", "sweet potato", "bok choy", "pak choi", "napa cabbage", "daikon",
+    "dragonfruit",
     "cucumber", "chili", "chilli", "red chili", "red chilli",
     "onion", "carrot",
 ]
@@ -1156,6 +1157,7 @@ SHOPPING_LIST_TRAILING_DESCRIPTOR_TERMS = {
     "leg", "cut", "stick", "round", "small", "white", "oil", "kheema",
     "keema", "drumstick", "masala", "chunk", "slice", "sliced", "piece",
     "pieces", "bone", "boneless", "fresh", "raw", "whole", "half",
+    "roma",
 }
 SHOPPING_LIST_LEADING_DESCRIPTOR_TERMS = {"red", "green", "yellow"}
 
@@ -1189,6 +1191,28 @@ def split_space_separated_shopping_items(text: str) -> list[str]:
         )
         is_boundary = token in SHOPPING_LIST_BOUNDARY_TERMS
         current_has_boundary = any(t in SHOPPING_LIST_BOUNDARY_TERMS for t in current)
+        current_is_only_leading_descriptor = bool(current) and all(
+            t in SHOPPING_LIST_LEADING_DESCRIPTOR_TERMS for t in current
+        )
+        if (
+            current
+            and not is_boundary
+            and (next_token in SHOPPING_LIST_BOUNDARY_TERMS or token.endswith("item"))
+            and current_has_boundary
+            and token not in SHOPPING_LIST_TRAILING_DESCRIPTOR_TERMS
+        ):
+            groups.append(current)
+            current = [token]
+            continue
+        if (
+            current
+            and is_boundary
+            and not current_has_boundary
+            and not current_is_only_leading_descriptor
+        ):
+            groups.append(current)
+            current = [token]
+            continue
         if current and starts_forward_descriptor and current_has_boundary:
             groups.append(current)
             current = [token]
@@ -1295,7 +1319,7 @@ def extract_shopping_list_items(message: str) -> list[str]:
     seen: set[str] = set()
     for piece in pieces:
         cleaned = clean_shopping_list_item(piece)
-        candidates = split_space_separated_shopping_items(cleaned) if len(token_set(cleaned)) > 2 else [cleaned]
+        candidates = split_space_separated_shopping_items(cleaned) if len(token_set(cleaned)) > 1 else [cleaned]
         for candidate in candidates:
             tokens = token_set(candidate)
             if not candidate or not tokens or candidate in seen:

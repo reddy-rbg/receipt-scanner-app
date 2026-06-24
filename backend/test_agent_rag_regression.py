@@ -451,6 +451,21 @@ def test_query_words_never_become_items_in_cost_request():
     assert not (set(" ".join(items).split()) & forbidden)
 
 
+def test_unknown_items_in_multi_item_lists_are_preserved_as_missing_rows():
+    cases = {
+        "price for cilantro fakeitem saffron": ["cilantro", "fakeitem", "saffron"],
+        "compare tomato cucumber fakeitem": ["tomato", "cucumber", "fakeitem"],
+        "where is cheap dragonfruit cilantro": ["dragonfruit", "cilantro"],
+    }
+    for query, expected in cases.items():
+        assert agent.extract_shopping_list_items(query) == expected, query
+
+    result = agent.run_agent("price for cilantro fakeitem saffron", [])
+    rows = result["answer_card"]["rows"]
+    assert [row["requested_item"] for row in rows] == ["cilantro", "fakeitem", "saffron"]
+    assert any(row["requested_item"] == "fakeitem" and row["price"] == "Not found" for row in rows)
+
+
 def test_fast_multi_item_understanding_shapes_screenshot_query():
     data = agent.deterministic_multi_item_understanding(
         "what is the cost per type of cilnatro red chili tomato cucumber is it cheaper"
@@ -1356,6 +1371,7 @@ if __name__ == "__main__":
     test_plural_produce_words_are_singularized_before_splitting()
     test_plural_chili_query_never_returns_combined_requested_rows()
     test_query_words_never_become_items_in_cost_request()
+    test_unknown_items_in_multi_item_lists_are_preserved_as_missing_rows()
     test_fast_multi_item_understanding_shapes_screenshot_query()
     test_uncertain_deterministic_items_require_semantic_review()
     test_uncertain_multi_item_query_uses_claude_semantic_correction()
