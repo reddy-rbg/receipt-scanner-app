@@ -985,6 +985,25 @@ def test_verified_match_confidence_is_attached():
     assert all("CINNAMON" not in event["item_original"] for event in rag["events"])
 
 
+def test_contextual_retrieval_pipeline_trace_is_attached():
+    original_boosts = agent.fetch_embedding_rank_boosts
+    try:
+        agent.fetch_embedding_rank_boosts = lambda query, user_id=None, guest_session_id=None: {
+            ("4", "4", "goat keema"): 0.12
+        }
+        rag = agent.retrieve_item_events("goat keema")
+    finally:
+        agent.fetch_embedding_rank_boosts = original_boosts
+
+    pipeline = rag["retrieval_pipeline"]
+    assert pipeline["contextual_embeddings"] is True
+    assert pipeline["embedding_model"] == "receiptai-contextual-local-hash-v2"
+    assert "structured_sql" in pipeline["hybrid_signals"]
+    assert "local_vector" in pipeline["hybrid_signals"]
+    assert pipeline["reranker"] == "deterministic evidence reranker"
+    assert pipeline["vector_boost_matches"] == 1
+
+
 def test_specific_unknown_answer_does_not_show_unrelated_candidates():
     rag = {
         "query": "best price for saffron",

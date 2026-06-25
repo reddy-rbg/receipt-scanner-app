@@ -30,7 +30,7 @@ PRODUCT_SIZE_RE = re.compile(
     re.IGNORECASE,
 )
 EXPLICIT_QTY_RE = re.compile(r"\b(QTY\s*\d+|\d+\s*@|\d+\s+EA\b|\d+\s+FOR\b|\d+\s+AT\b)", re.IGNORECASE)
-LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-local-hash-v1")
+LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-contextual-local-hash-v2")
 EMBEDDING_DIMENSIONS = 1536
 RECEIPT_ITEM_EMBEDDINGS_ENABLED = os.getenv("RECEIPT_ITEM_EMBEDDINGS_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 
@@ -97,15 +97,28 @@ def _embedding_vector_literal(embedding: list[float]) -> str:
 
 
 def _receipt_item_embedding_text(row: dict) -> str:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    category = metadata.get("category") or metadata.get("department") or metadata.get("type")
+    price = row.get("unit_price") or row.get("line_price")
+    line_total = row.get("line_price")
+    quantity = row.get("quantity")
+    unit = row.get("unit")
+    explicit_quantity = "explicit quantity" if row.get("explicit_quantity") else "single receipt line"
     parts = [
-        row.get("item_name_original"),
-        row.get("item_name_normalized"),
-        row.get("code"),
-        row.get("product_size"),
-        row.get("store"),
-        row.get("purchase_date"),
+        f"Item: {row.get('item_name_original')}",
+        f"Normalized item: {row.get('item_name_normalized')}",
+        f"Receipt code: {row.get('code')}",
+        f"Package size: {row.get('product_size')}",
+        f"Store: {row.get('store')}",
+        f"Purchase date: {row.get('purchase_date')}",
+        f"Quantity: {quantity} {unit}".strip() if quantity else None,
+        f"Unit price: ${price}" if price else None,
+        f"Line total: ${line_total}" if line_total else None,
+        f"Category: {category}" if category else None,
+        f"Quantity rule: {explicit_quantity}",
+        "Context: receipt item row for grocery price memory, cheapest-store lookup, repeated-purchase history, and typo-tolerant item search.",
     ]
-    return " | ".join(str(part) for part in parts if part)
+    return " | ".join(str(part) for part in parts if part and str(part).strip() and not str(part).endswith("None"))
 
 
 def save_receipt_item_embeddings(rows: list[dict], receipt_id: int | str) -> None:

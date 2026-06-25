@@ -110,6 +110,13 @@ def agent_health():
         "adaptive_query_recovery": True,
         "agent_build": agent_service.AGENT_BUILD,
         "agent_capabilities": agent_service.AGENT_CAPABILITIES,
+        "rag_stack": {
+            "contextual_item_embeddings": True,
+            "embedding_model": agent_service.LOCAL_EMBEDDING_MODEL,
+            "hybrid_retrieval": ["structured_sql", "exact_keyword", "fuzzy_alias", "local_vector", "feedback_ranker"],
+            "reranker": "deterministic evidence reranker",
+            "trace_dashboard": "rag_trace returned from POST /agent/chat",
+        },
         "parser_self_check": {
             "query": parser_self_check_query,
             "items": parser_self_check_items,

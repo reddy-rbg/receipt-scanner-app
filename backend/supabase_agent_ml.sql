@@ -13,12 +13,15 @@ create table if not exists public.receipt_item_embeddings (
   item_name text not null,
   item_text text not null,
   embedding vector(1536) not null,
-  model text not null default 'receiptai-local-hash-v1',
+  model text not null default 'receiptai-contextual-local-hash-v2',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint receipt_item_embeddings_owner_check
     check (user_id is not null or guest_session_id is not null)
 );
+
+alter table public.receipt_item_embeddings
+  alter column model set default 'receiptai-contextual-local-hash-v2';
 
 create unique index if not exists receipt_item_embeddings_unique_user
   on public.receipt_item_embeddings (user_id, receipt_id, line_index, model)
@@ -33,6 +36,8 @@ create index if not exists receipt_item_embeddings_vector_idx
   using ivfflat (embedding vector_cosine_ops)
   with (lists = 100);
 
+drop function if exists public.match_receipt_item_embeddings(vector(1536), integer, uuid, text);
+
 create or replace function public.match_receipt_item_embeddings(
   query_embedding vector(1536),
   match_count integer default 50,
@@ -43,6 +48,8 @@ returns table (
   receipt_id bigint,
   line_index integer,
   item_name text,
+  item_text text,
+  model text,
   similarity double precision
 )
 language sql
@@ -52,6 +59,8 @@ as $$
     e.receipt_id,
     e.line_index,
     e.item_name,
+    e.item_text,
+    e.model,
     1 - (e.embedding <=> query_embedding) as similarity
   from public.receipt_item_embeddings e
   where

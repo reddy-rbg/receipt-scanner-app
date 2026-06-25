@@ -28,7 +28,7 @@ from app.services import agent_analytics
 
 MODEL = os.getenv("CLAUDE_AGENT_MODEL", "claude-opus-4-5-20251101")
 SONNET_MODEL = os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
-LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-local-hash-v1")
+LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-contextual-local-hash-v2")
 EMBEDDING_DIMENSIONS = 1536
 AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
@@ -47,6 +47,9 @@ AGENT_CAPABILITIES = {
     "plural_item_normalization": True,
     "generated_query_fuzz_tests": True,
     "optional_embedding_boosts": AGENT_EMBEDDING_RETRIEVAL_ENABLED,
+    "contextual_item_embeddings": True,
+    "hybrid_retrieval_trace": True,
+    "rerank_trace": True,
     "claude_only": True,
 }
 RECEIPT_SELECT = "id,store,address,date,time,total,subtotal,discount,tax,total_savings,items,created_at"
@@ -130,6 +133,18 @@ def fetch_embedding_rank_boosts(
         )
         boosts[key] = max(boosts.get(key, 0.0), min(0.18, max(0.0, (similarity - 0.74) * 0.7)))
     return boosts
+
+
+def retrieval_pipeline_trace(embedding_boosts: dict[tuple[str, str, str], float]) -> dict:
+    """Expose enough RAG internals for health checks and the mobile trace panel."""
+    return {
+        "contextual_embeddings": True,
+        "embedding_model": LOCAL_EMBEDDING_MODEL,
+        "hybrid_signals": ["structured_sql", "exact_keyword", "fuzzy_alias", "local_vector", "feedback_ranker"],
+        "reranker": "deterministic evidence reranker",
+        "vector_boost_matches": len(embedding_boosts),
+        "vector_boost_max": round(max(embedding_boosts.values()), 4) if embedding_boosts else 0.0,
+    }
 
 AGENT_TOOLS = [
     {
@@ -2082,6 +2097,7 @@ def retrieve_item_events(
     candidate_threshold = minimum_candidate_score(query, semantic_family)
     feedback_examples = fetch_owner_feedback_examples(user_id, guest_session_id)
     embedding_boosts = fetch_embedding_rank_boosts(query, user_id, guest_session_id)
+    pipeline = retrieval_pipeline_trace(embedding_boosts)
     blocklist = fetch_owner_blocklist(user_id, guest_session_id)
     scored = []
     for event in all_events:
@@ -2164,6 +2180,7 @@ def retrieve_item_events(
             "count": 0,
             "events": [],
             "closest_candidates": candidates[:8],
+            "retrieval_pipeline": pipeline,
             "message": f"No strong receipt item matches found for '{item_query}'.",
         }
 
@@ -2176,6 +2193,7 @@ def retrieve_item_events(
         "match_threshold": match_threshold,
         "count": len(matches),
         "events": matches,
+        "retrieval_pipeline": pipeline,
         "lowest_price": min(prices) if prices else None,
         "highest_price": max(prices) if prices else None,
         "important_quantity_rule": "Each event is one receipt line. Product sizes like 2.00-GAL are packaging, not purchase quantity. Do not combine separate receipt events into quantity 2.",
@@ -6560,8 +6578,9 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
                 original_message=original_message,
                 normalized_query=rag.get("normalized_query") or extracted_item_query,
                 evidence=evidence,
+                retrieval_pipeline=rag.get("retrieval_pipeline"),
                 strict=AGENT_STRICT_MATCHING,
-                note="Exact/fuzzy item retrieval with alias families, learned rank adjustments, and unit-aware price normalization.",
+                note="Contextual item embeddings plus structured SQL, exact/fuzzy aliases, learned rank adjustments, deterministic reranking, and unit-aware price normalization.",
             ),
         }, original_message)
 

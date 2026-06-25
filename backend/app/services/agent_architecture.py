@@ -77,6 +77,7 @@ def rag_trace(
     original_message: str,
     normalized_query: str = "",
     evidence: list[dict] | None = None,
+    retrieval_pipeline: dict | None = None,
     strict: bool = True,
     note: str = "",
 ) -> dict:
@@ -100,6 +101,7 @@ def rag_trace(
         "multimodal_evidence": any((row.get("multimodal") or {}).get("available") for row in evidence),
         "highlightable_evidence": any((row.get("multimodal") or {}).get("can_highlight_line") for row in evidence),
         "strict_receipt_grounding": strict,
+        "retrieval_pipeline": retrieval_pipeline or {},
         "evidence": evidence,
         "note": note,
     }

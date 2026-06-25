@@ -104,6 +104,12 @@ type RagTraceRow = {
 type RagTrace = {
   intent?: string;
   retrieval?: string;
+  retrieval_pipeline?: {
+    embedding_model?: string;
+    contextual_embeddings?: boolean;
+    vector_boost_matches?: number;
+    reranker?: string;
+  };
   evidence?: RagTraceRow[];
   note?: string;
 };
@@ -534,6 +540,10 @@ export default function AgentScreen() {
     if (!rows.length) return null;
 
     const expanded = msg.traceExpanded ?? false;
+    const pipeline = trace.retrieval_pipeline || {};
+    const traceLabel = pipeline.contextual_embeddings
+      ? `Contextual hybrid RAG${pipeline.vector_boost_matches != null ? ` · ${pipeline.vector_boost_matches} vector boosts` : ''}`
+      : `Matched ${rows.length} item${rows.length !== 1 ? 's' : ''} from your receipts`;
 
     return (
       <View style={[s.traceBox, { borderColor: C.border, backgroundColor: C.surface }]}>
@@ -544,10 +554,17 @@ export default function AgentScreen() {
         >
           <Ionicons name="search-outline" size={12} color={C.text3} />
           <Text style={[s.traceHeaderTxt, { color: C.text3 }]}>
-            Matched {rows.length} item{rows.length !== 1 ? 's' : ''} from your receipts
+            {traceLabel}
           </Text>
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={12} color={C.text3} />
         </TouchableOpacity>
+        {expanded && pipeline.embedding_model ? (
+          <View style={[s.tracePipeline, { borderTopColor: C.border }]}>
+            <Text style={[s.traceMeta, { color: C.text3 }]} numberOfLines={2}>
+              {pipeline.embedding_model} · {pipeline.reranker || 'evidence reranker'}
+            </Text>
+          </View>
+        ) : null}
         {expanded && rows.map((row, ri) => (
           <View key={ri} style={[s.traceRow, { borderTopColor: C.border }]}>
             <View style={{ flex: 1 }}>
@@ -989,6 +1006,7 @@ const s = StyleSheet.create({
   traceBox:     { maxWidth: '86%', borderWidth: 1, borderRadius: 12, marginTop: 6, overflow: 'hidden' },
   traceHeader:  { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 8 },
   traceHeaderTxt: { flex: 1, fontSize: 10, fontWeight: '700' },
+  tracePipeline:{ borderTopWidth: 1, paddingHorizontal: 10, paddingVertical: 7 },
   traceRow:     { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, paddingHorizontal: 10, paddingVertical: 7 },
   traceItem:    { fontSize: 11, fontWeight: '700' },
   traceMeta:    { fontSize: 10, marginTop: 1 },

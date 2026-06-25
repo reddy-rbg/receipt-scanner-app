@@ -19,7 +19,7 @@ load_dotenv(ROOT.parent.parent / "BS" / ".env")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Backfill local receipt vector rows.")
+    parser = argparse.ArgumentParser(description="Backfill contextual local receipt vector rows.")
     parser.add_argument("--user-id", help="Backfill one authenticated user's receipts.")
     parser.add_argument("--guest-session-id", help="Backfill one guest session's receipts.")
     parser.add_argument("--limit", type=int, default=1000, help="Maximum receipts to scan.")
@@ -30,6 +30,9 @@ def main() -> int:
         return 2
 
     from app.services.database import backfill_receipt_vectors
+    from app.services.database import LOCAL_EMBEDDING_MODEL
+
+    print(f"Backfilling receipt vectors with model: {LOCAL_EMBEDDING_MODEL}")
 
     result = backfill_receipt_vectors(
         user_id=args.user_id,
