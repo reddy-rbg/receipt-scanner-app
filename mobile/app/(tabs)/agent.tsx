@@ -187,7 +187,7 @@ export default function AgentScreen() {
   const [msgs, setMsgs]         = useState<Msg[]>([
     {
       role: 'agent',
-      text: 'Ready. Ask about prices, spending, stores, or what to buy next.',
+      text: 'Ready. Ask about your receipts, prices, stores, spending, or what to buy from your purchase history.',
     }
   ]);
   const [input, setInput]       = useState('');
@@ -884,7 +884,7 @@ export default function AgentScreen() {
       <View style={[s.inputBar, { backgroundColor: C.surface, borderTopColor: C.border }]}>
         <TextInput
           style={[s.input, { backgroundColor: C.surface2, borderColor: C.border, color: C.text }]}
-          placeholder="Ask anything about your receipts..."
+          placeholder="Ask about receipts, prices, stores, spending..."
           placeholderTextColor={C.text3}
           value={input}
           onChangeText={setInput}

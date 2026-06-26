@@ -1100,7 +1100,7 @@ def test_run_agent_uses_understood_item_without_old_topic_leakage():
         agent.understand_user_query = original_understand
 
 
-def test_general_advice_does_not_search_receipts():
+def test_general_advice_is_scoped_to_receipt_memory():
     original_understand = agent.understand_user_query
     original_general_answer = agent.general_advice_answer
     try:
@@ -1114,8 +1114,11 @@ def test_general_advice_does_not_search_receipts():
             "How much temperature the milk should heat to kill bacteria",
             [],
         )
-        assert "161°F" in result["response"]
+        assert "receipts, prices, stores, spending" in result["response"]
+        assert "Heat milk" not in result["response"]
         assert "purchase found" not in result["response"]
+        assert result["rag_trace"]["intent"] == "receipt_scope_guard"
+        assert result["rag_trace"]["retrieval"] == "receipt_only_scope_guard"
     finally:
         agent.understand_user_query = original_understand
         agent.general_advice_answer = original_general_answer
@@ -1439,7 +1442,7 @@ if __name__ == "__main__":
     test_new_item_after_previous_topic_does_not_reuse_old_topic()
     test_understanding_can_canonicalize_messy_language()
     test_run_agent_uses_understood_item_without_old_topic_leakage()
-    test_general_advice_does_not_search_receipts()
+    test_general_advice_is_scoped_to_receipt_memory()
     test_general_advice_heuristic_without_understanding()
     test_local_router_handles_general_question_without_claude()
     test_local_router_handles_broad_category_question()

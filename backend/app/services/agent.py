@@ -6122,6 +6122,27 @@ def evidence_rows_from_card(card: dict | None, limit: int = 5) -> list[dict]:
     return []
 
 
+def receipt_scope_response(message: str) -> dict:
+    return {
+        "response": (
+            "I can help with your receipts, prices, stores, spending, and what to buy "
+            "based on your own purchase history. Ask me things like \"best price for tomato\", "
+            "\"did I buy potato recently\", or \"what should I buy next\"."
+        ),
+        "tools_used": [],
+        "thinking": "",
+        "rag_trace": rag_trace(
+            intent="receipt_scope_guard",
+            retrieval="receipt_only_scope_guard",
+            original_message=message,
+            normalized_query=message,
+            evidence=[],
+            strict=True,
+            note="ReceiptAI is scoped to receipt memory and purchase-history decisions; open general advice is intentionally disabled.",
+        ),
+    }
+
+
 def should_use_receipt_intelligence_v2(query: Any, message: str, understanding: dict) -> bool:
     """Use the lightweight deterministic layer only for safe lookup-style questions."""
     normalized = correct_query_words(normalize_text(message))
@@ -6189,11 +6210,11 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
     ):
         help_text = normalize_text(message)
         if any(term in help_text.split() for term in ["thanks", "thank", "thx"]):
-            response = "You're welcome. Ask me anytime about prices, stores, spending, or what to buy next."
+            response = "You're welcome. Ask me anytime about your receipts, prices, stores, spending, or what to buy from your purchase history."
         else:
             response = (
-                "I can help with your receipt memory: cheapest stores, item price history, "
-                "weekly or monthly spending, category totals, savings ideas, and before-you-buy checks."
+                "Ask anything about your receipts, prices, stores, spending, and what to buy "
+                "based on your own purchase history."
             )
         return {
             "response": response,
@@ -6206,26 +6227,7 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
         deterministic_general.intent == receipt_intelligence.INTENT_GENERAL
         and should_use_receipt_intelligence_v2(deterministic_general, original_message, understanding)
     ):
-        general_context = retrieve_general_context(original_message)
-        try:
-            general_response = general_advice_answer(original_message, general_context)
-        except TypeError:
-            general_response = general_advice_answer(original_message)
-        return {
-            "response": general_response,
-            "tools_used": [],
-            "thinking": "",
-            "rag_trace": rag_trace(
-                agent_mode="general",
-                intent="general_advice",
-                retrieval="general_context_rag",
-                original_message=original_message,
-                normalized_query=original_message,
-                evidence=general_context,
-                strict=False,
-                note="General Mode: deterministic parser classified this as non-receipt advice before receipt RAG.",
-            ),
-        }
+        return receipt_scope_response(original_message)
 
     understood_item = normalize_text(str(understanding.get("item_query") or ""))
     raw_message_norm = normalize_text(original_message)
@@ -6295,26 +6297,7 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
         or understanding.get("is_receipt_question") is False
         or looks_like_general_advice_question(message)
     ):
-        general_context = retrieve_general_context(original_message)
-        try:
-            general_response = general_advice_answer(message, general_context)
-        except TypeError:
-            general_response = general_advice_answer(message)
-        return {
-            "response": general_response,
-            "tools_used": [],
-            "thinking": "",
-            "rag_trace": rag_trace(
-                agent_mode="general",
-                intent="general_advice",
-                retrieval="general_context_rag",
-                original_message=original_message,
-                normalized_query=message,
-                evidence=general_context,
-                strict=False,
-                note="General Mode: used curated non-receipt context RAG; no receipt retrieval or receipt price claims.",
-            ),
-        }
+        return receipt_scope_response(original_message)
 
     current_learned_families = learned_alias_families([], message)
     if current_learned_families:
@@ -6605,7 +6588,7 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
 
     if looks_like_smalltalk_or_help(message):
         return {
-            "response": "Ask me about your receipts, prices, stores, spending, or what to buy next. For example: \"where is mutton cheapest\", \"best price for cilantro\", or \"monthly spending\".",
+            "response": "Ask anything about your receipts, prices, stores, spending, and what to buy based on your own purchase history. For example: \"where is mutton cheapest\", \"best price for cilantro\", or \"monthly spending\".",
             "tools_used": [],
             "thinking": "",
         }

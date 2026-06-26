@@ -382,46 +382,45 @@ def test_reports_and_planning_route_to_the_right_summary():
     )
 
 
-def test_general_food_questions_do_not_search_receipt_prices():
+def test_general_food_questions_are_scoped_to_receipt_memory():
     boiled = assert_response(
         "how long to boil eggs",
-        includes=["egg"],
+        includes=["receipts", "purchase history"],
         excludes=["purchase found", "best price found", "price history"],
     )
     assert boiled["rag_trace"]["agent_architecture"] == "adaptive_agentic_hybrid_rag_multimodal_graph_memory"
-    assert boiled["rag_trace"]["agent_mode"] == "general"
-    assert boiled["rag_trace"]["retrieval"] == "general_context_rag"
-    assert boiled["rag_trace"]["evidence_count"] >= 1
+    assert boiled["rag_trace"]["intent"] == "receipt_scope_guard"
+    assert boiled["rag_trace"]["retrieval"] == "receipt_only_scope_guard"
+    assert boiled["rag_trace"]["evidence_count"] == 0
     assert boiled["rag_trace"]["openable_evidence"] is False
-    assert boiled["rag_trace"]["strict_receipt_grounding"] is False
+    assert boiled["rag_trace"]["strict_receipt_grounding"] is True
 
     cilantro = assert_response(
         "how to store cilantro fresh",
-        includes=["cilantro"],
+        includes=["receipts", "purchase history"],
         excludes=["best price found", "price history", "purchase found"],
     )
-    assert cilantro["rag_trace"]["agent_mode"] == "general"
+    assert cilantro["rag_trace"]["intent"] == "receipt_scope_guard"
 
 
-def test_dual_mode_general_questions_do_not_use_receipt_rag():
+def test_general_questions_use_receipt_scope_guard():
     scenarios = [
-        ("What is basmati rice?", ["basmati rice"], ["best price found", "purchase found", "price history"]),
-        ("Is goat meat healthy?", ["goat meat", "healthy"], ["goat keema", "best price found", "purchase found"]),
-        ("How to cook goat meat?", ["goat", "cook"], ["goat keema", "purchase found"]),
-        ("How to make grocery shopping cheaper?", ["shopping", "cheaper"], ["shopping plan", "price memory", "purchase found"]),
-        ("What vegetables go with chicken curry?", ["vegetables", "chicken curry"], ["meat purchases", "best price found", "purchase found"]),
-        ("WHAT VEGETABLES GO WITH CHICKEN CURRY", ["vegetables"], ["meat purchases", "best price found", "purchase found"]),
+        ("What is basmati rice?", ["receipts", "purchase history"], ["best price found", "purchase found", "price history"]),
+        ("Is goat meat healthy?", ["receipts", "purchase history"], ["goat keema", "best price found", "purchase found"]),
+        ("How to cook goat meat?", ["receipts", "purchase history"], ["goat keema", "purchase found"]),
+        ("How to make grocery shopping cheaper?", ["receipts", "purchase history"], ["shopping plan", "price memory", "purchase found"]),
+        ("What vegetables go with chicken curry?", ["receipts", "purchase history"], ["meat purchases", "best price found", "purchase found"]),
+        ("WHAT VEGETABLES GO WITH CHICKEN CURRY", ["receipts"], ["meat purchases", "best price found", "purchase found"]),
     ]
     for message, includes, excludes in scenarios:
         result = assert_response(message, includes=includes, excludes=excludes)
         trace = result.get("rag_trace") or {}
         assert trace["agent_architecture"] == "adaptive_agentic_hybrid_rag_multimodal_graph_memory"
-        assert trace["agent_mode"] == "general"
-        assert trace["intent"] == "general_advice"
-        assert trace["retrieval"] == "general_context_rag"
-        assert trace["evidence_count"] >= 1
+        assert trace["intent"] == "receipt_scope_guard"
+        assert trace["retrieval"] == "receipt_only_scope_guard"
+        assert trace["evidence_count"] == 0
         assert trace["openable_evidence"] is False
-        assert all(row.get("source") == "curated_general_knowledge" for row in trace["evidence"])
+        assert trace["strict_receipt_grounding"] is True
 
 
 def test_dual_mode_receipt_questions_still_use_receipt_rag():
