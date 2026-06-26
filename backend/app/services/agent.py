@@ -5363,6 +5363,72 @@ def price_check_answer(message: str, user_id: str | None = None, guest_session_i
     return "\n".join(lines)
 
 
+def should_buy_item_query(message: str) -> str:
+    m = correct_item_typos(correct_query_words(normalize_text(message)))
+    if not any(term in m for term in ["should i buy", "do i need", "need to buy", "buy this week", "buy this month"]):
+        return ""
+    cleanup_patterns = [
+        r"\bshould i buy\b",
+        r"\bdo i need to buy\b",
+        r"\bdo i need\b",
+        r"\bneed to buy\b",
+        r"\bbuy\b",
+        r"\bthis week\b",
+        r"\bthis month\b",
+        r"\bnext week\b",
+        r"\bnext month\b",
+        r"\btomorrow\b",
+        r"\btoday\b",
+        r"\bagain\b",
+    ]
+    item = m
+    for pattern in cleanup_patterns:
+        item = re.sub(pattern, " ", item)
+    item = re.sub(r"\b(the|a|an|some|any|more|now|soon|from|for|my|our)\b", " ", item)
+    return clean_item_query_for_display(item)
+
+
+def should_buy_from_history_answer(message: str, user_id: str | None = None, guest_session_id: str | None = None) -> str | None:
+    if extract_current_price(message):
+        return None
+    item_query = should_buy_item_query(message)
+    if not item_query:
+        return None
+
+    memory = search_price_memory(item_query, user_id, guest_session_id, limit=1)
+    matches = memory.get("matches") or []
+    if not matches:
+        return f"I do not see a clear {item_query} purchase in your receipts yet, so I cannot judge whether you need it from purchase history."
+
+    profile = matches[0]
+    lines = [
+        f"Based on your receipts, {profile['item_name']} is the closest match for {item_query}.",
+        f"- Last bought: {profile.get('last_bought_date') or 'unknown date'}",
+        f"- Times bought: {profile.get('times_bought')}",
+        f"- Usual price: {money(profile.get('usual_price'))}",
+        f"- Lowest paid: {money(profile.get('lowest_price'))} at {profile.get('cheapest_store') or 'unknown store'}",
+        f"- Good deal: {money(profile.get('good_deal_price'))} or less",
+        f"- Avoid above: {money(profile.get('avoid_above_price'))}",
+    ]
+    if profile.get("days_since_last_buy") is not None:
+        lines.append(f"- Days since last buy: {profile['days_since_last_buy']}")
+    if profile.get("buy_frequency_days"):
+        lines.append(f"- Your buying rhythm: about every {profile['buy_frequency_days']} days")
+    if profile.get("next_expected_date"):
+        lines.append(f"- You may need it around: {profile['next_expected_date']}")
+
+    recommendation = str(profile.get("recommendation") or "").replace("_", " ")
+    if recommendation == "may need soon":
+        lines.append("Recommendation: you may need it soon based on your receipt rhythm.")
+    elif recommendation == "compare before buying":
+        lines.append("Recommendation: compare price before buying because your receipt prices vary.")
+    elif recommendation == "needs more history":
+        lines.append("Recommendation: I found only limited history, so use the receipt price as a reference, not a strong prediction.")
+    else:
+        lines.append("Recommendation: check your current stock first; use the good-deal and avoid-above prices if you buy.")
+    return "\n".join(lines)
+
+
 def graph_category_for_event(event: dict) -> str:
     tokens = token_set(event.get("item_original") or event.get("item_normalized") or "")
     if tokens & RAW_MEAT_TERMS or event_matches_semantic_family(event, "meat", None):
@@ -5593,6 +5659,9 @@ def receipt_action_answer(
     if action == "live_price_check":
         return live_price_check_answer(message, user_id, guest_session_id, force_live_search=True)
     if action == "price_check":
+        history_answer = should_buy_from_history_answer(message, user_id, guest_session_id)
+        if history_answer:
+            return history_answer
         answer = price_check_answer(message, user_id, guest_session_id)
         if answer:
             return answer
@@ -5689,6 +5758,9 @@ def deterministic_overview_answer(message: str, user_id: str | None = None, gues
         or "buy now" in m
         or "wait to buy" in m
     ):
+        history_answer = should_buy_from_history_answer(message, user_id, guest_session_id)
+        if history_answer:
+            return history_answer
         answer = price_check_answer(message, user_id, guest_session_id)
         if answer:
             return answer

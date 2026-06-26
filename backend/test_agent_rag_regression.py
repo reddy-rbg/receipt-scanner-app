@@ -1124,6 +1124,15 @@ def test_general_advice_is_scoped_to_receipt_memory():
         agent.general_advice_answer = original_general_answer
 
 
+def test_should_buy_item_uses_receipt_history_without_current_price():
+    result = agent.run_agent("should I buy cilantro this week", [])
+    response = result["response"].lower()
+    assert "based on your receipts" in response
+    assert "cilantro" in response
+    assert "tell me the item and current price" not in response
+    assert "usual price" in response
+
+
 def test_general_advice_heuristic_without_understanding():
     assert agent.looks_like_general_advice_question(
         "How much temperature the milk should heat to kill bacteria"
@@ -1443,6 +1452,7 @@ if __name__ == "__main__":
     test_understanding_can_canonicalize_messy_language()
     test_run_agent_uses_understood_item_without_old_topic_leakage()
     test_general_advice_is_scoped_to_receipt_memory()
+    test_should_buy_item_uses_receipt_history_without_current_price()
     test_general_advice_heuristic_without_understanding()
     test_local_router_handles_general_question_without_claude()
     test_local_router_handles_broad_category_question()
