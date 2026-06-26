@@ -359,6 +359,15 @@ def test_space_separated_cost_request_keeps_chili_and_cucumber_separate():
     assert items == ["cilantro", "red chili", "tomato", "cucumber"]
 
 
+def test_dangling_unit_tail_does_not_become_requested_item():
+    items = agent.extract_shopping_list_items("how much cost keema p")
+    assert items == ["keema"]
+
+    result = agent.run_agent("how much cost keema p", [])
+    assert "keema lb" not in result["response"].lower()
+    assert result["rag_trace"]["normalized_query"] == "keema"
+
+
 def test_screenshot_cost_request_with_typo_stays_fast_multi_item():
     original_semantic_extract = agent.semantic_extract_items
     try:

@@ -1117,7 +1117,7 @@ def extract_query_item(user_message: str) -> str:
     msg = re.sub(r"\b\d+\s+(?:buy|buys|bought|purchase|purchases|times)\b", " ", msg)
     msg = re.sub(r"\b(?:buy|buys|bought|purchase|purchases|times)\s+\d+\b", " ", msg)
     # Remove common question words but keep item descriptors.
-    toks = [t for t in msg.split() if t not in STOP_WORDS and not t.isdigit()]
+    toks = [t for t in msg.split() if t not in STOP_WORDS and not t.isdigit() and len(t) > 1]
     # If nothing remains, return original normalized string.
     item_text = " ".join(toks).strip() or msg
     return correct_item_typos(item_text)
@@ -1157,6 +1157,7 @@ SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "type", "types", "kind", "kinds", "variety",
     "per",
     "above", "below", "usual", "normal", "regular",
+    "lb", "lbs", "pound", "pounds", "oz", "ounce", "ounces", "kg", "gram", "grams", "gms",
 }
 
 SHOPPING_LIST_BOUNDARY_TERMS = (
@@ -1201,7 +1202,11 @@ def _correct_preserving_separators(text: str) -> str:
 
 def clean_shopping_list_item(candidate: str) -> str:
     text = correct_item_typos(correct_query_words(normalize_text(strip_product_sizes(candidate))))
-    words = [word for word in text.split() if word not in SHOPPING_LIST_NOISE_WORDS and not word.isdigit()]
+    words = [
+        word
+        for word in text.split()
+        if word not in SHOPPING_LIST_NOISE_WORDS and not word.isdigit() and len(word) > 1
+    ]
     return " ".join(words).strip()
 
 
@@ -1366,6 +1371,32 @@ def extract_shopping_list_items(message: str) -> list[str]:
     ):
         items.append("unknown veggie")
     return items[:20]
+
+
+def remove_redundant_requested_items(items: list[str]) -> list[str]:
+    cleaned_items: list[str] = []
+    for item in items:
+        cleaned = clean_shopping_list_item(item)
+        if not cleaned:
+            continue
+        tokens = token_set(cleaned)
+        if not tokens:
+            continue
+        redundant = False
+        for existing in cleaned_items:
+            existing_tokens = token_set(existing)
+            if tokens == existing_tokens:
+                redundant = True
+                break
+            if existing_tokens and existing_tokens < tokens and (tokens - existing_tokens) <= SHOPPING_LIST_NOISE_WORDS:
+                redundant = True
+                break
+            if tokens and tokens < existing_tokens and (existing_tokens - tokens) <= SHOPPING_LIST_NOISE_WORDS:
+                cleaned_items = [value for value in cleaned_items if value != existing]
+                break
+        if not redundant:
+            cleaned_items.append(cleaned)
+    return cleaned_items
 
 
 def looks_like_shopping_list_price_request(message: str) -> bool:
@@ -2292,7 +2323,7 @@ def looks_like_global_price_question(message: str) -> bool:
 
 def clean_item_query_for_display(query: str) -> str:
     text = correct_item_typos(normalize_text(query))
-    words = [w for w in text.split() if w not in STOP_WORDS]
+    words = [w for w in text.split() if w not in STOP_WORDS and len(w) > 1]
     display = " ".join(words) or text or "that item"
     display_replacements = {
         "garammasala": "garam masala",
@@ -3624,6 +3655,7 @@ def adaptive_failed_query_recovery(
             cleaned = clean_shopping_list_item(split_item)
             if cleaned and cleaned not in recovered_items:
                 recovered_items.append(cleaned)
+    recovered_items = remove_redundant_requested_items(recovered_items)
     answer, card = shopping_list_price_answer(
         "best price for listed items\n" + "\n".join(recovered_items),
         user_id,
