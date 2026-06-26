@@ -146,6 +146,20 @@ def retrieval_pipeline_trace(embedding_boosts: dict[tuple[str, str, str], float]
         "vector_boost_max": round(max(embedding_boosts.values()), 4) if embedding_boosts else 0.0,
     }
 
+
+def multi_item_retrieval_pipeline_trace(
+    item_queries: list[str],
+    user_id: str | None = None,
+    guest_session_id: str | None = None,
+) -> dict:
+    combined_boosts: dict[tuple[str, str, str], float] = {}
+    for item_query in item_queries[:12]:
+        for key, value in fetch_embedding_rank_boosts(item_query, user_id, guest_session_id).items():
+            combined_boosts[key] = max(combined_boosts.get(key, 0.0), value)
+    pipeline = retrieval_pipeline_trace(combined_boosts)
+    pipeline["multi_item_queries"] = [item for item in item_queries if item][:12]
+    return pipeline
+
 AGENT_TOOLS = [
     {
         "name": "query_receipts",
@@ -6321,6 +6335,7 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
         shopping_message = "best price for listed items\n" + "\n".join(classifier_items)
         answer, card = shopping_list_price_answer(shopping_message, user_id, guest_session_id, extra_families)
         evidence = evidence_rows_from_card(card)
+        pipeline = multi_item_retrieval_pipeline_trace(classifier_items, user_id, guest_session_id)
         return finalize_agent_result({
             "response": answer,
             "answer_card": card,
@@ -6332,6 +6347,7 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
                 original_message=original_message,
                 normalized_query=rejoined,
                 evidence=evidence,
+                retrieval_pipeline=pipeline,
                 strict=AGENT_STRICT_MATCHING,
                 note=f"Semantic understanding split query into {len(classifier_items)} items: {rejoined}",
             ),
@@ -6390,6 +6406,8 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
     if not _single_item_intent and _looks_shopping_list:
         answer, card = shopping_list_price_answer(original_message, user_id, guest_session_id, extra_families)
         evidence = evidence_rows_from_card(card)
+        shopping_items = extract_shopping_list_items(original_message)
+        pipeline = multi_item_retrieval_pipeline_trace(shopping_items, user_id, guest_session_id)
         return finalize_agent_result({
             "response": answer,
             "answer_card": card,
@@ -6399,8 +6417,9 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
                 intent="shopping_list_price",
                 retrieval="multi_item_hybrid_rag",
                 original_message=original_message,
-                normalized_query=", ".join(extract_shopping_list_items(original_message)),
+                normalized_query=", ".join(shopping_items),
                 evidence=evidence,
+                retrieval_pipeline=pipeline,
                 strict=AGENT_STRICT_MATCHING,
                 note="Split a multi-item shopping request and searched each item independently.",
             ),

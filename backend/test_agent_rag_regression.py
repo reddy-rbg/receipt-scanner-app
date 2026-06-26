@@ -1004,6 +1004,22 @@ def test_contextual_retrieval_pipeline_trace_is_attached():
     assert pipeline["vector_boost_matches"] == 1
 
 
+def test_multi_item_retrieval_pipeline_trace_is_attached():
+    original_boosts = agent.fetch_embedding_rank_boosts
+    try:
+        agent.fetch_embedding_rank_boosts = lambda query, user_id=None, guest_session_id=None: {
+            ("19", "19", "cilantro"): 0.11
+        } if query == "cilantro" else {}
+        pipeline = agent.multi_item_retrieval_pipeline_trace(["cilantro", "tomato"])
+    finally:
+        agent.fetch_embedding_rank_boosts = original_boosts
+
+    assert pipeline["contextual_embeddings"] is True
+    assert pipeline["embedding_model"] == "receiptai-contextual-local-hash-v2"
+    assert pipeline["vector_boost_matches"] == 1
+    assert pipeline["multi_item_queries"] == ["cilantro", "tomato"]
+
+
 def test_specific_unknown_answer_does_not_show_unrelated_candidates():
     rag = {
         "query": "best price for saffron",
