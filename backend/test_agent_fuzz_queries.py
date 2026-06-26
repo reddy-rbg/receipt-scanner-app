@@ -226,6 +226,47 @@ def test_adversarial_multi_item_noise_does_not_leak_rows():
         assert_items_are_clean(items)
 
 
+def test_high_confidence_semantic_understanding_overrides_local_single_item():
+    original_semantic_extract = agent.semantic_extract_items
+    try:
+        agent.semantic_extract_items = lambda message, history=None: {
+            "intent": "item_price",
+            "canonical_message": "best price for cilantro",
+            "item_query": "cilantro",
+            "items": ["cilantro"],
+            "category": "",
+            "is_receipt_question": True,
+            "semantic_extraction": True,
+            "semantic_confidence": 0.94,
+        }
+        understood = agent.understand_user_query("waht is the damage for clantro plz", [])
+        assert understood["item_query"] == "cilantro"
+        assert understood["items"] == ["cilantro"]
+        assert understood.get("semantic_extraction") is True
+    finally:
+        agent.semantic_extract_items = original_semantic_extract
+
+
+def test_low_confidence_semantic_understanding_does_not_override_local_single_item():
+    original_semantic_extract = agent.semantic_extract_items
+    try:
+        agent.semantic_extract_items = lambda message, history=None: {
+            "intent": "item_price",
+            "canonical_message": "best price for tomato",
+            "item_query": "tomato",
+            "items": ["tomato"],
+            "category": "",
+            "is_receipt_question": True,
+            "semantic_extraction": True,
+            "semantic_confidence": 0.4,
+        }
+        understood = agent.understand_user_query("best price for cilantro", [])
+        assert understood["item_query"] == "cilantro"
+        assert understood.get("semantic_extraction") is not True
+    finally:
+        agent.semantic_extract_items = original_semantic_extract
+
+
 if __name__ == "__main__":
     setup_module()
     test_generated_clean_multi_item_queries_extract_expected_items()
@@ -233,4 +274,6 @@ if __name__ == "__main__":
     test_uncertain_generated_queries_route_to_claude_correction()
     test_adversarial_single_item_noise_does_not_create_fake_items()
     test_adversarial_multi_item_noise_does_not_leak_rows()
+    test_high_confidence_semantic_understanding_overrides_local_single_item()
+    test_low_confidence_semantic_understanding_does_not_override_local_single_item()
     print("Agent fuzz query tests passed.")

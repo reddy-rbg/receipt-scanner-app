@@ -2900,7 +2900,7 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
 
     local = local_understand_user_query(message, conversation_history)
     semantic = semantic_extract_items(message, conversation_history)
-    if semantic and len(semantic.get("items") or []) >= 2:
+    if semantic_should_override_local(local, semantic):
         return semantic
     if local:
         return local
@@ -2931,6 +2931,45 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
         return {}
 
     return normalize_understanding_payload(data)
+
+
+def semantic_should_override_local(local: dict | None, semantic: dict | None) -> bool:
+    if not semantic:
+        return False
+    if semantic.get("is_receipt_question") is False:
+        return bool(not local or local.get("is_receipt_question") is False)
+    semantic_intent = str(semantic.get("intent") or "")
+    if semantic_intent not in {"item_price", "item_count", "category_price"}:
+        return False
+    try:
+        confidence = float(semantic.get("semantic_confidence") or 0.0)
+    except Exception:
+        confidence = 0.0
+    semantic_items = semantic.get("items") or []
+    if len(semantic_items) >= 2:
+        return True
+    if confidence < 0.78:
+        return False
+    if not local:
+        return True
+    local_intent = str(local.get("intent") or "")
+    if local_intent in {"unknown", "help", "general_advice"}:
+        return True
+    if local_intent in {"item_price", "item_count", "category_price"}:
+        local_text = " ".join(str(value or "") for value in [
+            local.get("item_query"),
+            *(local.get("items") or []),
+            local.get("category"),
+        ])
+        semantic_text = " ".join(str(value or "") for value in [
+            semantic.get("item_query"),
+            *semantic_items,
+            semantic.get("category"),
+        ])
+        local_tokens = token_set(local_text)
+        semantic_tokens = token_set(semantic_text)
+        return bool(semantic_tokens and local_tokens != semantic_tokens)
+    return False
 
 
 def canonicalize_message_with_understanding(message: str, understanding: dict | None) -> str:

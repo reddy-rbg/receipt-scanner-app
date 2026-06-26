@@ -35,6 +35,8 @@ from test_agent_fuzz_queries import (
     test_adversarial_single_item_noise_does_not_create_fake_items,
     test_generated_answer_cards_keep_requested_items_clean,
     test_generated_clean_multi_item_queries_extract_expected_items,
+    test_high_confidence_semantic_understanding_overrides_local_single_item,
+    test_low_confidence_semantic_understanding_does_not_override_local_single_item,
     test_uncertain_generated_queries_route_to_claude_correction,
 )
 from test_agent_wide_scenarios import test_frequent_items_phrases_route_to_repeat_summary
@@ -60,6 +62,8 @@ QUALITY_GATE_TESTS = [
     test_generated_clean_multi_item_queries_extract_expected_items,
     test_adversarial_single_item_noise_does_not_create_fake_items,
     test_adversarial_multi_item_noise_does_not_leak_rows,
+    test_high_confidence_semantic_understanding_overrides_local_single_item,
+    test_low_confidence_semantic_understanding_does_not_override_local_single_item,
     test_generated_answer_cards_keep_requested_items_clean,
     test_uncertain_generated_queries_route_to_claude_correction,
     test_frequent_items_phrases_route_to_repeat_summary,
