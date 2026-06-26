@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "postinstall": "node ./scripts/patch-react-native-voice.js",
     "start": "expo start",
     "start:lan": "expo start --lan -c",
     "reset-project": "node ./scripts/reset-project.js",
