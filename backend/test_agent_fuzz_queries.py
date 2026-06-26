@@ -32,6 +32,17 @@ FORBIDDEN_ITEM_WORDS = {
     "find",
     "vs",
     "or",
+    "lb",
+    "lbs",
+    "pound",
+    "pounds",
+    "week",
+    "month",
+    "today",
+    "tomorrow",
+    "p",
+    "pr",
+    "pri",
 }
 
 
@@ -184,9 +195,42 @@ def test_uncertain_generated_queries_route_to_claude_correction():
         agent.semantic_extract_items = original_semantic_extract
 
 
+def test_adversarial_single_item_noise_does_not_create_fake_items():
+    cases = {
+        "how much cost keema p": ["keema"],
+        "how much cost keema lb": ["keema"],
+        "how much cost goat keema lbs": ["goat keema"],
+        "waht price cilantro pr": ["cilantro"],
+        "best price tomato tomorrow": ["tomato"],
+        "should I buy cilantro this week": ["cilantro"],
+        "pls price tomato pri": ["tomato"],
+        "cost of cucumber today": ["cucumber"],
+        "how much did i pay for goat keema yesterday": ["goat keema"],
+    }
+    for query, expected in cases.items():
+        items = agent.extract_shopping_list_items(query)
+        assert items == expected, f"{query!r} -> {items!r}"
+        assert_items_are_clean(items)
+
+
+def test_adversarial_multi_item_noise_does_not_leak_rows():
+    cases = {
+        "best price cilantro p tomato lb cucumber pr": ["cilantro", "tomato", "cucumber"],
+        "compare goat keema lbs cilantro pr cinnamon stick today": ["goat keema", "cilantro", "cinnamon stick"],
+        "price listing:\ncilantro p\ntomato lb\ncucumber pr": ["cilantro", "tomato", "cucumber"],
+        "what cost cilnatro p red chilly lb tomatto pri cucumber today": ["cilantro", "red chili", "tomato", "cucumber"],
+    }
+    for query, expected in cases.items():
+        items = agent.extract_shopping_list_items(query)
+        assert items == expected, f"{query!r} -> {items!r}"
+        assert_items_are_clean(items)
+
+
 if __name__ == "__main__":
     setup_module()
     test_generated_clean_multi_item_queries_extract_expected_items()
     test_generated_answer_cards_keep_requested_items_clean()
     test_uncertain_generated_queries_route_to_claude_correction()
+    test_adversarial_single_item_noise_does_not_create_fake_items()
+    test_adversarial_multi_item_noise_does_not_leak_rows()
     print("Agent fuzz query tests passed.")

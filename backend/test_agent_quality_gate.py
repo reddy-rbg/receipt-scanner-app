@@ -31,6 +31,8 @@ from test_agent_rag_regression import (
     test_vegetable_include_request_excludes_candy_mushroom_match,
 )
 from test_agent_fuzz_queries import (
+    test_adversarial_multi_item_noise_does_not_leak_rows,
+    test_adversarial_single_item_noise_does_not_create_fake_items,
     test_generated_answer_cards_keep_requested_items_clean,
     test_generated_clean_multi_item_queries_extract_expected_items,
     test_uncertain_generated_queries_route_to_claude_correction,
@@ -56,6 +58,8 @@ QUALITY_GATE_TESTS = [
     test_feedback_examples_boost_corrected_receipt_item_rank,
     test_round_is_not_corrected_to_ground_meat,
     test_generated_clean_multi_item_queries_extract_expected_items,
+    test_adversarial_single_item_noise_does_not_create_fake_items,
+    test_adversarial_multi_item_noise_does_not_leak_rows,
     test_generated_answer_cards_keep_requested_items_clean,
     test_uncertain_generated_queries_route_to_claude_correction,
     test_frequent_items_phrases_route_to_repeat_summary,

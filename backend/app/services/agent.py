@@ -1136,6 +1136,7 @@ SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "shop", "shopping", "available", "clear", "from", "best", "price",
     "prices", "cost", "costs", "rate", "rates", "buy", "where", "current", "market", "overpaid", "overpay",
     "can", "you", "find", "paid", "please", "include", "including", "but", "or", "vs", "versus",
+    "pls", "plz", "thx", "thanks",
     "vegetable", "vegetables", "veggie", "veggies", "produce",
     "also", "same", "table", "grocery", "raw", "dont", "don", "count", "unknown", "as",
     "pantry", "if", "found",
@@ -1158,6 +1159,9 @@ SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "per",
     "above", "below", "usual", "normal", "regular",
     "lb", "lbs", "pound", "pounds", "oz", "ounce", "ounces", "kg", "gram", "grams", "gms",
+    "week", "weekly", "month", "monthly", "today", "tomorrow", "yesterday", "tonight",
+    "morning", "evening", "afternoon", "soon",
+    "pr", "pri", "pric", "cos", "co", "waht", "wht", "wat",
 }
 
 SHOPPING_LIST_BOUNDARY_TERMS = (
@@ -1370,12 +1374,16 @@ def extract_shopping_list_items(message: str) -> list[str]:
         and "unknown veggie" not in seen
     ):
         items.append("unknown veggie")
-    return items[:20]
+    return remove_redundant_requested_items(items)[:20]
 
 
 def remove_redundant_requested_items(items: list[str]) -> list[str]:
     cleaned_items: list[str] = []
     for item in items:
+        if normalize_text(item) == "unknown veggie":
+            if "unknown veggie" not in cleaned_items:
+                cleaned_items.append("unknown veggie")
+            continue
         cleaned = clean_shopping_list_item(item)
         if not cleaned:
             continue
