@@ -18,7 +18,8 @@ let VoiceModuleChecked = false;
 function getVoiceModule() {
   if (VoiceModuleChecked) return VoiceModule;
   VoiceModuleChecked = true;
-  if (Constants.appOwnership === 'expo' || !NativeModules.Voice) {
+  // @react-native-voice/voice registers its Android bridge as RCTVoice.
+  if (Constants.appOwnership === 'expo' || !NativeModules.RCTVoice) {
     VoiceModule = null;
     return VoiceModule;
   }
@@ -214,9 +215,12 @@ export default function AgentScreen() {
   }
 
   function voiceUnavailable() {
+    const isExpoGo = Constants.appOwnership === 'expo';
     Alert.alert(
-      'Voice build required',
-      'Voice recognition needs a development or production build with the native voice module. It will not work inside Expo Go.'
+      isExpoGo ? 'Voice build required' : 'Voice recognition unavailable',
+      isExpoGo
+        ? 'Voice recognition is not supported inside Expo Go. Install and open the ReceiptAI APK instead.'
+        : 'This installation does not contain the voice recognition module. Install the latest ReceiptAI APK and try again.'
     );
   }
 
