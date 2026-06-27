@@ -3,7 +3,7 @@
     "name": "ReceiptAI",
     "slug": "receiptai",
     "scheme": "receiptai",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -32,10 +32,15 @@
     },
     "plugins": [
       [
-        "@react-native-voice/voice",
+        "expo-speech-recognition",
         {
           "microphonePermission": "Allow ReceiptAI to use your microphone for voice questions.",
-          "speechRecognitionPermission": "Allow ReceiptAI to recognize speech for AI Agent questions."
+          "speechRecognitionPermission": "Allow ReceiptAI to recognize speech for AI Agent questions.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.as",
+            "com.samsung.android.bixby.agent"
+          ]
         }
       ],
       [

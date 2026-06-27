@@ -9,7 +9,7 @@ import { API } from '../../config/api';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Alert, NativeModules,
+  Platform, Alert, Linking,
 } from 'react-native';
 declare const require: any;
 let VoiceModule: any = null;
@@ -18,13 +18,12 @@ let VoiceModuleChecked = false;
 function getVoiceModule() {
   if (VoiceModuleChecked) return VoiceModule;
   VoiceModuleChecked = true;
-  // @react-native-voice/voice registers its Android bridge as RCTVoice.
-  if (Constants.appOwnership === 'expo' || !NativeModules.RCTVoice) {
+  if (Constants.appOwnership === 'expo') {
     VoiceModule = null;
     return VoiceModule;
   }
   try {
-    VoiceModule = require('@react-native-voice/voice').default;
+    VoiceModule = require('expo-speech-recognition').ExpoSpeechRecognitionModule;
   } catch {
     VoiceModule = null;
   }
@@ -220,8 +219,49 @@ export default function AgentScreen() {
       isExpoGo ? 'Voice build required' : 'Voice recognition unavailable',
       isExpoGo
         ? 'Voice recognition is not supported inside Expo Go. Install and open the ReceiptAI APK instead.'
-        : 'This installation does not contain the voice recognition module. Install the latest ReceiptAI APK and try again.'
+        : 'This installation does not contain the current voice recognition module. Install the latest ReceiptAI APK and try again.'
     );
+  }
+
+  function voicePermissionDenied(canAskAgain: boolean) {
+    Alert.alert(
+      'Microphone permission needed',
+      canAskAgain
+        ? 'Allow microphone access to ask ReceiptAI questions by voice.'
+        : 'Microphone access is disabled. Open Android settings and allow it for ReceiptAI.',
+      canAskAgain
+        ? [{ text: 'OK' }]
+        : [{ text: 'Cancel', style: 'cancel' }, { text: 'Open settings', onPress: () => Linking.openSettings() }]
+    );
+  }
+
+  function voiceRecognitionError(code?: string, message?: string) {
+    if (code === 'aborted') return;
+    if (code === 'not-allowed') {
+      voicePermissionDenied(false);
+      return;
+    }
+    if (code === 'no-speech' || code === 'speech-timeout') {
+      Alert.alert('No speech heard', 'Please tap the microphone and speak again.');
+      return;
+    }
+    if (code === 'network') {
+      Alert.alert('Voice network error', 'Speech recognition could not reach its service. Check your connection and try again.');
+      return;
+    }
+    if (code === 'busy') {
+      Alert.alert('Voice is busy', 'Wait a moment, then tap the microphone again.');
+      return;
+    }
+    if (code === 'service-not-allowed' || code === 'language-not-supported') {
+      Alert.alert(
+        'Speech service unavailable',
+        'Enable Google voice typing or the device speech recognition service in Android settings, then try again.',
+        [{ text: 'Cancel', style: 'cancel' }, { text: 'Open settings', onPress: () => Linking.openSettings() }]
+      );
+      return;
+    }
+    Alert.alert('Voice error', message || 'Voice recognition could not start. Please try again.');
   }
 
   async function stopVoice() {
@@ -232,10 +272,7 @@ export default function AgentScreen() {
     setVoiceMode(null);
     setVoiceText('');
     if (!Voice) return;
-    try {
-      await Voice.stop();
-      await Voice.cancel();
-    } catch {}
+    try { Voice.abort(); } catch {}
   }
 
   async function startVoice(mode: Exclude<VoiceMode, null>) {
@@ -246,9 +283,14 @@ export default function AgentScreen() {
         voiceUnavailable();
         return;
       }
-      const available = await Voice.isAvailable();
+      const permission = await Voice.requestPermissionsAsync();
+      if (!permission.granted) {
+        voicePermissionDenied(permission.canAskAgain !== false);
+        return;
+      }
+      const available = Voice.isRecognitionAvailable();
       if (!available) {
-        voiceUnavailable();
+        voiceRecognitionError('service-not-allowed');
         return;
       }
       if (voiceModeRef.current) {
@@ -259,12 +301,13 @@ export default function AgentScreen() {
       voiceModeRef.current = mode;
       setVoiceMode(mode);
       setVoiceText(mode === 'wake' ? 'Say "Hey ReceiptAI" then your question.' : 'Listening...');
-      await Voice.start('en-US');
+      Voice.start({ lang: 'en-US', interimResults: true, continuous: mode === 'wake', maxAlternatives: 3 });
     } catch (e: any) {
       setVoiceMode(null);
       voiceModeRef.current = null;
-      if (String(e?.message || e).toLowerCase().includes('native')) voiceUnavailable();
-      else Alert.alert('Voice error', 'Could not start voice recognition. Please try again.');
+      const message = String(e?.message || e);
+      if (message.toLowerCase().includes('native') || message.toLowerCase().includes('module')) voiceUnavailable();
+      else voiceRecognitionError(undefined, message);
     }
   }
 
@@ -277,7 +320,7 @@ export default function AgentScreen() {
       return;
     }
     try {
-      await Voice.start('en-US');
+      Voice.start({ lang: 'en-US', interimResults: true, continuous: true, maxAlternatives: 3 });
     } catch {
       voiceModeRef.current = null;
       setVoiceMode(null);
@@ -310,23 +353,29 @@ export default function AgentScreen() {
   useEffect(() => {
     const Voice = getVoiceModule();
     if (!Voice) return;
-    Voice.onSpeechPartialResults = (e: any) => handleSpeechText((e.value || [])[0] || '');
-    Voice.onSpeechResults = (e: any) => handleSpeechText((e.value || [])[0] || '', true);
-    Voice.onSpeechError = () => {
+    const resultSubscription = Voice.addListener('result', (e: any) => {
+      handleSpeechText(e.results?.[0]?.transcript || '', Boolean(e.isFinal));
+    });
+    const errorSubscription = Voice.addListener('error', (e: any) => {
+      if (e.error === 'aborted') return;
       if (voiceModeRef.current === 'wake') {
         wakeRestartRef.current = setTimeout(restartWakeListening, 700);
       } else {
         stopVoice();
+        voiceRecognitionError(e.error, e.message);
       }
-    };
-    Voice.onSpeechEnd = () => {
+    });
+    const endSubscription = Voice.addListener('end', () => {
       if (voiceModeRef.current === 'wake') {
         wakeRestartRef.current = setTimeout(restartWakeListening, 700);
       }
-    };
+    });
     return () => {
       if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current);
-      Voice.destroy().then(() => Voice.removeAllListeners()).catch(() => {});
+      resultSubscription.remove();
+      errorSubscription.remove();
+      endSubscription.remove();
+      try { Voice.abort(); } catch {}
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
