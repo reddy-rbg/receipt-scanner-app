@@ -165,6 +165,20 @@ def test_specific_mutton_does_not_return_chicken():
     assert names == ["GOAT LEG", "GOAT KEEMA"]
 
 
+def test_when_did_i_buy_mutton_answers_purchase_dates_not_price_table():
+    understood = agent.local_understand_user_query("When did I buy mutton?")
+    assert understood["item_query"] == "mutton"
+    assert understood.get("items") in (None, [])
+    assert agent.looks_like_shopping_list_price_request("When did I buy mutton?") is False
+
+    result = agent.run_agent("When did I buy mutton?", [])
+    response = result["response"].lower()
+    assert "most recent" in response
+    assert "5/5/26" in response
+    assert "goat leg" in response
+    assert "when" not in str(result.get("answer_card") or {}).lower()
+
+
 def test_generic_meat_can_return_all_meat_items():
     names = event_names("What is the cheap meat price")
     assert "GOAT KEEMA" in names

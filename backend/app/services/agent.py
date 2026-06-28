@@ -270,7 +270,7 @@ STOP_WORDS = {
     "how", "many", "times", "time", "did", "do", "i", "have", "has", "bought", "buy", "purchase", "purchased",
     "receipt", "receipts", "evidence",
     "product", "item", "items", "same", "name", "price", "prices", "paid", "pay", "rate", "best", "cheap", "cheapest", "lowest", "highest",
-    "greater", "less", "more", "store", "stores", "from", "for", "to", "the", "a", "an", "my", "me", "what", "which", "show", "tell",
+    "greater", "less", "more", "store", "stores", "from", "for", "to", "the", "a", "an", "my", "me", "what", "which", "when", "show", "tell",
     "history", "compare", "comparison", "cost", "costs", "damage", "damages", "howmuch", "much", "where", "it", "this", "that", "cheaper",
     "trend", "trends", "regularly", "often", "deal", "deals", "least", "all", "should", "good", "avoid", "above", "now", "wait", "low", "equal", "equals", "right",
     "is", "s", "are", "was", "were", "find", "give", "get", "please", "pls", "want", "need", "in", "at", "on", "near",
@@ -2544,7 +2544,7 @@ Task:
 - Split separate grocery items even when they are only space-separated.
 - Keep real compound item names together: "red chili", "coconut oil", "cinnamon stick".
 - Correct obvious spelling and language variants: culantro -> cilantro, tomatto -> tomato, chilly -> chili.
-- Never return request words as items: best, cheap, cheaper, cheapest, price, cost, rate, type, where, buy, compare.
+- Never return request words as items: best, cheap, cheaper, cheapest, price, cost, rate, type, where, when, buy, compare.
 - Never return natural language filler or meaning words as items: means, meaning, like, similar, considering, definition, difference, different, versus, vs, related, about, kind, kinds, understand, explain, see, know, check.
 - If the message is asking about what something IS (e.g. "what does X mean", "is X like Y", "what kind of meat is X") — return only the actual food item (X), not the question words.
 - If the user asks for a category only, set intent to category_price and leave items empty.
@@ -3326,6 +3326,12 @@ def query_asks_for_count(message: str) -> bool:
     return any(term in m for term in ["how many", "times", "count", "often"])
 
 
+def query_asks_for_purchase_date(message: str) -> bool:
+    m = correct_query_words(normalize_text(message))
+    tokens = set(m.split())
+    return "when" in tokens and bool(tokens & {"buy", "bought", "purchase", "purchased", "paid"})
+
+
 def query_asks_for_history(message: str) -> bool:
     m = correct_query_words(normalize_text(message))
     tokens = set(m.split())
@@ -3592,8 +3598,27 @@ def deterministic_item_answer(message: str, rag: dict) -> str:
     alias_note = semantic_alias_note(rag.get("normalized_query") or rag.get("query") or message, events)
     asks_history = query_asks_for_history(message)
     asks_best = query_asks_for_best_price(message)
+    asks_purchase_date = query_asks_for_purchase_date(message)
 
-    if asks_best and best_event:
+    if asks_purchase_date:
+        most_recent = max(events, key=lambda event: event_date(event) or datetime.min)
+        date = most_recent.get("date") or most_recent.get("created_at") or "an unknown date"
+        store = most_recent.get("store") or "an unknown store"
+        item = most_recent.get("item_original") or display_query
+        if count == 1:
+            lines = [f"You bought {display_query} on {date} at {store}."]
+            if normalize_text(item) != normalize_text(display_query):
+                lines.append(f"Receipt item: {item}.")
+        else:
+            lines = [f"I found {count} {display_query} purchases. Most recent: {date} at {store} ({item})."]
+            for i, event in enumerate(events[:6], 1):
+                purchase_date = event.get("date") or event.get("created_at") or "unknown date"
+                event_store = event.get("store") or "Unknown store"
+                event_item = event.get("item_original") or display_query
+                lines.append(f"{i}. {purchase_date} - {event_item} at {event_store}")
+        if alias_note:
+            lines.append(alias_note)
+    elif asks_best and best_event:
         item = best_event.get("item_original") or display_query
         store = best_event.get("store") or "Unknown store"
         date = best_event.get("date") or "unknown date"
@@ -3620,22 +3645,23 @@ def deterministic_item_answer(message: str, rag: dict) -> str:
         lines.append("")
         lines.append("Price history:")
 
-    for i, e in enumerate(events[:6], 1):
-        date = e.get("date") or "unknown date"
-        store = e.get("store") or "Unknown store"
-        item = e.get("item_original") or rag.get("query")
-        qty = _safe_float(e.get("quantity"), 1.0) or 1.0
-        if count > 1 and not asks_history:
-            if i > 4:
-                break
-            lines.append(f"{i}. {item} - {event_price_text(e)} at {store} ({date})")
-        elif count > 1:
-            lines.append(f"{i}. {item} - {event_price_text(e)} at {store} ({date}, qty {qty:g})")
-        elif not query_asks_for_best_price(message):
-            lines.append(f"{item} - {event_price_text(e)} at {store} ({date}, qty {qty:g})")
+    if not asks_purchase_date:
+        for i, e in enumerate(events[:6], 1):
+            date = e.get("date") or "unknown date"
+            store = e.get("store") or "Unknown store"
+            item = e.get("item_original") or rag.get("query")
+            qty = _safe_float(e.get("quantity"), 1.0) or 1.0
+            if count > 1 and not asks_history:
+                if i > 4:
+                    break
+                lines.append(f"{i}. {item} - {event_price_text(e)} at {store} ({date})")
+            elif count > 1:
+                lines.append(f"{i}. {item} - {event_price_text(e)} at {store} ({date}, qty {qty:g})")
+            elif not query_asks_for_best_price(message):
+                lines.append(f"{item} - {event_price_text(e)} at {store} ({date}, qty {qty:g})")
 
     comparison_prices = [price_memory_event_price(e) for e in events if price_memory_event_price(e) > 0]
-    if comparison_prices:
+    if comparison_prices and not asks_purchase_date:
         lowest_cmp = min(comparison_prices)
         highest_cmp = max(comparison_prices)
         if lowest_cmp == highest_cmp and count > 1 and asks_history:
@@ -6913,7 +6939,7 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
             "tools_used": [],
             "thinking": "",
             "rag_trace": rag_trace(
-                intent="item_price",
+                intent="item_purchase_date" if query_asks_for_purchase_date(original_message) else "item_price",
                 retrieval="hybrid_item_rag",
                 original_message=original_message,
                 normalized_query=rag.get("normalized_query") or extracted_item_query,

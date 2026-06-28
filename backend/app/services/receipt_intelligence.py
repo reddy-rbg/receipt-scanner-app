@@ -19,7 +19,7 @@ STOP_WORDS = {
     "a", "an", "and", "any", "are", "at", "buy", "bought", "by", "did",
     "do", "does", "from", "have", "i", "in", "is", "it", "me", "my",
     "no", "of", "on", "or", "please", "receipt", "receipts", "right", "show",
-    "the", "there", "to", "was", "were", "what", "where", "which",
+    "the", "there", "to", "was", "were", "what", "where", "when", "which",
     "with",
 }
 
