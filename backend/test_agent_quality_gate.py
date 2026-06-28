@@ -28,6 +28,7 @@ from test_agent_rag_regression import (
     test_feedback_examples_boost_corrected_receipt_item_rank,
     test_hard_exclusion_prompt_does_not_request_excluded_items_or_mushroom_tablets,
     test_multi_item_best_price_table_splits_requested_items,
+    test_when_did_i_buy_mutton_answers_purchase_dates_not_price_table,
     test_pantry_request_keeps_round_and_does_not_match_ground_meat,
     test_round_is_not_corrected_to_ground_meat,
     test_spice_price_request_splits_adjacent_items,
@@ -43,6 +44,12 @@ from test_agent_fuzz_queries import (
     test_uncertain_generated_queries_route_to_claude_correction,
 )
 from test_agent_wide_scenarios import test_frequent_items_phrases_route_to_repeat_summary
+from test_agent_architecture_v2 import (
+    test_intent_plan_preserves_raw_question_and_operation,
+    test_prepared_plan_skips_second_interpretation,
+    test_ttl_cache_reuses_data_without_request_wide_clear,
+    test_workflow_passes_one_plan_into_execution,
+)
 
 
 QUALITY_GATE_TESTS = [
@@ -73,6 +80,11 @@ QUALITY_GATE_TESTS = [
     test_generated_answer_cards_keep_requested_items_clean,
     test_uncertain_generated_queries_route_to_claude_correction,
     test_frequent_items_phrases_route_to_repeat_summary,
+    test_when_did_i_buy_mutton_answers_purchase_dates_not_price_table,
+    test_intent_plan_preserves_raw_question_and_operation,
+    test_prepared_plan_skips_second_interpretation,
+    test_workflow_passes_one_plan_into_execution,
+    test_ttl_cache_reuses_data_without_request_wide_clear,
 ]
 
 

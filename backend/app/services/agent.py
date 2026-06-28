@@ -14,6 +14,7 @@ import hashlib
 import math
 import os
 import re
+import time
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from datetime import datetime, timedelta
@@ -22,6 +23,7 @@ from statistics import median
 from typing import Any
 from app.config import claude_client, supabase
 from app.services.agent_architecture import finalize_agent_result, rag_trace
+from app.services.agent_contracts import IntentPlan, intent_plan_from_understanding
 from app.services import receipt_intelligence
 from app.services import agent_general
 from app.services import agent_analytics
@@ -34,7 +36,7 @@ AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
 AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
-AGENT_BUILD = "intent-first-product-semantics-2026-06-27"
+AGENT_BUILD = "single-pass-intent-plan-2026-06-28"
 AGENT_CAPABILITIES = {
     "structured_rag": True,
     "adaptive_query_recovery": True,
@@ -55,14 +57,35 @@ AGENT_CAPABILITIES = {
     "hybrid_retrieval_trace": True,
     "rerank_trace": True,
     "claude_only": True,
+    "single_pass_intent_plan": True,
 }
 RECEIPT_SELECT = "id,store,address,date,time,total,subtotal,discount,tax,total_savings,items,created_at"
 ITEM_SELECT = "receipt_id,line_index,store,purchase_date,receipt_created_at,code,item_name_original,item_name_normalized,product_size,quantity,raw_quantity,unit,unit_price,line_price,source,confidence,explicit_quantity,metadata"
-_RECEIPT_CACHE: dict[tuple[str, str, int], list[dict]] = {}
-_ITEM_EVENT_CACHE: dict[tuple[str, str, int], list[dict]] = {}
+DATA_CACHE_TTL_SECONDS = float(os.getenv("AGENT_DATA_CACHE_TTL_SECONDS", "20"))
+_RECEIPT_CACHE: dict[tuple[str, str, int], tuple[float, list[dict]]] = {}
+_ITEM_EVENT_CACHE: dict[tuple[str, str, int], tuple[float, list[dict]]] = {}
 _ALIAS_CACHE: dict[tuple[str, str], list[set[str]]] = {}
 _FEEDBACK_CACHE: dict[tuple[str, str], list[dict]] = {}
 _PUBLIC_MEANING_CACHE: dict[str, list[set[str]]] = {}
+
+
+def _ttl_cache_get(cache: dict, key: tuple) -> Any | None:
+    entry = cache.get(key)
+    if not entry:
+        return None
+    expires_at, value = entry
+    if expires_at <= time.monotonic():
+        cache.pop(key, None)
+        return None
+    return value
+
+
+def _ttl_cache_set(cache: dict, key: tuple, value: Any) -> None:
+    cache[key] = (time.monotonic() + DATA_CACHE_TTL_SECONDS, value)
+    if len(cache) > 100:
+        expired = [cache_key for cache_key, entry in cache.items() if entry[0] <= time.monotonic()]
+        for cache_key in expired:
+            cache.pop(cache_key, None)
 
 
 def local_text_embedding(text: str) -> list[float]:
@@ -878,6 +901,16 @@ def clear_owner_learning_caches(user_id: str | None = None, guest_session_id: st
     for key in list(_ITEM_EVENT_CACHE.keys()):
         if key[0] == owner_type and key[1] == owner_id:
             _ITEM_EVENT_CACHE.pop(key, None)
+
+
+def clear_owner_data_caches(user_id: str | None = None, guest_session_id: str | None = None) -> None:
+    """Invalidate receipt data after a scan/edit/delete without disabling caching per turn."""
+    owner_type = "user" if user_id else "guest"
+    owner_id = user_id or guest_session_id or "__none__"
+    for cache in (_RECEIPT_CACHE, _ITEM_EVENT_CACHE):
+        for key in list(cache.keys()):
+            if key[0] == owner_type and key[1] == owner_id:
+                cache.pop(key, None)
 
 
 _BLOCKLIST_CACHE: dict[tuple[str, str], set[tuple[str, str]]] = {}
@@ -1983,8 +2016,9 @@ def fetch_owner_receipts(user_id: str | None = None, guest_session_id: str | Non
     owner_type = "user" if user_id else "guest"
     owner_id = user_id or guest_session_id or "__none__"
     cache_key = (owner_type, owner_id, limit)
-    if cache_key in _RECEIPT_CACHE:
-        return _RECEIPT_CACHE[cache_key]
+    cached = _ttl_cache_get(_RECEIPT_CACHE, cache_key)
+    if cached is not None:
+        return cached
 
     try:
         q = supabase.table("receipts").select(RECEIPT_SELECT)
@@ -1995,9 +2029,7 @@ def fetch_owner_receipts(user_id: str | None = None, guest_session_id: str | Non
         print(f"[receipts] Could not fetch owner receipts: {e}")
         receipts = []
 
-    _RECEIPT_CACHE[cache_key] = receipts
-    if len(_RECEIPT_CACHE) > 20:
-        _RECEIPT_CACHE.clear()
+    _ttl_cache_set(_RECEIPT_CACHE, cache_key, receipts)
     return receipts
 
 
@@ -2039,8 +2071,9 @@ def fetch_owner_item_events(user_id: str | None = None, guest_session_id: str | 
     owner_type = "user" if user_id else "guest"
     owner_id = user_id or guest_session_id or "__none__"
     cache_key = (owner_type, owner_id, limit)
-    if cache_key in _ITEM_EVENT_CACHE:
-        return _ITEM_EVENT_CACHE[cache_key]
+    cached = _ttl_cache_get(_ITEM_EVENT_CACHE, cache_key)
+    if cached is not None:
+        return cached
 
     try:
         q = supabase.table("receipt_items").select(ITEM_SELECT)
@@ -2091,9 +2124,7 @@ def fetch_owner_item_events(user_id: str | None = None, guest_session_id: str | 
         print(f"[receipt_items] Could not merge receipt JSON items: {e}")
 
     events = events[:limit]
-    _ITEM_EVENT_CACHE[cache_key] = events
-    if len(_ITEM_EVENT_CACHE) > 20:
-        _ITEM_EVENT_CACHE.clear()
+    _ttl_cache_set(_ITEM_EVENT_CACHE, cache_key, events)
     return events
 
 
@@ -3018,6 +3049,16 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
         return {}
 
     return normalize_understanding_payload(data)
+
+
+def build_intent_plan(
+    raw_message: str,
+    resolved_message: str,
+    conversation_history: list[dict] | None = None,
+) -> IntentPlan:
+    """Interpret a turn exactly once and preserve that result through execution."""
+    understanding = understand_user_query(resolved_message, conversation_history)
+    return intent_plan_from_understanding(raw_message, resolved_message, understanding)
 
 
 def semantic_should_override_local(local: dict | None, semantic: dict | None) -> bool:
@@ -6541,14 +6582,23 @@ def should_use_receipt_intelligence_v2(query: Any, message: str, understanding: 
     }
 
 
-def run_agent(message: str, conversation_history: list, user_id: str = None, guest_session_id: str = None) -> dict:
+def run_agent(
+    message: str,
+    conversation_history: list,
+    user_id: str = None,
+    guest_session_id: str = None,
+    intent_plan: IntentPlan | None = None,
+    message_is_resolved: bool = False,
+) -> dict:
     """Run the ReceiptAI agent. Receipt data questions are answered with deterministic RAG first."""
     tools_used: list[str] = []
-    _RECEIPT_CACHE.clear()
-    _ITEM_EVENT_CACHE.clear()
-    message = resolve_followup_message(message, conversation_history)
+    raw_message = message
+    if not message_is_resolved:
+        message = resolve_followup_message(message, conversation_history)
     original_message = message
-    understanding = understand_user_query(message, conversation_history)
+    if intent_plan is None:
+        intent_plan = build_intent_plan(raw_message, message, conversation_history)
+    understanding = intent_plan.to_understanding()
     message = canonicalize_message_with_understanding(message, understanding)
     if understanding.get("intent") == "help" or (
         understanding.get("is_receipt_question") is not True and looks_like_smalltalk_or_help(message)

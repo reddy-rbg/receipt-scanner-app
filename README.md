@@ -85,9 +85,17 @@ ReceiptScanner/
 
 The Agent is structured so it can feel conversational while staying grounded.
 
+Each chat turn now creates one typed `IntentPlan` from the raw question. The
+same plan is passed through retrieval and answer generation, so execution does
+not reinterpret or rewrite the user's intent. Receipt data uses short TTL
+caches with mutation invalidation, and blocking model/database work runs off
+the FastAPI event loop. The returned `rag_trace.workflow` includes stage
+timings and the exact intent plan used for the answer.
+
 | Module | Responsibility |
 | --- | --- |
 | `backend/app/services/agent.py` | Main orchestrator |
+| `backend/app/services/agent_contracts.py` | Typed intent plan shared by planning and execution |
 | `backend/app/services/agent_architecture.py` | Evidence gate, answer contract, trace metadata |
 | `backend/app/services/agent_general.py` | General shopping and food advice mode |
 | `backend/app/services/agent_analytics.py` | Spending, summary, and trend routing |

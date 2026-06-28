@@ -6,7 +6,10 @@ for receipt math, item matching, and evidence gates.
 """
 
 import os
+import time
 from typing import Any, TypedDict
+
+from app.services.agent_contracts import IntentPlan
 
 try:
     from langgraph.graph import END, START, StateGraph
@@ -27,6 +30,7 @@ class ReceiptAgentWorkflowState(TypedDict, total=False):
     user_id: str | None
     guest_session_id: str | None
     understanding: dict
+    intent_plan: IntentPlan
     action: str
     items: list[str]
     category: str
@@ -50,10 +54,12 @@ def _workflow_trace(state: ReceiptAgentWorkflowState, stage: str, **extra: Any) 
 def prepare_state(state: ReceiptAgentWorkflowState) -> ReceiptAgentWorkflowState:
     from app.services import agent
 
+    started = time.perf_counter()
     message = state.get("message") or ""
     history = state.get("conversation_history") or []
     resolved = agent.resolve_followup_message(message, history)
-    understanding = agent.understand_user_query(resolved, history)
+    intent_plan = agent.build_intent_plan(message, resolved, history)
+    understanding = intent_plan.to_understanding()
     canonical = agent.canonicalize_message_with_understanding(resolved, understanding)
     items = agent.extract_shopping_list_items(resolved)
     action = agent.classify_receipt_action(resolved) or ""
@@ -63,6 +69,7 @@ def prepare_state(state: ReceiptAgentWorkflowState) -> ReceiptAgentWorkflowState
     next_state.update({
         "resolved_message": resolved,
         "understanding": understanding,
+        "intent_plan": intent_plan,
         "action": action,
         "items": items,
         "category": category,
@@ -73,6 +80,8 @@ def prepare_state(state: ReceiptAgentWorkflowState) -> ReceiptAgentWorkflowState
             canonical_message=canonical,
             extracted_items=items,
             category=category,
+            intent_plan=intent_plan.trace(),
+            prepare_ms=round((time.perf_counter() - started) * 1000, 2),
         ),
     })
     return next_state
@@ -81,24 +90,36 @@ def prepare_state(state: ReceiptAgentWorkflowState) -> ReceiptAgentWorkflowState
 def execute_state(state: ReceiptAgentWorkflowState) -> ReceiptAgentWorkflowState:
     from app.services import agent
 
+    started = time.perf_counter()
     result = agent.run_agent(
-        message=state.get("message") or "",
+        message=state.get("resolved_message") or state.get("message") or "",
         conversation_history=state.get("conversation_history") or [],
         user_id=state.get("user_id"),
         guest_session_id=state.get("guest_session_id"),
+        intent_plan=state.get("intent_plan"),
+        message_is_resolved=True,
     )
     next_state = dict(state)
     next_state.update({
         "result": result if isinstance(result, dict) else {"response": str(result), "tools_used": []},
-        "workflow_trace": _workflow_trace(state, "execute"),
+        "workflow_trace": _workflow_trace(
+            state,
+            "execute",
+            execute_ms=round((time.perf_counter() - started) * 1000, 2),
+        ),
     })
     return next_state
 
 
 def finalize_state(state: ReceiptAgentWorkflowState) -> ReceiptAgentWorkflowState:
+    started = time.perf_counter()
     result = dict(state.get("result") or {})
     trace = dict(result.get("rag_trace") or {})
-    trace["workflow"] = _workflow_trace(state, "finalize")
+    trace["workflow"] = _workflow_trace(
+        state,
+        "finalize",
+        finalize_ms=round((time.perf_counter() - started) * 1000, 2),
+    )
     result["rag_trace"] = trace
 
     next_state = dict(state)

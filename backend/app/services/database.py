@@ -347,6 +347,9 @@ def save_receipt(store: str, date: str, total: float, items: list,
     # If nothing was inserted return empty dict
     saved = response.data[0] if response.data else {}
     save_receipt_items(saved, items, user_id=user_id, is_guest=False)
+    if saved:
+        from app.services import agent
+        agent.clear_owner_data_caches(user_id=user_id)
     return saved
 
 
@@ -426,7 +429,14 @@ def delete_receipt(receipt_id: int) -> dict:
         .execute()
 
     # Return deleted record or empty dict if nothing found
-    return response.data[0] if response.data else {}
+    deleted = response.data[0] if response.data else {}
+    if deleted:
+        from app.services import agent
+        agent.clear_owner_data_caches(
+            user_id=deleted.get("user_id"),
+            guest_session_id=deleted.get("guest_session_id"),
+        )
+    return deleted
 
 
 def get_price_history(item_name: str) -> list:

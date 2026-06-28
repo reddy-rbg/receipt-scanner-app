@@ -3,6 +3,10 @@
 # AI Agent endpoint
 # ─────────────────────────────────────────
 
+import asyncio
+import hashlib
+import time
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.services import agent as agent_service
@@ -10,6 +14,8 @@ from app.services import agent_workflow
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 conversation_store: dict[str, list[dict[str, str]]] = {}
+_TOKEN_USER_CACHE: dict[str, tuple[float, str]] = {}
+TOKEN_USER_CACHE_SECONDS = 300
 
 
 class AgentMessage(BaseModel):
@@ -42,11 +48,17 @@ def get_user_id(request: Request) -> str | None:
     token = auth.replace("Bearer ", "").strip()
     if not token or token == "guest":
         return None
+    cache_key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    cached = _TOKEN_USER_CACHE.get(cache_key)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
     try:
         from app.config import supabase
         response = supabase.auth.get_user(token)
         if response and response.user:
-            return str(response.user.id)
+            user_id = str(response.user.id)
+            _TOKEN_USER_CACHE[cache_key] = (time.monotonic() + TOKEN_USER_CACHE_SECONDS, user_id)
+            return user_id
     except Exception as e:
         print(f"[agent] Token error: {e}")
     return None
@@ -57,7 +69,7 @@ async def handle_agent_request(request: Request, body: AgentMessage):
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
-    user_id = get_user_id(request)
+    user_id = await asyncio.to_thread(get_user_id, request)
     guest_session_id = None if user_id else (body.guest_session_id or body.session_id)
 
     if not user_id and (not guest_session_id or guest_session_id in {"guest", "default"}):
@@ -68,11 +80,12 @@ async def handle_agent_request(request: Request, body: AgentMessage):
     history = conversation_store.get(session_key, [])
 
     try:
-        result = agent_workflow.run_agent_workflow(
-            message=message,
-            conversation_history=history,
-            user_id=user_id,
-            guest_session_id=guest_session_id,
+        result = await asyncio.to_thread(
+            agent_workflow.run_agent_workflow,
+            message,
+            history,
+            user_id,
+            guest_session_id,
         )
         if not isinstance(result, dict):
             result = {"response": str(result), "tools_used": []}

@@ -17,6 +17,7 @@ RECEIPT_EVIDENCE_REQUIRED_INTENTS = {
     "category_price",
     "category_price_with_includes",
     "item_price",
+    "item_purchase_date",
     "multi_item_price_from_classifier",
     "receipt_item_lookup",
     "receipt_missing_item_lookup",
