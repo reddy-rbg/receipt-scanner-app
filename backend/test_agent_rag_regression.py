@@ -179,6 +179,22 @@ def test_when_did_i_buy_mutton_answers_purchase_dates_not_price_table():
     assert "when" not in str(result.get("answer_card") or {}).lower()
 
 
+def test_complete_price_history_of_buying_eggs_does_not_create_buying_item():
+    query = "show me complete price history of buying eggs"
+    plan = agent.build_intent_plan(query, query, [])
+    assert plan.intent.value == "price_history"
+    assert plan.item_query == "eggs"
+    assert list(plan.items) == ["eggs"]
+    assert agent.extract_shopping_list_items(query) == ["eggs"]
+
+    result = agent.run_agent(query, [], intent_plan=plan, message_is_resolved=True)
+    response = result["response"].lower()
+    assert "eggs 12ct" in response
+    assert "price history" in response
+    assert "buying" not in response
+    assert result.get("answer_card") is None
+
+
 def test_generic_meat_can_return_all_meat_items():
     names = event_names("What is the cheap meat price")
     assert "GOAT KEEMA" in names

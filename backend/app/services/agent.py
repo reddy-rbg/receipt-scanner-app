@@ -23,7 +23,7 @@ from statistics import median
 from typing import Any
 from app.config import claude_client, supabase
 from app.services.agent_architecture import finalize_agent_result, rag_trace
-from app.services.agent_contracts import IntentPlan, intent_plan_from_understanding
+from app.services.agent_contracts import AgentIntent, IntentPlan, intent_plan_from_understanding
 from app.services import receipt_intelligence
 from app.services import agent_general
 from app.services import agent_analytics
@@ -300,7 +300,8 @@ STOP_WORDS = {
     "of", "with", "under", "over", "than", "by", "around", "inside", "between", "about", "list",
     "per",
     "them", "those", "these", "ones", "top", "most", "common", "commonly", "usual", "usually", "frequent", "open",
-    "am", "mostly", "frequently", "purchasing", "purpased", "purposed", "coming", "cmg", "month", "next",
+    "am", "mostly", "frequently", "buying", "buys", "purchases", "purchasing", "purpased", "purposed", "coming", "cmg", "month", "next",
+    "full", "complete", "entire",
     # Negation and exclusion words — strip from item names
     "not", "no", "without", "except", "excluding", "avoid",
 }
@@ -6726,6 +6727,14 @@ def run_agent(
     # rewrite the message so the shopping-list path picks it up correctly instead of treating
     # all words as one combined item name.
     classifier_items = [i for i in (understanding.get("items") or []) if i]
+    if intent_plan.intent in {
+        AgentIntent.ITEM_LOOKUP,
+        AgentIntent.PURCHASE_DATE,
+        AgentIntent.PURCHASE_COUNT,
+        AgentIntent.BEST_PRICE,
+        AgentIntent.PRICE_HISTORY,
+    }:
+        classifier_items = [intent_plan.item_query] if intent_plan.item_query else []
     if len(classifier_items) >= 2:
         rejoined = ", ".join(classifier_items)
         # Rebuild as one item per line so the receipt search uses the semantic split exactly.

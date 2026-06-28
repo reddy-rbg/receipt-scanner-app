@@ -12,6 +12,14 @@ import re
 from typing import Any
 
 
+ITEM_ENTITY_META_WORDS = {
+    "all", "best", "bought", "buy", "buying", "buys", "cheap", "cheapest",
+    "complete", "cost", "entire", "find", "full", "history", "latest",
+    "paid", "pay", "price", "prices", "purchase", "purchased", "purchases",
+    "purchasing", "recent", "show", "trend", "trends", "where", "when",
+}
+
+
 class AgentIntent(str, Enum):
     ITEM_LOOKUP = "item_lookup"
     PURCHASE_DATE = "purchase_date"
@@ -66,6 +74,12 @@ def _normalized_tokens(message: str) -> set[str]:
     return set(re.sub(r"[^a-z0-9]+", " ", (message or "").lower()).split())
 
 
+def clean_item_entity(value: str) -> str:
+    """Final plan-boundary guard: request language can never become a product."""
+    tokens = re.sub(r"[^a-z0-9.]+", " ", (value or "").lower()).split()
+    return " ".join(token for token in tokens if token not in ITEM_ENTITY_META_WORDS).strip()
+
+
 def operation_from_understanding(message: str, understanding: dict[str, Any]) -> AgentIntent:
     """Map all old router labels into one stable intent vocabulary."""
     tokens = _normalized_tokens(message)
@@ -106,12 +120,20 @@ def intent_plan_from_understanding(
 ) -> IntentPlan:
     source = "semantic" if understanding.get("semantic_extraction") else "deterministic"
     confidence = float(understanding.get("semantic_confidence") or (1.0 if understanding else 0.0))
+    cleaned_items = tuple(
+        cleaned
+        for item in understanding.get("items") or []
+        if (cleaned := clean_item_entity(str(item)))
+    )
+    cleaned_item_query = clean_item_entity(str(understanding.get("item_query") or ""))
+    if not cleaned_items and cleaned_item_query:
+        cleaned_items = (cleaned_item_query,)
     return IntentPlan(
         raw_message=raw_message,
         resolved_message=resolved_message,
         intent=operation_from_understanding(resolved_message, understanding),
-        item_query=str(understanding.get("item_query") or ""),
-        items=tuple(str(item) for item in understanding.get("items") or [] if item),
+        item_query=cleaned_item_query,
+        items=cleaned_items,
         category=str(understanding.get("category") or ""),
         is_receipt_question=bool(understanding.get("is_receipt_question", True)),
         planner_source=source,
