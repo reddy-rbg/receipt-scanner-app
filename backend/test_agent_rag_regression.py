@@ -154,7 +154,6 @@ def setup_module():
     agent.fetch_owner_alias_families = lambda user_id=None, guest_session_id=None: []
     agent.fetch_owner_feedback_examples = lambda user_id=None, guest_session_id=None: []
     agent.save_owner_alias_families = lambda families, user_id=None, guest_session_id=None: None
-    agent.public_meaning_alias_families = lambda query: []
 
 
 def event_names(query):
@@ -1109,7 +1108,7 @@ def test_run_agent_uses_understood_item_without_old_topic_leakage():
         agent.understand_user_query = original_understand
 
 
-def test_general_advice_is_scoped_to_receipt_memory():
+def test_general_advice_uses_general_knowledge():
     original_understand = agent.understand_user_query
     original_general_answer = agent.general_advice_answer
     try:
@@ -1123,11 +1122,11 @@ def test_general_advice_is_scoped_to_receipt_memory():
             "How much temperature the milk should heat to kill bacteria",
             [],
         )
-        assert "receipts, prices, stores, spending" in result["response"]
-        assert "Heat milk" not in result["response"]
+        assert "Heat milk" in result["response"]
         assert "purchase found" not in result["response"]
-        assert result["rag_trace"]["intent"] == "receipt_scope_guard"
-        assert result["rag_trace"]["retrieval"] == "receipt_only_scope_guard"
+        assert result["rag_trace"]["intent"] == "general_advice"
+        assert result["rag_trace"]["retrieval"] == "general_knowledge"
+        assert result["rag_trace"]["agent_mode"] == "general"
     finally:
         agent.understand_user_query = original_understand
         agent.general_advice_answer = original_general_answer
@@ -1140,6 +1139,62 @@ def test_should_buy_item_uses_receipt_history_without_current_price():
     assert "cilantro" in response
     assert "tell me the item and current price" not in response
     assert "usual price" in response
+
+
+def test_product_relationship_routing_is_generic_not_item_specific():
+    scenarios = [
+        "Are cilantro and coriander the same?",
+        "Is yogurt another name for curd?",
+        "Are moonfruit and sunberry regional names for the same product?",
+        "What is the difference between alpha-root and beta-root?",
+    ]
+    for message in scenarios:
+        understanding = agent.local_understand_user_query(message, [])
+        assert understanding["intent"] == "product_knowledge", (message, understanding)
+        assert understanding["is_receipt_question"] is False
+        assert understanding.get("item_query") == ""
+
+
+def test_product_relationship_question_never_becomes_alias_training_data():
+    original_save = agent.save_owner_alias_families
+    original_general_answer = agent.general_advice_answer
+    try:
+        agent.save_owner_alias_families = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("a question must not persist an alias")
+        )
+        agent.general_advice_answer = lambda message, context=None: "These may be regional product names."
+        result = agent.run_agent("Are foo-root and bar-root the same?", [])
+        assert result["rag_trace"]["intent"] == "product_knowledge"
+        assert result["rag_trace"]["retrieval"] == "general_product_knowledge"
+    finally:
+        agent.save_owner_alias_families = original_save
+        agent.general_advice_answer = original_general_answer
+
+
+def test_unknown_product_aliases_use_semantic_resolver_not_hardcoded_examples():
+    original_client = agent.claude_client
+    original_google = agent.google_meaning_snippets
+
+    class FakeMessages:
+        @staticmethod
+        def create(**kwargs):
+            return types.SimpleNamespace(content=[types.SimpleNamespace(
+                text='{"canonical_name":"sunroot","aliases":["moonroot","vegetable"]}'
+            )])
+
+    try:
+        agent._PUBLIC_MEANING_CACHE.clear()
+        agent.claude_client = types.SimpleNamespace(messages=FakeMessages())
+        agent.google_meaning_snippets = lambda query: ""
+        families = agent.public_meaning_alias_families("moonroot local name")
+        assert families
+        assert "sunroot" in families[0]
+        assert "moonroot" in families[0]
+        assert "vegetable" not in families[0]
+    finally:
+        agent.claude_client = original_client
+        agent.google_meaning_snippets = original_google
+        agent._PUBLIC_MEANING_CACHE.clear()
 
 
 def test_general_advice_heuristic_without_understanding():
@@ -1460,7 +1515,10 @@ if __name__ == "__main__":
     test_new_item_after_previous_topic_does_not_reuse_old_topic()
     test_understanding_can_canonicalize_messy_language()
     test_run_agent_uses_understood_item_without_old_topic_leakage()
-    test_general_advice_is_scoped_to_receipt_memory()
+    test_general_advice_uses_general_knowledge()
+    test_product_relationship_routing_is_generic_not_item_specific()
+    test_product_relationship_question_never_becomes_alias_training_data()
+    test_unknown_product_aliases_use_semantic_resolver_not_hardcoded_examples()
     test_should_buy_item_uses_receipt_history_without_current_price()
     test_general_advice_heuristic_without_understanding()
     test_local_router_handles_general_question_without_claude()

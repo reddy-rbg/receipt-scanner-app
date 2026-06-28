@@ -64,8 +64,8 @@ def test_category_questions_return_category_answers_not_fake_items():
     )
     assert_response(
         "waht mutton did i buy please",
-        includes=["meat purchases found"],
-        excludes=["no clear", "price memory"],
+        includes=["mutton purchases", "goat"],
+        excludes=["pepper chicken", "chicken keema dosa", "no clear", "price memory"],
     )
     assert_response(
         "WAT TYPES OF GOAT MEAT now",
@@ -382,45 +382,45 @@ def test_reports_and_planning_route_to_the_right_summary():
     )
 
 
-def test_general_food_questions_are_scoped_to_receipt_memory():
+def test_general_food_questions_do_not_search_receipt_prices():
     boiled = assert_response(
         "how long to boil eggs",
-        includes=["receipts", "purchase history"],
+        includes=["9-12 minutes"],
         excludes=["purchase found", "best price found", "price history"],
     )
     assert boiled["rag_trace"]["agent_architecture"] == "adaptive_agentic_hybrid_rag_multimodal_graph_memory"
-    assert boiled["rag_trace"]["intent"] == "receipt_scope_guard"
-    assert boiled["rag_trace"]["retrieval"] == "receipt_only_scope_guard"
+    assert boiled["rag_trace"]["intent"] == "general_advice"
+    assert boiled["rag_trace"]["retrieval"] == "general_knowledge"
     assert boiled["rag_trace"]["evidence_count"] == 0
     assert boiled["rag_trace"]["openable_evidence"] is False
-    assert boiled["rag_trace"]["strict_receipt_grounding"] is True
+    assert boiled["rag_trace"]["strict_receipt_grounding"] is False
 
     cilantro = assert_response(
         "how to store cilantro fresh",
-        includes=["receipts", "purchase history"],
+        includes=["jar", "refrigerate"],
         excludes=["best price found", "price history", "purchase found"],
     )
-    assert cilantro["rag_trace"]["intent"] == "receipt_scope_guard"
+    assert cilantro["rag_trace"]["intent"] == "general_advice"
 
 
-def test_general_questions_use_receipt_scope_guard():
+def test_dual_mode_general_questions_do_not_use_receipt_rag():
     scenarios = [
-        ("What is basmati rice?", ["receipts", "purchase history"], ["best price found", "purchase found", "price history"]),
-        ("Is goat meat healthy?", ["receipts", "purchase history"], ["goat keema", "best price found", "purchase found"]),
-        ("How to cook goat meat?", ["receipts", "purchase history"], ["goat keema", "purchase found"]),
-        ("How to make grocery shopping cheaper?", ["receipts", "purchase history"], ["shopping plan", "price memory", "purchase found"]),
-        ("What vegetables go with chicken curry?", ["receipts", "purchase history"], ["meat purchases", "best price found", "purchase found"]),
-        ("WHAT VEGETABLES GO WITH CHICKEN CURRY", ["receipts"], ["meat purchases", "best price found", "purchase found"]),
+        ("What is basmati rice?", ["long-grain", "aromatic"], ["best price found", "purchase found", "price history"]),
+        ("Is goat meat healthy?", ["protein", "moderation"], ["goat keema", "best price found", "purchase found"]),
+        ("How to cook goat meat?", ["moist heat", "tender"], ["purchase found"]),
+        ("How to make grocery shopping cheaper?", ["unit prices", "plan"], ["purchase found"]),
+        ("What vegetables go with chicken curry?", ["potato", "carrot"], ["meat purchases", "best price found", "purchase found"]),
+        ("WHAT VEGETABLES GO WITH CHICKEN CURRY", ["potato"], ["meat purchases", "best price found", "purchase found"]),
     ]
     for message, includes, excludes in scenarios:
         result = assert_response(message, includes=includes, excludes=excludes)
         trace = result.get("rag_trace") or {}
         assert trace["agent_architecture"] == "adaptive_agentic_hybrid_rag_multimodal_graph_memory"
-        assert trace["intent"] == "receipt_scope_guard"
-        assert trace["retrieval"] == "receipt_only_scope_guard"
+        assert trace["intent"] in {"product_knowledge", "general_advice"}
+        assert trace["retrieval"] in {"general_product_knowledge", "general_knowledge"}
         assert trace["evidence_count"] == 0
         assert trace["openable_evidence"] is False
-        assert trace["strict_receipt_grounding"] is True
+        assert trace["strict_receipt_grounding"] is False
 
 
 def test_dual_mode_receipt_questions_still_use_receipt_rag():

@@ -7,6 +7,8 @@ history unless receipt facts are explicitly passed in by a caller.
 
 from __future__ import annotations
 
+import re
+
 
 GENERAL_ADVICE_TERMS = {
     "temperature", "heat", "heated", "cook", "cooking", "boil", "boiled",
@@ -15,6 +17,18 @@ GENERAL_ADVICE_TERMS = {
     "pasteurized", "milk", "food", "eat", "drink", "healthy", "health",
     "nutrition", "nutritious", "basmati", "rice", "vegetable", "vegetables",
     "curry", "go", "goes", "meaning", "mean", "cheaper", "save",
+}
+
+PRODUCT_RELATION_TERMS = {
+    "alias", "aliases", "called", "define", "definition", "difference",
+    "different", "equivalent", "mean", "meaning", "means", "name",
+    "same", "similar", "synonym", "synonyms", "versus", "vs",
+}
+
+RECEIPT_FACT_TERMS = {
+    "receipt", "receipts", "bought", "buy", "purchase", "purchased",
+    "price", "prices", "cheap", "cheapest", "cheaper", "lowest",
+    "highest", "cost", "costs", "damage", "damages", "pay", "paid", "spend", "spent", "spending", "total",
 }
 
 
@@ -70,6 +84,36 @@ GENERAL_KNOWLEDGE_SNIPPETS = [
 ]
 
 
+def looks_like_product_knowledge_question(
+    message: str,
+    *,
+    normalize_text,
+    correct_item_typos,
+    correct_query_words,
+) -> bool:
+    """Detect meaning/relationship questions before any receipt-item extraction.
+
+    This intentionally uses language shape rather than a list of known groceries,
+    so the router works for products that have never appeared in our alias table.
+    """
+    normalized = correct_item_typos(correct_query_words(normalize_text(message)))
+    tokens = set(normalized.split())
+    if not tokens or tokens & RECEIPT_FACT_TERMS:
+        return False
+
+    if tokens & PRODUCT_RELATION_TERMS:
+        return True
+
+    relation_patterns = (
+        r"\b(?:is|are)\b.+\b(?:the\s+)?same\b",
+        r"\b(?:what|which)\s+(?:is|are)\b",
+        r"\bwhat\s+does\b.+\bmean\b",
+        r"\b(?:another|other|regional|common)\s+name\b",
+        r"\bknown\s+as\b",
+    )
+    return any(re.search(pattern, normalized) for pattern in relation_patterns)
+
+
 def looks_like_general_advice_question(
     message: str,
     *,
@@ -82,6 +126,13 @@ def looks_like_general_advice_question(
     tokens = set(m.split())
     if not tokens:
         return False
+    if looks_like_product_knowledge_question(
+        message,
+        normalize_text=normalize_text,
+        correct_item_typos=correct_item_typos,
+        correct_query_words=correct_query_words,
+    ):
+        return True
     if (tokens & broad_category_terms) and (
         tokens & {"where", "show", "tell", "find", "cheap", "cheapest", "best", "bought", "buy", "purchase", "purchased"}
     ):
@@ -134,7 +185,11 @@ def general_context_text(context: list[dict]) -> str:
     return "\n".join(f"- {row['title']}: {row['text']}" for row in context)
 
 
-def fallback_general_answer(message: str, *, correct_query_words, normalize_text) -> str:
+def fallback_general_answer(message: str, context: list[dict] | None = None, *, correct_query_words, normalize_text) -> str:
+    for row in context or []:
+        direct_answer = str(row.get("direct_answer") or "").strip()
+        if direct_answer:
+            return direct_answer
     m = correct_query_words(normalize_text(message))
     if "boil" in m and ("egg" in m or "eggs" in m):
         return "For boiled eggs, simmer large eggs for about 9-12 minutes, then cool them in ice water. Use 6-7 minutes for softer yolks."
@@ -204,4 +259,9 @@ def general_advice_answer(
         except Exception as e:
             print(f"[general_advice] unavailable: {e}")
 
-    return fallback_general_answer(message, correct_query_words=correct_query_words, normalize_text=normalize_text)
+    return fallback_general_answer(
+        message,
+        context,
+        correct_query_words=correct_query_words,
+        normalize_text=normalize_text,
+    )

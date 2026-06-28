@@ -98,13 +98,19 @@ AMBIGUOUS_SINGLE_ITEM_BLOCKERS = {
 
 RECEIPT_WORDS = {
     "buy", "bought", "purchase", "purchased", "receipt", "receipts", "spend",
-    "spent", "store", "walmart", "cost", "price", "paid", "total",
+    "spent", "store", "walmart", "cost", "price", "pay", "paid", "total",
 }
 RECEIPT_CLAIM_WORDS = RECEIPT_WORDS - {"store"}
 
 GENERAL_ADVICE_WORDS = {
     "best way", "how to", "store tomatoes", "store tomato", "cook", "recipe",
     "safe", "healthy", "temperature",
+}
+
+PRODUCT_RELATION_WORDS = {
+    "alias", "aliases", "called", "define", "definition", "difference",
+    "different", "equivalent", "mean", "meaning", "means", "name",
+    "same", "similar", "synonym", "synonyms", "versus", "vs",
 }
 
 INTENT_ITEM_LOOKUP = "receipt_item_lookup"
@@ -291,6 +297,15 @@ def parse_receipt_query(message: str, now: datetime | None = None) -> ReceiptQue
     lower = (message or "").lower()
     start, end = parse_date_range(message, now)
 
+    # Product meaning is a different task from receipt lookup. Alias presence
+    # must never be used as proof that the user asked about a purchase.
+    normalized_tokens = set(normalized.split())
+    if (
+        normalized_tokens & PRODUCT_RELATION_WORDS
+        and not normalized_tokens & RECEIPT_CLAIM_WORDS
+    ):
+        return ReceiptQuery(message, normalized, INTENT_GENERAL)
+
     if any(phrase in lower for phrase in GENERAL_ADVICE_WORDS) and not (set(normalized.split()) & RECEIPT_CLAIM_WORDS):
         return ReceiptQuery(message, normalized, INTENT_GENERAL)
 
@@ -333,7 +348,7 @@ def parse_receipt_query(message: str, now: datetime | None = None) -> ReceiptQue
     if store and ("what" in normalized or "items" in normalized or "buy" in normalized or "bought" in normalized):
         return ReceiptQuery(message, normalized, INTENT_STORE_LOOKUP, store=store, start_date=start, end_date=end)
 
-    if set(normalized.split()) & RECEIPT_WORDS or any(alias in normalized for group in ALIAS_GROUPS for alias in group):
+    if set(normalized.split()) & RECEIPT_WORDS:
         items = extracted_items
         if items:
             return ReceiptQuery(message, normalized, INTENT_ITEM_LOOKUP, items=items, store=store, start_date=start, end_date=end, negative=negative)

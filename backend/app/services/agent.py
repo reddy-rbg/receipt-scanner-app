@@ -34,7 +34,7 @@ AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
 AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
-AGENT_BUILD = "semantic-parser-gate-2026-06-17"
+AGENT_BUILD = "intent-first-product-semantics-2026-06-27"
 AGENT_CAPABILITIES = {
     "structured_rag": True,
     "adaptive_query_recovery": True,
@@ -46,6 +46,10 @@ AGENT_CAPABILITIES = {
     "semantic_parser_gate": True,
     "plural_item_normalization": True,
     "generated_query_fuzz_tests": True,
+    "intent_first_routing": True,
+    "generic_product_knowledge_mode": True,
+    "conservative_dynamic_alias_resolution": True,
+    "explicit_only_alias_learning": True,
     "optional_embedding_boosts": AGENT_EMBEDDING_RETRIEVAL_ENABLED,
     "contextual_item_embeddings": True,
     "hybrid_retrieval_trace": True,
@@ -267,7 +271,7 @@ STOP_WORDS = {
     "receipt", "receipts", "evidence",
     "product", "item", "items", "same", "name", "price", "prices", "paid", "pay", "rate", "best", "cheap", "cheapest", "lowest", "highest",
     "greater", "less", "more", "store", "stores", "from", "for", "to", "the", "a", "an", "my", "me", "what", "which", "show", "tell",
-    "history", "compare", "comparison", "cost", "costs", "howmuch", "much", "where", "it", "this", "that", "cheaper",
+    "history", "compare", "comparison", "cost", "costs", "damage", "damages", "howmuch", "much", "where", "it", "this", "that", "cheaper",
     "trend", "trends", "regularly", "often", "deal", "deals", "least", "all", "should", "good", "avoid", "above", "now", "wait", "low", "equal", "equals", "right",
     "is", "s", "are", "was", "were", "find", "give", "get", "please", "pls", "want", "need", "in", "at", "on", "near",
     "of", "with", "under", "over", "than", "by", "around", "inside", "between", "about", "list",
@@ -372,6 +376,15 @@ RAW_MEAT_TERMS = {
 }
 
 BROAD_MEAT_QUERY_TERMS = RAW_MEAT_TERMS - {"keema", "kheema", "qeema", "mince", "minced", "ground"}
+
+# Specific meat types: querying one of these means the user wants THAT meat only,
+# not a broad "all meat" category dump.  Never let these trigger category_price.
+SPECIFIC_MEAT_TYPE_TERMS = {
+    "mutton", "goat", "lamb", "sheep", "chevon",
+    "beef", "pork", "chicken", "turkey",
+    "fish", "seafood", "mackerel", "sardine", "anchovy",
+    "shrimp", "prawn", "prawns",
+}
 
 RAW_MEAT_CUT_TERMS = {
     "leg", "thigh", "wingett", "wingette", "drumstick", "breast", "keema",
@@ -1056,7 +1069,10 @@ def google_meaning_snippets(query: str) -> str:
 
 def public_meaning_alias_families(query: str) -> list[set[str]]:
     """
-    Use optional Google snippets only to understand possible aliases.
+    Resolve conservative receipt-search aliases for products not in the local
+    ontology. Claude can do this from product knowledge; optional search
+    snippets provide extra evidence when configured.
+
     Receipt prices/counts still come only from receipt RAG.
     """
     normalized_query = clean_item_query_for_display(query)
@@ -1065,21 +1081,34 @@ def public_meaning_alias_families(query: str) -> list[set[str]]:
     if normalized_query in _PUBLIC_MEANING_CACHE:
         return _PUBLIC_MEANING_CACHE[normalized_query]
 
+    # Prefer the maintained ontology without spending a model call.
+    normalized_query_tokens = token_set(normalized_query)
+    for known_family in ITEM_SYNONYM_GROUPS + SPECIFIC_ITEM_FAMILIES:
+        if normalized_query_tokens and normalized_query_tokens <= known_family:
+            family = {clean_item_query_for_display(value) for value in known_family}
+            families = [{value for value in family if value}]
+            _PUBLIC_MEANING_CACHE[normalized_query] = families
+            return families
+
     snippets = google_meaning_snippets(normalized_query)
-    if not snippets:
+    if claude_client is None:
         _PUBLIC_MEANING_CACHE[normalized_query] = []
         return []
 
-    prompt = f"""Extract only common grocery/retail item aliases for this query from the Google snippets.
-Return strict JSON only: {{"aliases":["alias 1","alias 2"]}}
+    prompt = f"""Resolve safe item-name aliases for receipt search.
+Return strict JSON only:
+{{"canonical_name":"name", "aliases":["alias 1","alias 2"], "excluded_related_terms":["broader or merely related term"]}}
 Rules:
-- Include only names that mean the same product/item family.
-- Do not include brands, stores, recipes, adjectives, or unrelated items.
+- Include only exact synonyms, spelling/language variants, and widely accepted regional shopping names.
+- Never include a broad category just because the query belongs to it.
+- Never include sibling products, ingredients made from the item, recipes, brands, stores, or merely related products.
+- Preserve important form qualifiers. Powder, seed, leaf, ground, whole, fresh, and frozen are not interchangeable unless common retail usage truly treats them as the same requested product.
+- When uncertain, return no aliases.
 - Max 8 aliases.
 
 Query: {normalized_query}
-Google snippets:
-{snippets}
+Optional search context:
+{snippets or "No external snippets available. Use only high-confidence common product knowledge."}
 """
     aliases = []
 
@@ -1093,12 +1122,23 @@ Google snippets:
             )
             text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
             data = parse_json_object(text)
-            aliases = [clean_item_query_for_display(str(a)) for a in data.get("aliases") or []]
+            canonical = clean_item_query_for_display(str(data.get("canonical_name") or ""))
+            aliases = [canonical] if canonical else []
+            aliases.extend(clean_item_query_for_display(str(a)) for a in data.get("aliases") or [])
     except Exception as e:
         print(f"[google_meaning] Alias extraction unavailable: {e}")
         aliases = []
 
-    family = {normalized_query, *[a for a in aliases if a and a != normalized_query]}
+    family = {
+        normalized_query,
+        *[
+            a for a in aliases
+            if a
+            and a != normalized_query
+            and len(token_set(a)) <= 5
+            and not (token_set(a) <= BROAD_CATEGORY_QUERY_TERMS)
+        ],
+    }
     families = [family] if len(family) > 1 else []
     _PUBLIC_MEANING_CACHE[normalized_query] = families
     if len(_PUBLIC_MEANING_CACHE) > 50:
@@ -1162,6 +1202,11 @@ SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "week", "weekly", "month", "monthly", "today", "tomorrow", "yesterday", "tonight",
     "morning", "evening", "afternoon", "soon",
     "pr", "pri", "pric", "cos", "co", "waht", "wht", "wat",
+    # Semantic/meaning meta-words — users say these when asking about a product's
+    # meaning or similarity, not as product names themselves
+    "means", "meaning", "mean", "like", "considering", "similar", "definition",
+    "difference", "different", "versus", "related", "kind", "kinds", "see",
+    "know", "understand", "explain", "tell", "show", "check", "look",
 }
 
 SHOPPING_LIST_BOUNDARY_TERMS = (
@@ -2269,7 +2314,7 @@ def looks_like_price_or_item_question(message: str) -> bool:
     tokens = set(m.split())
     price_terms = {
         "price", "prices", "cheap", "cheapest", "cheaper", "best", "lowest",
-        "low", "highest", "cost", "rate", "paid", "buy", "bought", "purchase",
+        "low", "highest", "cost", "damage", "damages", "rate", "paid", "buy", "bought", "purchase",
     }
     item_terms = {"item", "items", "product", "products", "store", "stores"} | KNOWN_ITEM_TERMS | BROAD_CATEGORY_QUERY_TERMS
     question_terms = {"what", "which", "where", "show", "tell", "find"}
@@ -2304,9 +2349,15 @@ def should_use_item_rag(message: str) -> bool:
         return True
     if tokens & KNOWN_ITEM_TERMS:
         return True
-    # Strong default: any remaining meaningful text may be an imperfect product/store question.
-    # Try structured receipt retrieval before allowing a general answer.
-    return True
+    normalized_tokens = set(correct_item_typos(correct_query_words(normalize_text(message))).split())
+    if normalized_tokens & {
+        "price", "prices", "cost", "cheap", "cheapest", "lowest", "highest",
+        "paid", "buy", "bought", "purchase", "purchased",
+    }:
+        return True
+    # Unknown prose is not automatically a receipt item. Claude's understanding
+    # layer canonicalizes genuine receipt requests to price/history wording first.
+    return looks_like_price_or_item_question(message)
 
 
 def looks_like_global_price_question(message: str) -> bool:
@@ -2354,6 +2405,7 @@ QUERY_UNDERSTANDING_INTENTS = {
     "monthly_report",
     "shopping_plan",
     "store_compare",
+    "product_knowledge",
     "general_advice",
     "help",
     "unknown",
@@ -2458,18 +2510,27 @@ def recent_user_context(conversation_history: list[dict] | None) -> str:
     return "\n".join(rows)
 
 
+_SEMANTIC_MEANING_TOKENS = {
+    "mean", "means", "meaning", "definition", "define", "similar",
+    "like", "same", "difference", "different", "versus", "vs",
+    "considering", "understand", "explain",
+}
+
 def should_try_semantic_item_extraction(message: str) -> bool:
     normalized = correct_item_typos(correct_query_words(normalize_text(message)))
     tokens = set(normalized.split())
     intent_terms = {
-        "price", "prices", "cost", "rate", "rates", "cheap", "cheaper",
-        "cheapest", "best", "lowest", "buy", "bought", "paid", "where",
+        "price", "prices", "cost", "damage", "damages", "rate", "rates", "cheap", "cheaper",
+        "cheapest", "best", "lowest", "buy", "bought", "pay", "paid", "where",
         "compare",
     }
     if not (tokens & intent_terms):
         return False
     if looks_like_general_advice_question(message) or looks_like_overview_question(message):
         return False
+    # Pure meaning questions have no receipt-intent term and stop above. Mixed
+    # meaning + price questions continue so the semantic extractor can isolate
+    # products without turning relationship words into fake items.
     return bool(tokens - STOP_WORDS)
 
 
@@ -2484,8 +2545,10 @@ Task:
 - Keep real compound item names together: "red chili", "coconut oil", "cinnamon stick".
 - Correct obvious spelling and language variants: culantro -> cilantro, tomatto -> tomato, chilly -> chili.
 - Never return request words as items: best, cheap, cheaper, cheapest, price, cost, rate, type, where, buy, compare.
+- Never return natural language filler or meaning words as items: means, meaning, like, similar, considering, definition, difference, different, versus, vs, related, about, kind, kinds, understand, explain, see, know, check.
+- If the message is asking about what something IS (e.g. "what does X mean", "is X like Y", "what kind of meat is X") — return only the actual food item (X), not the question words.
 - If the user asks for a category only, set intent to category_price and leave items empty.
-- If unsure, return fewer items. Never combine two different groceries into one item.
+- If unsure, return fewer items with lower confidence. Never combine two different groceries into one item.
 
 JSON schema:
 {{
@@ -2527,7 +2590,12 @@ def normalize_semantic_item_payload(data: dict, original_message: str) -> dict:
         cleaned = clean_item_query_for_display(cleaned)
         if not cleaned or cleaned == "that item":
             continue
-        if not token_set(cleaned):
+        item_tokens = token_set(cleaned)
+        if not item_tokens:
+            continue
+        # Reject items whose every token is a noise/filler word — e.g. "means",
+        # "considering", "like" — these are not grocery product names.
+        if item_tokens <= SHOPPING_LIST_NOISE_WORDS:
             continue
         if cleaned not in seen:
             seen.add(cleaned)
@@ -2537,6 +2605,9 @@ def normalize_semantic_item_payload(data: dict, original_message: str) -> dict:
     if category == "that item":
         category = ""
 
+    # Reject if confidence is too low regardless of item count, or if no real items survived.
+    if not items:
+        return {}
     if len(items) < 2 and confidence < 0.55:
         return {}
 
@@ -2667,6 +2738,19 @@ def local_understand_user_query(message: str, conversation_history: list[dict] |
     tokens = set(normalized.split())
     meaningful = token_set(raw_message)
 
+    # Question type must be decided before grocery words are interpreted as
+    # receipt entities. This is intentionally product-agnostic: it works for
+    # unseen items as well as aliases already known by the application.
+    if looks_like_product_knowledge_question(raw_message):
+        return {
+            "intent": "product_knowledge",
+            "canonical_message": raw_message,
+            "item_query": "",
+            "items": [],
+            "category": "",
+            "is_receipt_question": False,
+        }
+
     if looks_like_global_price_question(raw_message):
         return {
             "intent": "global_cheapest",
@@ -2699,6 +2783,7 @@ def local_understand_user_query(message: str, conversation_history: list[dict] |
     }
     raw_meat_category = bool(
         (meaningful & BROAD_MEAT_QUERY_TERMS)
+        and not (meaningful & SPECIFIC_MEAT_TYPE_TERMS)  # specific meat = item search, not category dump
         and (
             (tokens & {"type", "types"})
             or ((tokens & {"what", "which", "show", "tell", "find"}) and (tokens & {"bought", "buy", "purchase", "purchased"}))
@@ -2824,12 +2909,14 @@ Goal:
   Compound items that belong together stay together: "coconut oil" stays as one item, "cinnamon stick" stays as one item.
 - If the user asks a broad category like meat, vegetables, groceries, snacks, drinks, dairy, return category_price.
 - If the user says only "cheapest item" or "what is cheap" with no item/category, return global_cheapest.
-- If the user asks general shopping, cooking, food safety, storage, or product-meaning advice, return general_advice and is_receipt_question false.
+- If the user asks what a product means, whether two names are the same, their difference, regional names, or synonyms, return product_knowledge and is_receipt_question false.
+- If the user asks other general shopping, cooking, food safety, or storage advice, return general_advice and is_receipt_question false.
+- When asking about meanings/definitions, do NOT extract "means", "like", "considering", "similar" as items — only extract the actual food product name.
 - Use recent context only for true follow-ups like "where cheapest", "what about that", or "same item".
 - Do not reuse old context when the user names a new item.
 
 Allowed intents:
-item_price, item_count, category_price, global_cheapest, spending_summary, monthly_report, shopping_plan, store_compare, general_advice, help, unknown
+item_price, item_count, category_price, global_cheapest, spending_summary, monthly_report, shopping_plan, store_compare, product_knowledge, general_advice, help, unknown
 
 JSON schema (single item):
 {{
@@ -3019,8 +3106,12 @@ def broad_category_from_message(message: str, understanding: dict | None = None)
 
     if "meat" in tokens:
         return "meat"
+    # Only treat as a broad meat-category query when the user said the generic
+    # word "meat" — NOT when they named a specific type like mutton / chicken / beef.
+    # Specific meat types are item searches, not category dumps.
     if (
         tokens & BROAD_MEAT_QUERY_TERMS
+        and not (tokens & SPECIFIC_MEAT_TYPE_TERMS)
         and tokens <= (BROAD_MEAT_QUERY_TERMS | scope_terms)
         and ((tokens & {"type", "types"}) or ((tokens & {"what", "which", "show", "tell", "find"}) and (tokens & {"bought", "buy", "purchase", "purchased"})))
     ):
@@ -3058,14 +3149,61 @@ def looks_like_general_advice_question(message: str) -> bool:
     )
 
 
+def looks_like_product_knowledge_question(message: str) -> bool:
+    return agent_general.looks_like_product_knowledge_question(
+        message,
+        normalize_text=normalize_text,
+        correct_item_typos=correct_item_typos,
+        correct_query_words=correct_query_words,
+    )
+
+
+def product_ontology_context(message: str) -> list[dict]:
+    """Return a data-driven relationship hint for aliases already in the ontology.
+
+    The router itself does not mention cilantro, mutton, or any other example.
+    Adding another alias family automatically makes it available here.
+    """
+    matched_families: list[tuple[set[str], list[str]]] = []
+    raw_message = normalize_text(message)
+    for family in ITEM_SYNONYM_GROUPS:
+        mentioned = sorted(
+            term for term in family
+            if re.search(rf"(^|\s){re.escape(normalize_text(term))}(\s|$)", raw_message)
+        )
+        if len(mentioned) >= 2:
+            matched_families.append((family, mentioned))
+
+    context: list[dict] = []
+    for _, mentioned in matched_families[:3]:
+        labels = ", ".join(mentioned)
+        answer = (
+            f"{labels.capitalize()} belong to the same configured shopping-name family. "
+            "They are commonly used as equivalent or closely related names, although the exact "
+            "meaning can vary by region or product form. For receipt search, I can match these "
+            "names together while still showing the original scanned item name."
+        )
+        context.append({
+            "id": f"product_family:{'|'.join(mentioned)}",
+            "title": "Known product-name relationship",
+            "text": answer,
+            "direct_answer": answer,
+            "source": "product_ontology",
+            "openable": False,
+        })
+    return context
+
+
 def retrieve_general_context(message: str, limit: int = 3) -> list[dict]:
-    return agent_general.retrieve_general_context(
+    context = product_ontology_context(message)
+    context.extend(agent_general.retrieve_general_context(
         message,
         token_set=token_set,
         correct_query_words=correct_query_words,
         normalize_text=normalize_text,
         limit=limit,
-    )
+    ))
+    return context[:limit]
 
 
 def general_context_text(context: list[dict]) -> str:
@@ -6294,10 +6432,40 @@ def receipt_scope_response(message: str) -> dict:
     }
 
 
+def general_knowledge_response(message: str, intent: str = "general_advice") -> dict:
+    """Answer non-receipt questions without allowing receipt claims to leak in."""
+    context = retrieve_general_context(message)
+    try:
+        answer = general_advice_answer(message, context)
+    except TypeError:
+        # Keep compatibility with lightweight test/deployment overrides that
+        # still expose the older one-argument callback.
+        answer = general_advice_answer(message)
+    return finalize_agent_result({
+        "response": answer,
+        "answer_card": None,
+        "tools_used": ["product_ontology"] if any(row.get("source") == "product_ontology" for row in context) else [],
+        "thinking": "",
+        "rag_trace": rag_trace(
+            agent_mode="general",
+            intent=intent,
+            retrieval="general_product_knowledge" if intent == "product_knowledge" else "general_knowledge",
+            original_message=message,
+            normalized_query=normalize_text(message),
+            evidence=[],
+            strict=False,
+            note="Question type was resolved before entity extraction; no receipt claim was made.",
+        ),
+    }, message)
+
+
 def should_use_receipt_intelligence_v2(query: Any, message: str, understanding: dict) -> bool:
     """Use the lightweight deterministic layer only for safe lookup-style questions."""
     normalized = correct_query_words(normalize_text(message))
     tokens = set(normalized.split())
+
+    if understanding.get("intent") in {"product_knowledge", "general_advice", "help"}:
+        return False
 
     if query.intent == receipt_intelligence.INTENT_UNCLEAR:
         return False
@@ -6373,12 +6541,34 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
             "thinking": "",
         }
 
+    # Non-receipt questions exit before receipt parsing or database retrieval.
+    # This prevents question words and product names from becoming fake items.
+    understood_intent = str(understanding.get("intent") or "")
+    heuristic_general = (
+        understood_intent in {"", "unknown"}
+        and (
+            looks_like_product_knowledge_question(original_message)
+            or looks_like_general_advice_question(original_message)
+        )
+    )
+    if (
+        understood_intent in {"product_knowledge", "general_advice"}
+        or understanding.get("is_receipt_question") is False
+        or heuristic_general
+    ):
+        resolved_intent = (
+            "product_knowledge"
+            if understood_intent == "product_knowledge" or looks_like_product_knowledge_question(original_message)
+            else "general_advice"
+        )
+        return general_knowledge_response(original_message, resolved_intent)
+
     deterministic_general = receipt_intelligence.parse_receipt_query(original_message)
     if (
         deterministic_general.intent == receipt_intelligence.INTENT_GENERAL
         and should_use_receipt_intelligence_v2(deterministic_general, original_message, understanding)
     ):
-        return receipt_scope_response(original_message)
+        return general_knowledge_response(original_message, "general_advice")
 
     understood_item = normalize_text(str(understanding.get("item_query") or ""))
     raw_message_norm = normalize_text(original_message)
@@ -6444,19 +6634,16 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
         }, original_message)
 
     if (
-        understanding.get("intent") == "general_advice"
+        understanding.get("intent") in {"product_knowledge", "general_advice"}
         or understanding.get("is_receipt_question") is False
         or looks_like_general_advice_question(message)
     ):
-        return receipt_scope_response(original_message)
+        intent = "product_knowledge" if understanding.get("intent") == "product_knowledge" else "general_advice"
+        return general_knowledge_response(original_message, intent)
 
-    current_learned_families = learned_alias_families([], message)
-    if current_learned_families:
-        save_owner_alias_families(current_learned_families, user_id, guest_session_id)
-    extra_families = (
-        fetch_owner_alias_families(user_id, guest_session_id)
-        + learned_alias_families(conversation_history, message)
-    )
+    # Questions such as "are X and Y the same?" are not trusted alias facts.
+    # Only aliases explicitly persisted through the feedback endpoint are learned.
+    extra_families = fetch_owner_alias_families(user_id, guest_session_id)
 
     # ── Multi-item intent split ──
     # If the classifier returned 2+ distinct items (e.g. "cinnamon stick saffron turmeric cardamom"),
@@ -6679,7 +6866,7 @@ def run_agent(message: str, conversation_history: list, user_id: str = None, gue
     else:
         item_rag_message = original_message
     extracted_item_query = extract_query_item(item_rag_message)
-    if should_use_item_rag(item_rag_message) and token_set(extracted_item_query):
+    if (_single_item_intent or should_use_item_rag(item_rag_message)) and token_set(extracted_item_query):
         rag = retrieve_item_events(item_rag_message, user_id, guest_session_id, limit=12, extra_families=extra_families)
         if not (rag.get("events") or rag.get("closest_candidates")):
             public_families = public_meaning_alias_families(extracted_item_query)
