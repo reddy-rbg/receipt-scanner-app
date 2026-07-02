@@ -109,6 +109,29 @@ def test_when_question_uses_canonical_pipeline_and_lists_all_dates():
     assert result["rag_trace"]["matched_event_count"] == 2
 
 
+def test_date_and_count_answers_group_duplicate_receipts_into_purchase_occasions():
+    rows = [
+        event("may5", 1, "GOAT LEG", "2026-05-05", 20.15),
+        event("may5", 2, "GOAT KEEMA", "2026-05-05", 11.54),
+    ] + [
+        event(f"duplicate-{index}", 1, "GOAT KEEMA", "2026-05-23", 14.98)
+        for index in range(18)
+    ]
+
+    when_result = with_events(rows, lambda: agent.run_agent("When did I buy mutton?", []))
+    response = when_result["response"].lower()
+    assert "found 2 mutton purchases" in response
+    assert "goat leg + goat keema" in response
+    assert "1. 2026-05-23 - goat keema" in response
+    assert "3. 2026-05-23" not in response
+    assert when_result["rag_trace"]["matched_event_count"] == 2
+    assert when_result["rag_trace"]["matching_line_count"] == 20
+    assert when_result["rag_trace"]["count_unit"] == "purchase_occurrence"
+
+    count_result = with_events(rows, lambda: agent.run_agent("How many times did I buy mutton?", []))
+    assert "bought mutton 2 times" in count_result["response"].lower()
+
+
 def test_numeric_purchase_claim_is_corrected_to_canonical_event_count():
     result = finalize_agent_result({
         "response": "I found 11 mutton purchases. Most recent: today.",

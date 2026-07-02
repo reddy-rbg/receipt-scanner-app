@@ -173,9 +173,12 @@ def test_when_did_i_buy_mutton_answers_purchase_dates_not_price_table():
 
     result = agent.run_agent("When did I buy mutton?", [])
     response = result["response"].lower()
-    assert "most recent" in response
+    assert "you bought mutton on" in response
     assert "5/5/26" in response
     assert "goat leg" in response
+    assert "goat keema" in response
+    assert result["rag_trace"]["matched_event_count"] == 1
+    assert result["rag_trace"]["matching_line_count"] == 2
     assert "when" not in str(result.get("answer_card") or {}).lower()
 
 

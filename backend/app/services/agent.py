@@ -39,7 +39,7 @@ AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
 AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
-AGENT_BUILD = "canonical-events-fast-planner-v2-2026-07-02"
+AGENT_BUILD = "purchase-occasions-fast-planner-v3-2026-07-02"
 AGENT_CAPABILITIES = {
     "structured_rag": True,
     "adaptive_query_recovery": True,
@@ -3606,6 +3606,73 @@ def dedupe_item_events(events: list[dict]) -> list[dict]:
     return unique
 
 
+def purchase_occurrence_events(events: list[dict]) -> list[dict]:
+    """Collapse matching lines into shopping occasions for date/count answers.
+
+    Historical imports can contain multiple receipt IDs or normalized lines for
+    one store visit. A labeled transaction identifier wins when available;
+    otherwise store + purchase date is the safest available occasion identity.
+    """
+    receipt_groups: dict[str, list[dict]] = {}
+    for index, event in enumerate(dedupe_item_events(events)):
+        receipt_key = str(event.get("receipt_id") or f"event:{index}")
+        receipt_groups.setdefault(receipt_key, []).append(event)
+
+    occurrences: dict[tuple, dict] = {}
+    for receipt_key, rows in receipt_groups.items():
+        representative = dict(rows[0])
+        metadata_rows = [row.get("metadata") for row in rows if isinstance(row.get("metadata"), dict)]
+        identifier = next((
+            str(metadata.get(field) or "").strip()
+            for metadata in metadata_rows
+            for field in ("transaction_number", "receipt_number", "invoice_number", "order_number")
+            if metadata.get(field)
+        ), "")
+        parsed_date = parse_receipt_date(representative.get("date") or representative.get("created_at"))
+        date_key = parsed_date.date().isoformat() if parsed_date else normalize_text(str(representative.get("date") or ""))
+        store_key = normalize_text(representative.get("store") or "")
+        occurrence_key = (
+            "identifier", store_key, date_key, identifier
+        ) if identifier else (
+            "store_date", store_key, date_key
+        ) if date_key else (
+            "receipt", receipt_key
+        )
+
+        item_names = []
+        for row in rows:
+            name = str(row.get("item_original") or "").strip()
+            if name and normalize_text(name) not in {normalize_text(value) for value in item_names}:
+                item_names.append(name)
+
+        existing = occurrences.get(occurrence_key)
+        if existing:
+            combined = list(existing.get("matched_items") or [])
+            for name in item_names:
+                if normalize_text(name) not in {normalize_text(value) for value in combined}:
+                    combined.append(name)
+            existing["matched_items"] = combined
+            existing["item_original"] = " + ".join(combined)
+            existing.setdefault("occurrence_receipt_ids", []).extend(
+                receipt_id for receipt_id in [row.get("receipt_id") for row in rows]
+                if receipt_id is not None and receipt_id not in existing["occurrence_receipt_ids"]
+            )
+            continue
+
+        representative["matched_items"] = item_names
+        representative["item_original"] = " + ".join(item_names) or representative.get("item_original")
+        representative["occurrence_receipt_ids"] = list(dict.fromkeys(
+            row.get("receipt_id") for row in rows if row.get("receipt_id") is not None
+        ))
+        occurrences[occurrence_key] = representative
+
+    return sorted(
+        occurrences.values(),
+        key=lambda event: event_date(event) or datetime.min,
+        reverse=True,
+    )
+
+
 def looks_like_prepared_dish(event: dict) -> bool:
     text = normalize_text(event.get("item_original") or "")
     if not text:
@@ -7075,9 +7142,14 @@ def run_agent(
                 )
         display_query = clean_item_query_for_display(rag.get("normalized_query") or rag.get("query") or extracted_item_query)
         trusted_events = dedupe_item_events(trusted_item_events_for_answer(display_query, rag.get("events") or []))
+        answer_events = (
+            purchase_occurrence_events(trusted_events)
+            if intent_plan.intent in {AgentIntent.PURCHASE_DATE, AgentIntent.PURCHASE_COUNT}
+            else trusted_events
+        )
         rag = dict(rag)
-        rag["events"] = trusted_events
-        rag["count"] = len(trusted_events)
+        rag["events"] = answer_events
+        rag["count"] = len(answer_events)
         should_recover = (
             (not trusted_events and not (rag.get("closest_candidates") or []))
             or looks_like_partial_combined_item_match(display_query, trusted_events)
@@ -7104,7 +7176,7 @@ def run_agent(
                 }, original_message)
         answer = deterministic_item_answer(original_message, rag)
         card = deterministic_item_answer_card(original_message, rag)
-        evidence = evidence_rows_from_card(card) or evidence_rows_from_events(trusted_events)
+        evidence = evidence_rows_from_card(card) or evidence_rows_from_events(answer_events)
         trace = rag_trace(
             intent="item_purchase_date" if query_asks_for_purchase_date(original_message) else "item_price",
             retrieval="hybrid_item_rag",
@@ -7115,8 +7187,10 @@ def run_agent(
             strict=AGENT_STRICT_MATCHING,
             note="Canonical purchase events from complete ranked history; counts and evidence share the same deduplicated payload.",
         )
-        trace["matched_event_count"] = len(trusted_events)
-        trace["evidence_is_complete"] = len(evidence) == len(trusted_events)
+        trace["matched_event_count"] = len(answer_events)
+        trace["matching_line_count"] = len(trusted_events)
+        trace["count_unit"] = "purchase_occurrence" if answer_events is not trusted_events else "receipt_line"
+        trace["evidence_is_complete"] = len(evidence) == len(answer_events)
         return finalize_agent_result({
             "response": answer,
             "answer_card": card,

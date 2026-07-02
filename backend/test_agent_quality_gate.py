@@ -55,6 +55,7 @@ from test_agent_canonical_events import (
     test_clear_known_item_query_skips_semantic_model_call,
     test_cross_source_line_index_differences_collapse_to_one_purchase,
     test_duplicate_candidates_do_not_push_other_dates_or_mutton_cuts_out,
+    test_date_and_count_answers_group_duplicate_receipts_into_purchase_occasions,
     test_exact_match_skips_vector_network_call,
     test_empty_purchase_history_skips_vector_network_call,
     test_numeric_purchase_claim_is_corrected_to_canonical_event_count,
@@ -121,6 +122,7 @@ QUALITY_GATE_TESTS = [
     test_exact_match_skips_vector_network_call,
     test_empty_purchase_history_skips_vector_network_call,
     test_when_question_uses_canonical_pipeline_and_lists_all_dates,
+    test_date_and_count_answers_group_duplicate_receipts_into_purchase_occasions,
 ]
 
 
