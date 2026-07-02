@@ -15,6 +15,7 @@ import json as _json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.services import database
+from app.config import create_auth_client
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -77,7 +78,8 @@ def signup(req: AuthRequest):
     email = req.email.strip().lower()
 
     try:
-        response = database.supabase.auth.sign_up({
+        auth_client = create_auth_client()
+        response = auth_client.auth.sign_up({
             "email": email,
             "password": req.password,
             "options": {
@@ -97,7 +99,7 @@ def signup(req: AuthRequest):
         # If session is missing, try signing in immediately so frontend gets an access token.
         if not session:
             try:
-                login_response = database.supabase.auth.sign_in_with_password({
+                login_response = auth_client.auth.sign_in_with_password({
                     "email": email,
                     "password": req.password,
                 })
@@ -141,7 +143,8 @@ def login(req: AuthRequest):
         raise HTTPException(status_code=400, detail="Email and password are required.")
 
     try:
-        response = database.supabase.auth.sign_in_with_password({
+        auth_client = create_auth_client()
+        response = auth_client.auth.sign_in_with_password({
             "email":    req.email.strip().lower(),
             "password": req.password,
         })
@@ -185,7 +188,7 @@ def refresh_session(req: RefreshSessionRequest):
     if not token:
         raise HTTPException(status_code=400, detail="Refresh token is required.")
     try:
-        response = database.supabase.auth.refresh_session(token)
+        response = create_auth_client().auth.refresh_session(token)
         if not response.session or not response.user:
             raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
         name = (
@@ -260,10 +263,9 @@ def forgot_password(req: ForgotPasswordRequest):
 @router.post("/logout")
 def logout():
     """Sign out current user."""
-    try:
-        database.supabase.auth.sign_out()
-    except:
-        pass
+    # Sessions are bearer tokens owned by each client. The dashboard/mobile app
+    # deletes its token locally; there is intentionally no shared server auth
+    # session to mutate here.
     return {"success": True, "message": "Signed out successfully."}
 
 
@@ -281,7 +283,7 @@ def delete_account(req: AuthRequest):
     """
     try:
         # ── Step 1: Re-authenticate to verify it's really them ──
-        auth_response = database.supabase.auth.sign_in_with_password({
+        auth_response = create_auth_client().auth.sign_in_with_password({
             "email":    req.email.strip().lower(),
             "password": req.password,
         })

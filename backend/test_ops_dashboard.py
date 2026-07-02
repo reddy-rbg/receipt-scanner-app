@@ -9,6 +9,8 @@ APP = (ROOT / "ops_dashboard" / "app.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "main.py").read_text(encoding="utf-8")
 RBAC_ROUTES = (ROOT / "app" / "routes" / "rbac.py").read_text(encoding="utf-8")
 RECEIPT_ROUTES = (ROOT / "app" / "routes" / "receipts.py").read_text(encoding="utf-8")
+AUTH_ROUTES = (ROOT / "app" / "routes" / "auth.py").read_text(encoding="utf-8")
+CONFIG = (ROOT / "app" / "config.py").read_text(encoding="utf-8")
 
 
 def test_operations_console_is_served_separately():
@@ -48,3 +50,9 @@ def test_support_access_is_case_based_and_self_approval_is_blocked():
     assert "Support users cannot approve their own access" in RBAC_ROUTES
     assert 'body.case_id or f"manual-' in RBAC_ROUTES
     assert "expires_at must be in the future" in RBAC_ROUTES
+
+
+def test_operator_login_never_mutates_the_service_role_client():
+    assert "def create_auth_client()" in CONFIG
+    assert "create_auth_client().auth" in AUTH_ROUTES
+    assert "database.supabase.auth.sign_in" not in AUTH_ROUTES

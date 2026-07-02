@@ -16,6 +16,8 @@ claude_client = anthropic.Anthropic(
 )
 
 # ── Supabase client ──
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_SERVER_KEY = (
     os.getenv("SUPABASE_SERVICE_KEY")
     or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -23,9 +25,14 @@ SUPABASE_SERVER_KEY = (
 )
 
 supabase: Client = create_client(
-    os.getenv("SUPABASE_URL"),
+    SUPABASE_URL,
     SUPABASE_SERVER_KEY
 )
+
+
+def create_auth_client() -> Client:
+    """Return an isolated auth client so a login never replaces the service client's identity."""
+    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY or SUPABASE_SERVER_KEY)
 
 # ── Supported image types ──
 MEDIA_TYPES = {
