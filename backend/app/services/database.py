@@ -35,7 +35,7 @@ LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-con
 EMBEDDING_DIMENSIONS = 1536
 RECEIPT_ITEM_EMBEDDINGS_ENABLED = os.getenv("RECEIPT_ITEM_EMBEDDINGS_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 OPTIONAL_RECEIPT_IDENTIFIER_FIELDS = {
-    "transaction_number", "receipt_number", "invoice_number", "order_number",
+    "transaction_number", "receipt_number", "invoice_number", "order_number", "customer_id",
 }
 
 
@@ -193,6 +193,7 @@ def save_receipt_items(
     guest_session_id: str | None = None,
     is_guest: bool = False,
     expires_at: str | None = None,
+    customer_id: str | None = None,
 ) -> dict:
     """Write normalized item rows for fast agent queries. Safe no-op until receipt_items table exists."""
     if not receipt or not receipt.get("id") or not items:
@@ -223,6 +224,7 @@ def save_receipt_items(
 
         rows.append({
             "receipt_id": receipt_id,
+            "customer_id": customer_id or receipt.get("customer_id"),
             "line_index": index,
             "user_id": user_id,
             "is_guest": is_guest,
@@ -255,6 +257,18 @@ def save_receipt_items(
         save_receipt_item_embeddings(rows, receipt_id)
         return {"success": True, "receipt_id": receipt_id, "items": len(rows)}
     except Exception as e:
+        # Rolling deployment: preserve normalized item writes until the RBAC
+        # migration adds customer_id to receipt_items.
+        if any(row.get("customer_id") for row in rows):
+            try:
+                legacy_rows = [{key: value for key, value in row.items() if key != "customer_id"} for row in rows]
+                supabase.table("receipt_items").delete().eq("receipt_id", receipt_id).execute()
+                supabase.table("receipt_items").insert(legacy_rows).execute()
+                save_receipt_item_embeddings(legacy_rows, receipt_id)
+                print(f"[receipt_items] customer_id unavailable; used legacy schema: {e}")
+                return {"success": True, "receipt_id": receipt_id, "items": len(legacy_rows), "legacy_schema": True}
+            except Exception as legacy_error:
+                e = legacy_error
         print(f"[receipt_items] Skipped normalized item save: {e}")
         return {"success": False, "receipt_id": receipt_id, "items": 0, "error": str(e)}
 
@@ -280,7 +294,7 @@ def backfill_receipt_vectors(
     for start in range(0, max_rows, page_size):
         end = min(start + page_size - 1, max_rows - 1)
         q = supabase.table("receipts").select(
-            "id,store,date,created_at,items,user_id,is_guest,guest_session_id,expires_at"
+            "id,store,date,created_at,items,user_id,customer_id,is_guest,guest_session_id,expires_at"
         )
         if user_id:
             q = q.eq("user_id", user_id)
@@ -303,6 +317,7 @@ def backfill_receipt_vectors(
                 guest_session_id=receipt.get("guest_session_id"),
                 is_guest=bool(receipt.get("is_guest")),
                 expires_at=receipt.get("expires_at"),
+                customer_id=receipt.get("customer_id"),
             )
             if outcome.get("success"):
                 processed += 1
@@ -334,6 +349,7 @@ def save_receipt(store: str, date: str, total: float, items: list,
                  payment_method: str = None,
                  image_hash: str = None,
                  user_id: str = None,
+                 customer_id: str | None = None,
                  transaction_number: str | None = None,
                  receipt_number: str | None = None,
                  invoice_number: str | None = None,
@@ -376,6 +392,7 @@ def save_receipt(store: str, date: str, total: float, items: list,
         "image_hash":     image_hash,
         "user_id":        user_id,         # ✅ links receipt to logged-in user
         "transaction_number": transaction_number,
+        "customer_id": customer_id,
         "receipt_number": receipt_number,
         "invoice_number": invoice_number,
         "order_number": order_number,
@@ -385,7 +402,7 @@ def save_receipt(store: str, date: str, total: float, items: list,
     # We return the first (and only) inserted row
     # If nothing was inserted return empty dict
     saved = response.data[0] if response.data else {}
-    save_receipt_items(saved, items, user_id=user_id, is_guest=False)
+    save_receipt_items(saved, items, user_id=user_id, customer_id=customer_id, is_guest=False)
     if saved:
         from app.services import agent
         agent.clear_owner_data_caches(user_id=user_id)
@@ -516,6 +533,23 @@ def delete_receipt(
             user_id=deleted.get("user_id"),
             guest_session_id=deleted.get("guest_session_id"),
         )
+    return deleted
+
+
+def delete_receipt_after_authorization(receipt: dict) -> dict:
+    """Delete an exact receipt after centralized RBAC authorization has succeeded."""
+    receipt_id = receipt.get("id")
+    if receipt_id is None:
+        return {}
+    try:
+        supabase.table("receipt_items").delete().eq("receipt_id", receipt_id).execute()
+    except Exception as error:
+        print(f"[receipt_items] Could not delete item rows for receipt {receipt_id}: {error}")
+    response = supabase.table("receipts").delete().eq("id", receipt_id).execute()
+    deleted = response.data[0] if response.data else {}
+    if deleted:
+        from app.services import agent
+        agent.clear_owner_data_caches(user_id=deleted.get("user_id"), guest_session_id=deleted.get("guest_session_id"))
     return deleted
 
 

@@ -8,7 +8,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import receipts, auth, agent_route
+from app.routes import receipts, auth, agent_route, rbac
 from app.services import agent as agent_service
 from app.services import agent_workflow
 
@@ -88,6 +88,7 @@ app.include_router(receipts.router)
 # receipt and agent routes.
 app.include_router(auth.router)
 app.include_router(agent_route.router)
+app.include_router(rbac.router)
 
 # ── Health check ──
 @app.get("/")

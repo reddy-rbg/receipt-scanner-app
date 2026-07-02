@@ -22,7 +22,7 @@ from pydantic import BaseModel
 # Import our service files
 # claude.py   — all Claude AI logic (scanning, answering)
 # database.py — all Supabase database logic
-from app.services import claude, database
+from app.services import claude, database, rbac
 from app.services import agent as agent_service
 
 # Import supported file types from config
@@ -220,6 +220,9 @@ async def scan_receipt(request: Request, file: UploadFile = File(...)):
     
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required.")
+    access = rbac.get_access_context(request)
+    customer_id = rbac.primary_customer_id(access)
+    rbac.require_permission(access, "receipts.upload", customer_id)
     enforce_scan_rate_limit(f"user:{user_id}")
 
     # ── Send to Claude for scanning ──
@@ -291,6 +294,7 @@ async def scan_receipt(request: Request, file: UploadFile = File(...)):
 
             # User ownership — links receipt to logged-in user
             user_id=user_id,
+            customer_id=customer_id,
 
             # Duplicate detection
             image_hash=receipt_data.get("image_hash"),
@@ -328,6 +332,9 @@ async def scan_receipt_pages(request: Request, files: list[UploadFile] = File(..
     user_id = get_user_id_from_request(request)
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required.")
+    access = rbac.get_access_context(request)
+    customer_id = rbac.primary_customer_id(access)
+    rbac.require_permission(access, "receipts.upload", customer_id)
     enforce_scan_rate_limit(f"user:{user_id}")
     if not files or len(files) < 2:
         raise HTTPException(status_code=400, detail="Upload at least 2 page photos for multi-page scanning.")
@@ -372,6 +379,7 @@ async def scan_receipt_pages(request: Request, files: list[UploadFile] = File(..
             tax=receipt_data.get("tax", 0.00),
             total_savings=receipt_data.get("total_savings", 0.00),
             user_id=user_id,
+            customer_id=customer_id,
             image_hash=receipt_data.get("image_hash"),
             transaction_number=receipt_data.get("transaction_number"),
             receipt_number=receipt_data.get("receipt_number"),
@@ -399,34 +407,9 @@ def get_receipts(request: Request):
     - Logged in users see ONLY their own receipts
     - No token = no receipts returned (must log in)
     """
-    # Extract user_id from token
-    user_id = None
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header.replace("Bearer ", "").strip()
-        try:
-            user_response = database.supabase.auth.get_user(token)
-            if user_response and user_response.user:
-                user_id = str(user_response.user.id)
-        except Exception as e:
-            print(f"[receipts] Token error: {e}")
-
-    if not user_id:
-        # Not logged in — return empty
-        raise HTTPException(status_code=401, detail="Authentication required.")
-
-    # Fetch only this user's receipts
-    try:
-        result = database.supabase.table("receipts")            .select("*")            .eq("user_id", user_id)            .order("created_at", desc=True)            .execute()
-        receipts = result.data or []
-    except Exception as e:
-        print(f"[receipts] DB error: {e}")
-        receipts = []
-
-    return {
-        "total_receipts": len(receipts),
-        "receipts": receipts
-    }
+    access = rbac.get_access_context(request)
+    receipts = rbac.list_accessible_receipts(access)
+    return {"total_receipts": len(receipts), "receipts": receipts}
 
 
 # ── ENDPOINT 3: Get receipts by store ──
@@ -447,8 +430,11 @@ def get_by_store(store_name: str, request: Request, session_id: str | None = Non
     Returns matching receipts ordered by newest first.
     """
 
-    user_id, guest_session_id = require_owner(request, session_id)
-    receipts = database.get_receipts_by_store(store_name, user_id=user_id, guest_session_id=guest_session_id)
+    user_id = get_user_id_from_request(request)
+    if user_id:
+        receipts = [row for row in rbac.list_accessible_receipts(rbac.get_access_context(request)) if store_name.casefold() in str(row.get("store") or "").casefold()]
+    else:
+        receipts = database.get_receipts_by_store(store_name, guest_session_id=validate_guest_session_id(session_id))
 
     # If no receipts found for this store return helpful message
     if not receipts:
@@ -481,13 +467,15 @@ def get_by_date(from_date: str, to_date: str, request: Request, session_id: str 
     Returns receipts in that date range ordered by newest first.
     """
 
-    user_id, guest_session_id = require_owner(request, session_id)
-    receipts = database.get_receipts_by_date(
-        from_date,
-        to_date,
-        user_id=user_id,
-        guest_session_id=guest_session_id,
-    )
+    user_id = get_user_id_from_request(request)
+    if user_id:
+        start, end = database.parse_purchase_date(from_date), database.parse_purchase_date(to_date)
+        receipts = [
+            row for row in rbac.list_accessible_receipts(rbac.get_access_context(request))
+            if start and end and (parsed := database.parse_purchase_date(row.get("date") or row.get("created_at"))) and start <= parsed <= end
+        ]
+    else:
+        receipts = database.get_receipts_by_date(from_date, to_date, guest_session_id=validate_guest_session_id(session_id))
 
     if not receipts:
         return {
@@ -708,16 +696,13 @@ def get_guest_receipts(session_id: str):
 @router.get("/summary")
 def get_summary(request: Request, session_id: str | None = None):
     """Return spending summary for exactly one authenticated or guest owner."""
-    user_id, guest_session_id = require_owner(request, session_id)
-
     try:
-        query = database.supabase.table("receipts").select("total,total_savings,store")
+        user_id = get_user_id_from_request(request)
         if user_id:
-            query = query.eq("user_id", user_id)
+            receipts = rbac.list_accessible_receipts(rbac.get_access_context(request))
         else:
-            query = query.eq("is_guest", True).eq("guest_session_id", guest_session_id)
-        result = query.execute()
-        receipts = result.data or []
+            guest_session_id = validate_guest_session_id(session_id)
+            receipts = database.supabase.table("receipts").select("total,total_savings,store").eq("is_guest", True).eq("guest_session_id", guest_session_id).execute().data or []
         total_spent   = sum(r.get("total") or 0 for r in receipts)
         total_saved   = sum(r.get("total_savings") or 0 for r in receipts)
         unique_stores = len(set(r.get("store","") for r in receipts if r.get("store")))
@@ -830,16 +815,19 @@ def update_receipt_item(receipt_id: int, line_index: int, body: ReceiptItemUpdat
     Correct one scanned receipt item. This keeps Price Memory accurate after OCR mistakes.
     Updates both receipts.items JSON and the normalized receipt_items row.
     """
-    user_id, guest_session_id = require_owner(request, body.session_id)
+    user_id = get_user_id_from_request(request)
+    guest_session_id = None
 
     try:
-        q = database.supabase.table("receipts").select("*").eq("id", receipt_id)
         if user_id:
-            q = q.eq("user_id", user_id)
+            access = rbac.get_access_context(request)
+            receipt = rbac.get_receipt_for_access(access, receipt_id, "receipts.correct_items")
         else:
-            q = q.eq("is_guest", True).eq("guest_session_id", guest_session_id)
-        result = q.limit(1).execute()
-        receipt = (result.data or [None])[0]
+            guest_session_id = validate_guest_session_id(body.session_id)
+            rows = database.supabase.table("receipts").select("*").eq("id", receipt_id).eq("is_guest", True).eq("guest_session_id", guest_session_id).limit(1).execute().data or []
+            receipt = rows[0] if rows else None
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not load receipt: {str(e)}")
 
@@ -900,6 +888,8 @@ def update_receipt_item(receipt_id: int, line_index: int, body: ReceiptItemUpdat
         raise HTTPException(status_code=500, detail=f"Could not update receipt item: {str(e)}")
 
     clear_receipt_memory_caches(user_id=user_id, guest_session_id=guest_session_id)
+    if user_id:
+        rbac.audit(access, "receipt.item.correct", "receipt", receipt_id, receipt.get("customer_id"), metadata={"line_index": line_index})
 
     return {
         "success": True,
@@ -922,12 +912,15 @@ def delete_receipt(receipt_id: int, request: Request, session_id: str | None = N
     """
 
     # Attempt to delete — returns deleted record or empty dict
-    user_id, guest_session_id = require_owner(request, session_id)
-    deleted = database.delete_receipt(
-        receipt_id,
-        user_id=user_id,
-        guest_session_id=guest_session_id,
-    )
+    user_id = get_user_id_from_request(request)
+    if user_id:
+        access = rbac.get_access_context(request)
+        receipt = rbac.get_receipt_for_access(access, receipt_id, "receipts.delete")
+        deleted = database.delete_receipt_after_authorization(receipt)
+        if deleted:
+            rbac.audit(access, "receipt.delete", "receipt", receipt_id, receipt.get("customer_id"))
+    else:
+        deleted = database.delete_receipt(receipt_id, guest_session_id=validate_guest_session_id(session_id))
 
     # If nothing was deleted that ID doesn't exist in database
     if not deleted:
