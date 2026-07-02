@@ -1,6 +1,7 @@
 """Administrative RBAC endpoints. All authorization is enforced server-side."""
 
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -45,6 +46,18 @@ class ReceiptAssignmentCreate(BaseModel):
     expires_at: datetime | None = None
 
 
+class OperatorCreate(BaseModel):
+    email: str
+    name: str = Field(min_length=2, max_length=120)
+    password: str = Field(min_length=8, max_length=128)
+    role_key: str
+    customer_id: str | None = None
+
+
+class UserStatusUpdate(BaseModel):
+    active: bool
+
+
 def _global_admin(context: rbac.AccessContext) -> bool:
     return bool(context.role_keys & {"platform_admin", "master_user"})
 
@@ -82,7 +95,133 @@ def list_roles(request: Request):
     context = rbac.get_access_context(request)
     rbac.require_permission(context, "users.read")
     result = supabase.table("rbac_roles").select("role_key,display_name,description,is_system").order("role_key").execute()
-    return {"roles": result.data or []}
+    permission_rows = supabase.table("rbac_role_permissions").select("role_key,permission_key").execute().data or []
+    mapped: dict[str, list[str]] = {}
+    for row in permission_rows:
+        mapped.setdefault(str(row.get("role_key")), []).append(str(row.get("permission_key")))
+    roles = [{**row, "permissions": sorted(mapped.get(str(row.get("role_key")), []))} for row in (result.data or [])]
+    return {"roles": roles}
+
+
+@router.get("/customers")
+def list_customers(request: Request):
+    context = rbac.get_access_context(request)
+    query = supabase.table("customers").select("id,name,slug,kind,created_at").order("name")
+    if not context.is_global:
+        ids = set(context.customer_ids)
+        ids |= {str(grant.get("customer_id")) for grant in context.grants if grant.get("customer_id")}
+        if not ids:
+            return {"customers": []}
+        query = query.in_("id", sorted(ids))
+    return {"customers": query.execute().data or []}
+
+
+def _user_dict(user: Any) -> dict[str, Any]:
+    metadata = getattr(user, "user_metadata", None) or {}
+    return {
+        "id": str(getattr(user, "id", "")),
+        "email": getattr(user, "email", None),
+        "name": metadata.get("name") or metadata.get("full_name") or (getattr(user, "email", "") or "User").split("@")[0],
+        "created_at": str(getattr(user, "created_at", "") or ""),
+        "last_sign_in_at": str(getattr(user, "last_sign_in_at", "") or ""),
+        "banned_until": str(getattr(user, "banned_until", "") or "") or None,
+    }
+
+
+def _visible_role_rows(context: rbac.AccessContext) -> list[dict]:
+    query = supabase.table("rbac_user_roles").select("id,user_id,role_key,customer_id,active,created_at,assigned_by")
+    if not context.is_global:
+        if not context.customer_ids:
+            return []
+        query = query.in_("customer_id", sorted(context.customer_ids))
+    return query.order("created_at", desc=True).execute().data or []
+
+
+@router.get("/users")
+def list_users(request: Request):
+    context = rbac.get_access_context(request)
+    rbac.require_permission(context, "users.read")
+    roles = _visible_role_rows(context)
+    visible_ids = {str(row.get("user_id")) for row in roles}
+    try:
+        users = [_user_dict(user) for user in supabase.auth.admin.list_users(page=1, per_page=1000)]
+    except Exception as error:
+        print(f"[rbac] Could not list auth users: {error}")
+        raise HTTPException(status_code=503, detail="User directory is temporarily unavailable.")
+    if not context.is_global:
+        users = [user for user in users if user["id"] in visible_ids]
+    role_map: dict[str, list[dict]] = {}
+    for row in roles:
+        role_map.setdefault(str(row.get("user_id")), []).append(row)
+    return {"users": [{**user, "roles": role_map.get(user["id"], [])} for user in users]}
+
+
+@router.get("/user-roles")
+def list_user_roles(request: Request):
+    context = rbac.get_access_context(request)
+    rbac.require_permission(context, "users.read")
+    return {"assignments": _visible_role_rows(context)}
+
+
+@router.post("/users", status_code=201)
+def create_operator(body: OperatorCreate, request: Request):
+    context = rbac.get_access_context(request)
+    rbac.require_permission(context, "users.manage", body.customer_id)
+    if body.role_key in {"platform_admin", "master_user", "support_agent", "service_account"} and "platform_admin" not in context.role_keys:
+        raise HTTPException(status_code=403, detail="Platform administrator access required for this role.")
+    if body.role_key not in rbac.ROLE_PERMISSIONS:
+        raise HTTPException(status_code=400, detail="Unknown role.")
+    if body.role_key not in {"platform_admin", "master_user", "support_agent"} and not body.customer_id:
+        raise HTTPException(status_code=400, detail="customer_id is required for this role.")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", body.email.strip()):
+        raise HTTPException(status_code=400, detail="A valid operator email is required.")
+    if not (re.search(r"[A-Z]", body.password) and re.search(r"[a-z]", body.password) and re.search(r"[^A-Za-z0-9]", body.password)):
+        raise HTTPException(status_code=400, detail="Password must include upper-case, lower-case, and special characters.")
+    try:
+        response = supabase.auth.admin.create_user({
+            "email": body.email.strip().lower(),
+            "password": body.password,
+            "email_confirm": True,
+            "user_metadata": {"name": body.name.strip(), "full_name": body.name.strip()},
+        })
+        user = response.user
+        if not user:
+            raise RuntimeError("User was not created")
+        user_id = str(user.id)
+        role_payload = {"user_id": user_id, "role_key": body.role_key, "customer_id": body.customer_id, "assigned_by": context.user_id, "active": True}
+        supabase.table("rbac_user_roles").upsert(role_payload, on_conflict="user_id,role_key,customer_id").execute()
+    except HTTPException:
+        raise
+    except Exception as error:
+        message = str(error)
+        if "already" in message.lower() or "registered" in message.lower():
+            raise HTTPException(status_code=409, detail="A user with this email already exists.")
+        raise HTTPException(status_code=500, detail=f"Could not create operator: {message}")
+    rbac.clear_context_cache(user_id)
+    rbac.audit(context, "user.create", "user", user_id, body.customer_id, metadata={"email": body.email.strip().lower(), "role_key": body.role_key})
+    return {"user": _user_dict(user), "role": role_payload}
+
+
+@router.patch("/users/{user_id}/status")
+def update_user_status(user_id: str, body: UserStatusUpdate, request: Request):
+    context = rbac.get_access_context(request)
+    if user_id == context.user_id and not body.active:
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own account.")
+    rows = supabase.table("rbac_user_roles").select("customer_id,role_key").eq("user_id", user_id).eq("active", True).execute().data or []
+    protected_target = any(row.get("role_key") in {"platform_admin", "master_user"} for row in rows)
+    if protected_target and "platform_admin" not in context.role_keys:
+        raise HTTPException(status_code=403, detail="Only a platform administrator can change this account.")
+    if context.is_global:
+        rbac.require_permission(context, "users.manage")
+    else:
+        manageable = [row for row in rows if row.get("customer_id") in context.customer_ids and row.get("role_key") not in {"platform_admin", "master_user", "support_agent", "service_account"}]
+        if not manageable:
+            raise HTTPException(status_code=403, detail="You cannot manage this user.")
+        rbac.require_permission(context, "users.manage", str(manageable[0].get("customer_id")))
+    supabase.auth.admin.update_user_by_id(user_id, {"ban_duration": "none" if body.active else "876000h"})
+    rbac.clear_context_cache(user_id)
+    rbac.audit(context, "user.activate" if body.active else "user.deactivate", "user", user_id, metadata={"active": body.active})
+    return {"success": True, "active": body.active}
 
 
 @router.post("/customers", status_code=201)
@@ -200,6 +339,19 @@ def revoke_support_access(grant_id: str, request: Request):
     return {"success": True}
 
 
+@router.get("/support-grants")
+def list_support_grants(request: Request):
+    context = rbac.get_access_context(request)
+    query = supabase.table("support_access_grants").select("*")
+    if "support_agent" in context.role_keys and not context.is_global:
+        query = query.eq("support_user_id", context.user_id)
+    elif not context.is_global:
+        if not context.customer_ids or "support.approve_access" not in context.permissions():
+            return {"grants": []}
+        query = query.in_("customer_id", sorted(context.customer_ids))
+    return {"grants": query.order("created_at", desc=True).limit(500).execute().data or []}
+
+
 @router.post("/receipt-assignments", status_code=201)
 def assign_receipt(body: ReceiptAssignmentCreate, request: Request):
     context = rbac.get_access_context(request)
@@ -230,10 +382,51 @@ def revoke_receipt_assignment(assignment_id: str, request: Request):
     return {"success": True}
 
 
+@router.get("/receipt-assignments")
+def list_receipt_assignments(request: Request):
+    context = rbac.get_access_context(request)
+    query = supabase.table("receipt_assignments").select("*")
+    if not context.is_global:
+        visible_receipt_ids = {str(row.get("id")) for row in rbac.list_accessible_receipts(context, limit=5000)}
+        if not visible_receipt_ids:
+            return {"assignments": []}
+        query = query.in_("receipt_id", sorted(visible_receipt_ids))
+    rows = query.order("created_at", desc=True).limit(1000).execute().data or []
+    return {"assignments": rows}
+
+
+@router.get("/overview")
+def operations_overview(request: Request):
+    context = rbac.get_access_context(request)
+    receipts = rbac.list_accessible_receipts(context, limit=5000)
+    total_spend = round(sum(float(row.get("total") or 0) for row in receipts), 2)
+    open_assignments = 0
+    active_support_grants = 0
+    try:
+        assignment_rows = list_receipt_assignments(request).get("assignments", [])
+        open_assignments = sum(1 for row in assignment_rows if rbac._active(row))
+        grant_rows = list_support_grants(request).get("grants", [])
+        active_support_grants = sum(1 for row in grant_rows if rbac._active(row))
+    except HTTPException:
+        pass
+    return {
+        "receipts": len(receipts),
+        "total_spend": total_spend,
+        "customers": len(context.customer_ids) if not context.is_global else None,
+        "open_assignments": open_assignments,
+        "active_support_grants": active_support_grants,
+        "roles": sorted(context.role_keys),
+    }
+
+
 @router.get("/audit")
 def read_audit(request: Request, customer_id: str | None = None, limit: int = 100):
     context = rbac.get_access_context(request)
-    if customer_id and not _can_manage_customer(context, customer_id):
+    if not context.is_global and not customer_id:
+        customer_id = rbac.primary_customer_id(context)
+        if not customer_id:
+            raise HTTPException(status_code=403, detail="A customer scope is required.")
+    if customer_id and not context.is_global and customer_id not in context.customer_ids:
         raise HTTPException(status_code=403, detail="You cannot view this audit log.")
     rbac.require_permission(context, "audit.read", customer_id)
     query = supabase.table("access_audit_log").select("*")

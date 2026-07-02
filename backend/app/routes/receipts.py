@@ -63,7 +63,20 @@ class ReceiptItemUpdate(BaseModel):
     unit: str | None = None
     product_size: str | None = None
     code: str | None = None
+    category: str | None = None
     session_id: str | None = None
+
+
+class ReceiptMetadataUpdate(BaseModel):
+    store: str | None = None
+    address: str | None = None
+    date: str | None = None
+    time: str | None = None
+    payment_method: str | None = None
+    transaction_number: str | None = None
+    receipt_number: str | None = None
+    invoice_number: str | None = None
+    order_number: str | None = None
 
 
 class LivePriceCheckRequest(BaseModel):
@@ -853,6 +866,8 @@ def update_receipt_item(receipt_id: int, line_index: int, body: ReceiptItemUpdat
         item["product_size"] = body.product_size.strip() or None
     if body.code is not None:
         item["code"] = body.code.strip() or None
+    if body.category is not None:
+        item["category"] = body.category.strip() or None
 
     item["corrected_by_user"] = True
     items[line_index] = item
@@ -897,6 +912,34 @@ def update_receipt_item(receipt_id: int, line_index: int, body: ReceiptItemUpdat
         "receipt": (updated.data or [receipt])[0],
         "item": item,
     }
+
+
+@router.patch("/receipts/{receipt_id}")
+def update_receipt_metadata(receipt_id: int, body: ReceiptMetadataUpdate, request: Request):
+    """Update operator-editable receipt header fields after centralized authorization."""
+    access = rbac.get_access_context(request)
+    receipt = rbac.get_receipt_for_access(access, receipt_id, "receipts.update")
+    allowed = body.model_dump(exclude_none=True)
+    cleaned = {
+        key: (value.strip() if isinstance(value, str) else value)
+        for key, value in allowed.items()
+    }
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="No receipt fields were provided.")
+    try:
+        result = database.supabase.table("receipts").update(cleaned).eq("id", receipt_id).execute()
+        item_fields = {}
+        if "store" in cleaned:
+            item_fields["store"] = cleaned["store"]
+        if "date" in cleaned:
+            item_fields["purchase_date"] = cleaned["date"]
+        if item_fields:
+            database.supabase.table("receipt_items").update(item_fields).eq("receipt_id", receipt_id).execute()
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Could not update receipt: {error}")
+    clear_receipt_memory_caches(user_id=receipt.get("user_id"), guest_session_id=receipt.get("guest_session_id"))
+    rbac.audit(access, "receipt.update", "receipt", receipt_id, receipt.get("customer_id"), metadata={"fields": sorted(cleaned)})
+    return {"success": True, "receipt": (result.data or [{**receipt, **cleaned}])[0]}
 
 
 @router.delete("/receipts/{receipt_id}")

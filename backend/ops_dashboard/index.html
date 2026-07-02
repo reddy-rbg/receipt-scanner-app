@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b0d12" />
+  <title>ReceiptAI Operations</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <main id="loginView" class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark">R</div>
+      <p class="eyebrow">RECEIPTAI</p>
+      <h1>Operations console</h1>
+      <p class="muted">Secure workspace for receipt operations, support and access management.</p>
+      <form id="loginForm" class="stack">
+        <label>Email<input id="loginEmail" type="email" autocomplete="username" required placeholder="operator@company.com" /></label>
+        <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••" /></label>
+        <button class="primary" type="submit"><span>Sign in securely</span></button>
+        <p id="loginError" class="form-error"></p>
+      </form>
+      <p class="security-note">Access is role-based and all sensitive changes are audited.</p>
+    </section>
+  </main>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark small">R</div><div><strong>ReceiptAI</strong><span>Operations</span></div></div>
+      <nav id="nav" aria-label="Operations navigation"></nav>
+      <div class="sidebar-foot">
+        <div id="operatorCard" class="operator-card"></div>
+        <button id="logoutBtn" class="ghost full">Sign out</button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-button mobile-only" aria-label="Open menu">☰</button>
+        <div><p id="pageEyebrow" class="eyebrow">OPERATIONS</p><h2 id="pageTitle">Overview</h2></div>
+        <div class="top-actions"><span class="live-dot"></span><span>Secure session</span><button id="refreshBtn" class="icon-button" title="Refresh">↻</button></div>
+      </header>
+      <div id="content" class="content"><div class="loading-panel">Loading workspace…</div></div>
+    </section>
+  </div>
+
+  <dialog id="modal" class="modal"><div id="modalBody"></div></dialog>
+  <script src="./app.js" defer></script>
+</body>
+</html>

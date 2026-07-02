@@ -5,9 +5,11 @@
 
 import asyncio
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.routes import receipts, auth, agent_route, rbac
 from app.services import agent as agent_service
 from app.services import agent_workflow
@@ -81,6 +83,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def operations_security_headers(request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/ops" or request.url.path.startswith("/ops/"):
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'"
+    return response
+
 # ── Connect all routes ──
 app.include_router(receipts.router)
 # Legacy global query routes were intentionally retired. They loaded receipts
@@ -89,6 +103,11 @@ app.include_router(receipts.router)
 app.include_router(auth.router)
 app.include_router(agent_route.router)
 app.include_router(rbac.router)
+app.mount(
+    "/ops",
+    StaticFiles(directory=str(Path(__file__).parent / "ops_dashboard"), html=True),
+    name="operations-dashboard",
+)
 
 # ── Health check ──
 @app.get("/")

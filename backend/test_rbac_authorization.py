@@ -16,7 +16,7 @@ supabase_module.Client = object
 supabase_module.create_client = lambda *args, **kwargs: None
 sys.modules.setdefault("supabase", supabase_module)
 
-from app.services.rbac import AccessContext, RoleAssignment, can_access_receipt
+from app.services.rbac import AccessContext, RoleAssignment, can_access_receipt, require_permission
 
 
 RECEIPT_A = {"id": 10, "user_id": "alice", "customer_id": "customer-a"}
@@ -107,3 +107,16 @@ def test_database_permission_mapping_can_remove_static_permission():
     )
     assert can_access_receipt(user, RECEIPT_A, "receipts.read")
     assert not can_access_receipt(user, RECEIPT_A, "receipts.delete")
+
+
+def test_customer_owner_and_master_user_management_permissions():
+    owner = context("owner", "customer_owner", "customer-a")
+    master = context("master", "master_user")
+    require_permission(owner, "users.manage", "customer-a")
+    require_permission(master, "users.manage")
+
+
+def test_customer_scoped_auditor_has_read_only_audit_permission():
+    auditor = context("audit", "auditor", "customer-a")
+    require_permission(auditor, "audit.read", "customer-a")
+    assert not can_access_receipt(auditor, RECEIPT_A, "receipts.update")

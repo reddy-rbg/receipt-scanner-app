@@ -130,7 +130,7 @@ on conflict (permission_key) do update set description=excluded.description;
 insert into public.rbac_role_permissions(role_key, permission_key)
 select 'platform_admin', permission_key from public.rbac_permissions on conflict do nothing;
 insert into public.rbac_role_permissions(role_key, permission_key) values
-  ('master_user','users.read'),('master_user','receipts.read'),('master_user','receipts.update'),
+  ('master_user','users.read'),('master_user','users.manage'),('master_user','receipts.read'),('master_user','receipts.update'),
   ('master_user','receipts.delete'),('master_user','receipts.correct_items'),('master_user','receipts.view_image'),
   ('master_user','analytics.read_customer'),('master_user','analytics.read_global'),('master_user','reports.export'),
   ('master_user','support.approve_access'),('master_user','audit.read'),

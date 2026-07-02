@@ -2,6 +2,8 @@
 
 ReceiptAI uses backend-enforced role-based access control (RBAC) plus customer and receipt scopes. The mobile UI may hide unavailable actions, but it is never the security boundary.
 
+The separate operations console is served at `/ops/` on the backend deployment. Regular `customer_user` accounts continue using the mobile app; only platform admins, master users, customer owners, support agents, receipt editors, and auditors can enter the console.
+
 ## Roles
 
 | Role | Scope | Intended access |
@@ -29,6 +31,17 @@ All cross-user receipt access requires one of: a global data role, a customer-sc
 
 A support agent has zero receipt visibility by default. A customer owner, master user, or platform administrator creates a grant with a case ID, reason, limited receipt permissions, scope (customer or receipt), and expiration. Self-approval is rejected. Revocation takes effect after the authorization cache's maximum 30-second lifetime and is logged.
 
+## Operations console
+
+- **Overview:** authorized receipt totals, assignments, support grants, roles, and recent activity.
+- **Receipts:** scoped receipt search, header correction, and line-item correction.
+- **Assignments:** route individual receipts to correction operators and revoke work.
+- **Support access:** create and revoke receipt- or customer-scoped access windows.
+- **Users:** create operator accounts, assign roles, and activate/deactivate accounts.
+- **Customers:** create and inspect isolated organization workspaces.
+- **Roles:** inspect permissions; platform admins may customize non-admin roles.
+- **Audit:** review security-sensitive activity within the authorized scope.
+
 ## Operational rules
 
 - Use short support expirations and the smallest necessary permission set.
@@ -47,4 +60,3 @@ A support agent has zero receipt visibility by default. A customer owner, master
 - Master users cannot grant platform-admin privileges.
 - Every role, support, correction, assignment, customer, and deletion mutation writes an audit event.
 - Guest session ownership behavior is unchanged.
-

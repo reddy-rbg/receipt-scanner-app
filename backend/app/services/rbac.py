@@ -16,7 +16,7 @@ from app.config import supabase
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "platform_admin": {"*"},
     "master_user": {
-        "users.read", "receipts.read", "receipts.update", "receipts.delete",
+        "users.read", "users.manage", "receipts.read", "receipts.update", "receipts.delete",
         "receipts.correct_items", "receipts.view_image", "analytics.read_customer",
         "analytics.read_global", "reports.export", "support.approve_access", "audit.read",
     },
@@ -188,7 +188,7 @@ def require_permission(context: AccessContext, permission: str, customer_id: str
             return
         if customer_id and role.customer_id == customer_id:
             return
-        if not customer_id and role.role_key in {"customer_user", "support_agent"}:
+        if not customer_id:
             return
     raise HTTPException(status_code=403, detail="You do not have permission for this action.")
 
