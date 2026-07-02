@@ -82,8 +82,11 @@ export default function ShopScreen() {
   const [items, setItems] = useState<ShopItem[]>([]);
   const [quickItems, setQuickItems] = useState<string[]>([]);
   const [loadingQuick, setLoadingQuick] = useState(false);
+  const [listHydrated, setListHydrated] = useState(false);
+  const storageKey = `${STORAGE_KEY}:${user?.id || 'none'}`;
 
   useEffect(() => {
+    setListHydrated(false);
     loadList();
     loadQuickItems();
     // The loaders intentionally run when the signed-in/guest owner changes.
@@ -91,12 +94,13 @@ export default function ShopScreen() {
   }, [user?.id]);
 
   useEffect(() => {
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items.map(item => ({
+    if (!listHydrated) return;
+    AsyncStorage.setItem(storageKey, JSON.stringify(items.map(item => ({
       id: item.id,
       name: item.name,
       checked: item.checked,
     })))).catch(() => {});
-  }, [items]);
+  }, [items, listHydrated, storageKey]);
 
   async function authContext() {
     const token = getUserToken();
@@ -109,7 +113,7 @@ export default function ShopScreen() {
 
   async function loadList() {
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      const raw = await AsyncStorage.getItem(storageKey);
       const saved = raw ? JSON.parse(raw) : [];
       if (!Array.isArray(saved)) return;
       const next = saved
@@ -118,6 +122,7 @@ export default function ShopScreen() {
       setItems(next);
       next.forEach(item => refreshItem(item.id, item.name));
     } catch {}
+    finally { setListHydrated(true); }
   }
 
   async function loadQuickItems() {

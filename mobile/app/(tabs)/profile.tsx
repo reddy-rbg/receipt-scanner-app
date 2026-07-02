@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuth, clearUser } from '../../stores/authStore';
+import { useAuth, clearUser, getGuestSessionId } from '../../stores/authStore';
 import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
@@ -46,8 +46,10 @@ export default function ProfileScreen() {
     setStatsLoading(true);
     try {
       const headers: any = { 'Content-Type':'application/json' };
-      if (user?.token) headers['Authorization'] = `Bearer ${user.token}`;
-      const res = await fetch(`${API}/summary`, { headers });
+      const guestId = getGuestSessionId();
+      if (!guestId && user?.token && user.token !== 'guest') headers['Authorization'] = `Bearer ${user.token}`;
+      const summaryUrl = guestId ? `${API}/summary?session_id=${encodeURIComponent(guestId)}` : `${API}/summary`;
+      const res = await fetch(summaryUrl, { headers });
       const d   = await res.json();
       setStats({
         receipts: d.total_receipts || 0,

@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { getUserToken, useAuth } from '../../stores/authStore';
+import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
 import { API } from '../../config/api';
 import { useState, useEffect, useCallback } from 'react';
@@ -321,8 +321,10 @@ export default function ScanScreen(){
     try{
       const token = await getUserToken();
       const headers:any = {'Content-Type':'application/json'};
-      if(token) headers['Authorization'] = `Bearer ${token}`;
-      const res=await fetch(`${API}/summary`,{headers});
+      const guestId = getGuestSessionId();
+      if(!guestId && token && token !== 'guest') headers['Authorization'] = `Bearer ${token}`;
+      const summaryUrl = guestId ? `${API}/summary?session_id=${encodeURIComponent(guestId)}` : `${API}/summary`;
+      const res=await fetch(summaryUrl,{headers});
       const d=await res.json();
       setStats({
         receipts: d.total_receipts||0,

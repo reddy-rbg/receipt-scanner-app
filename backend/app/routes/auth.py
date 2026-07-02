@@ -29,6 +29,10 @@ class ForgotPasswordRequest(BaseModel):
     email: str
 
 
+class RefreshSessionRequest(BaseModel):
+    refresh_token: str
+
+
 def validate_password(password: str) -> str | None:
     """
     Validate password strength.
@@ -174,6 +178,41 @@ def login(req: AuthRequest):
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
 
+@router.post("/refresh")
+def refresh_session(req: RefreshSessionRequest):
+    """Exchange a stored refresh token for a fresh Supabase session."""
+    token = req.refresh_token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Refresh token is required.")
+    try:
+        response = database.supabase.auth.refresh_session(token)
+        if not response.session or not response.user:
+            raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
+        name = (
+            response.user.user_metadata.get("name")
+            or response.user.user_metadata.get("full_name")
+            or (response.user.email or "user").split("@")[0]
+        )
+        return {
+            "success": True,
+            "user": {
+                "id": str(response.user.id),
+                "email": response.user.email,
+                "name": name,
+                "created_at": str(response.user.created_at),
+            },
+            "session": {
+                "access_token": response.session.access_token,
+                "refresh_token": response.session.refresh_token,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[auth_refresh] Session refresh failed: {e}")
+        raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
+
+
 @router.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest):
     """Send a Supabase password recovery email."""
@@ -252,6 +291,29 @@ def delete_account(req: AuthRequest):
 
         user_id = str(auth_response.user.id)
 
+        import os
+        service_key = (
+            os.environ.get("SUPABASE_SERVICE_KEY", "")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        )
+        supabase_url = os.environ.get("SUPABASE_URL", "")
+        if not service_key or not supabase_url:
+            print("[delete_account] Supabase service-role configuration is missing")
+            raise HTTPException(status_code=503, detail="Account deletion is temporarily unavailable.")
+
+        # Remove owner-scoped learning and conversation data as part of the
+        # same deletion request. Missing optional tables mean their migrations
+        # were never installed and therefore contain no user data.
+        for table_name in ("agent_conversation_messages", "agent_feedback", "receipt_item_aliases"):
+            try:
+                database.supabase.table(table_name).delete().eq("user_id", user_id).execute()
+            except Exception as table_error:
+                message = str(table_error).lower()
+                if "pgrst205" in message or "could not find the table" in message or "does not exist" in message:
+                    continue
+                print(f"[delete_account] Could not delete {table_name}: {table_error}")
+                raise HTTPException(status_code=503, detail="Account data could not be fully deleted. Please try again.")
+
         # ── Step 2: Delete all receipts for this user ──
         try:
             database.supabase.table("receipts")\
@@ -261,14 +323,11 @@ def delete_account(req: AuthRequest):
             print(f"[delete_account] Deleted all receipts for user {user_id}")
         except Exception as e:
             print(f"[delete_account] Could not delete receipts: {e}")
+            raise HTTPException(status_code=503, detail="Account data could not be fully deleted. Please try again.")
             # Continue anyway — try to delete the account
 
         # ── Step 3: Delete user from Supabase Auth ──
         # Requires service role key
-        import os
-        service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
-        supabase_url = os.environ.get("SUPABASE_URL", "")
-
         if service_key and supabase_url:
             import urllib.request, json as _json
             req_data = _json.dumps({}).encode()
@@ -295,4 +354,5 @@ def delete_account(req: AuthRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Account deletion failed: {str(e)}")
+        print(f"[delete_account] Unexpected failure: {e}")
+        raise HTTPException(status_code=500, detail="Account deletion failed. Please try again.")

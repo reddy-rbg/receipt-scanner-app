@@ -8,7 +8,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import receipts, queries, auth, agent_route
+from app.routes import receipts, auth, agent_route
 from app.services import agent as agent_service
 from app.services import agent_workflow
 
@@ -68,17 +68,24 @@ app = FastAPI(
 )
 
 # ── Allow browser to talk to API ──
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ── Connect all routes ──
 app.include_router(receipts.router)
-app.include_router(queries.router)
+# Legacy global query routes were intentionally retired. They loaded receipts
+# without an owner scope; all supported analytics now live in owner-filtered
+# receipt and agent routes.
 app.include_router(auth.router)
 app.include_router(agent_route.router)
 
@@ -104,7 +111,7 @@ def agent_health():
     return {
         "success": True,
         "message": "AI Agent routes are loaded",
-        "routes": ["POST /agent", "POST /agent/", "POST /agent/chat", "POST /agent/clear"],
+        "routes": ["POST /agent", "POST /agent/", "POST /agent/chat", "GET /agent/history", "POST /agent/clear"],
         "structured_rag": True,
         "learned_aliases": True,
         "adaptive_query_recovery": True,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../stores/themeStore';
-import { getUserToken, getGuestSessionId } from '../../stores/authStore';
+import { getUserToken, getGuestSessionId, getUser } from '../../stores/authStore';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
@@ -194,10 +195,41 @@ export default function AgentScreen() {
   const [loading, setLoading]   = useState(false);
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(null);
   const [voiceText, setVoiceText] = useState('');
-  const [sessionId]             = useState(`session_${Date.now()}`);
+  const [sessionId, setSessionId] = useState('');
   const scrollRef               = useRef<ScrollView>(null);
   const voiceModeRef            = useRef<VoiceMode>(null);
   const wakeRestartRef          = useRef<any>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function restoreSession() {
+      const ownerId = getUser()?.id || getGuestSessionId() || 'anonymous';
+      const key = `receiptai:agent-session:${ownerId}`;
+      const stored = await AsyncStorage.getItem(key).catch(() => null);
+      const value = stored || `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      if (!stored) await AsyncStorage.setItem(key, value).catch(() => {});
+      if (!active) return;
+      setSessionId(value);
+      try {
+        const guestId = getGuestSessionId();
+        const token = getUserToken();
+        const params = new URLSearchParams({ session_id: value });
+        if (guestId) params.set('guest_session_id', guestId);
+        const headers:any = {};
+        if (!guestId && token && token !== 'guest') headers.Authorization = `Bearer ${token}`;
+        const response = await fetch(`${API}/agent/history?${params.toString()}`, { headers });
+        if (!response.ok) return;
+        const data = await response.json();
+        const restored: Msg[] = (data.messages || []).map((row:any) => ({
+          role: row.role === 'user' ? 'user' : 'agent',
+          text: String(row.content || ''),
+        })).filter((row:Msg) => row.text);
+        if (active && restored.length) setMsgs(restored);
+      } catch {}
+    }
+    restoreSession();
+    return () => { active = false; };
+  }, []);
 
   useFocusEffect(useCallback(() => {}, []));
 
@@ -381,7 +413,7 @@ export default function AgentScreen() {
 
   async function sendMessage(text: string) {
     const message = text.trim();
-    if (!message || loading) return;
+    if (!message || loading || !sessionId) return;
 
     setInput('');
     const userMsg: Msg = { role: 'user', text: message };
@@ -392,15 +424,23 @@ export default function AgentScreen() {
     scrollToBottom();
 
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 45000);
       const token = getUserToken();
       const headers: any = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`${API}/agent/chat`, {
-        method:  'POST',
-        headers,
-        body:    JSON.stringify({ message, session_id: sessionId, guest_session_id: getGuestSessionId() || undefined }),
-      });
+      let res: Response;
+      try {
+        res = await fetch(`${API}/agent/chat`, {
+          method:  'POST',
+          headers,
+          signal: controller.signal,
+          body: JSON.stringify({ message, session_id: sessionId, guest_session_id: getGuestSessionId() || undefined }),
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       const raw = await res.text();
       let data: any = {};
@@ -428,7 +468,9 @@ export default function AgentScreen() {
     } catch (e: any) {
       const errMsg: Msg = {
         role: 'agent',
-        text: friendlyAgentError(e.message || 'Could not connect'),
+        text: e?.name === 'AbortError'
+          ? 'That answer took too long. Please try again.'
+          : friendlyAgentError(e.message || 'Could not connect'),
       };
       setMsgs(prev => [...prev.slice(0, -1), errMsg]);
     } finally {

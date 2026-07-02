@@ -20,6 +20,7 @@ import hashlib
 import math
 import os
 import re
+from datetime import datetime
 from typing import Any
 
 from app.config import supabase
@@ -33,6 +34,21 @@ EXPLICIT_QTY_RE = re.compile(r"\b(QTY\s*\d+|\d+\s*@|\d+\s+EA\b|\d+\s+FOR\b|\d+\s
 LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-contextual-local-hash-v2")
 EMBEDDING_DIMENSIONS = 1536
 RECEIPT_ITEM_EMBEDDINGS_ENABLED = os.getenv("RECEIPT_ITEM_EMBEDDINGS_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
+OPTIONAL_RECEIPT_IDENTIFIER_FIELDS = {
+    "transaction_number", "receipt_number", "invoice_number", "order_number",
+}
+
+
+def insert_receipt_with_optional_identifiers(payload: dict):
+    """Support rolling deploys before the identifier migration is applied."""
+    try:
+        return supabase.table("receipts").insert(payload).execute()
+    except Exception as first_error:
+        if not any(field in payload for field in OPTIONAL_RECEIPT_IDENTIFIER_FIELDS):
+            raise
+        legacy_payload = {key: value for key, value in payload.items() if key not in OPTIONAL_RECEIPT_IDENTIFIER_FIELDS}
+        print(f"[receipts] Identifier columns unavailable; using legacy schema: {first_error}")
+        return supabase.table("receipts").insert(legacy_payload).execute()
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -53,6 +69,21 @@ def normalize_item_name(name: str | None) -> str:
     text = text.replace("lowe's", "lowes").replace("pren", "prem").replace("prern", "prem").replace("prcm", "prem")
     text = re.sub(r"[^a-z0-9\.]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_purchase_date(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d-%b-%Y", "%b %d, %Y", "%b %d"):
+        try:
+            parsed = datetime.strptime(text[:10] if fmt == "%Y-%m-%d" else text, fmt)
+            if fmt == "%b %d":
+                parsed = parsed.replace(year=datetime.now().year)
+            return parsed
+        except ValueError:
+            continue
+    return None
 
 
 def find_product_size(name: str | None) -> str | None:
@@ -302,7 +333,11 @@ def save_receipt(store: str, date: str, total: float, items: list,
                  total_savings: float = 0.00, time: str = None,
                  payment_method: str = None,
                  image_hash: str = None,
-                 user_id: str = None) -> dict:
+                 user_id: str = None,
+                 transaction_number: str | None = None,
+                 receipt_number: str | None = None,
+                 invoice_number: str | None = None,
+                 order_number: str | None = None) -> dict:
     """
     Save a scanned receipt to the database.
 
@@ -326,7 +361,7 @@ def save_receipt(store: str, date: str, total: float, items: list,
     # .table("receipts") — which Supabase table to insert into
     # .insert({...})     — the data to insert as a dictionary
     # .execute()         — actually run the query
-    response = supabase.table("receipts").insert({
+    response = insert_receipt_with_optional_identifiers({
         "store":          store,
         "address":        address,
         "date":           date,
@@ -340,7 +375,11 @@ def save_receipt(store: str, date: str, total: float, items: list,
         "total_savings":  total_savings,
         "image_hash":     image_hash,
         "user_id":        user_id,         # ✅ links receipt to logged-in user
-    }).execute()
+        "transaction_number": transaction_number,
+        "receipt_number": receipt_number,
+        "invoice_number": invoice_number,
+        "order_number": order_number,
+    })
 
     # response.data is a list of inserted rows
     # We return the first (and only) inserted row
@@ -368,7 +407,11 @@ def get_all_receipts() -> list:
     return response.data
 
 
-def get_receipts_by_store(store_name: str) -> list:
+def get_receipts_by_store(
+    store_name: str,
+    user_id: str | None = None,
+    guest_session_id: str | None = None,
+) -> list:
     """
     Search receipts by store name.
     Uses ilike (case insensitive LIKE) so:
@@ -378,16 +421,25 @@ def get_receipts_by_store(store_name: str) -> list:
     The % signs mean anything before or after the search term
     """
 
-    response = supabase.table("receipts")\
-        .select("*")\
-        .ilike("store", f"%{store_name}%")\
-        .order("created_at", desc=True)\
-        .execute()
+    query = supabase.table("receipts").select("*")
+    if user_id:
+        query = query.eq("user_id", user_id)
+    elif guest_session_id:
+        query = query.eq("is_guest", True).eq("guest_session_id", guest_session_id)
+    else:
+        return []
+    response = query.ilike("store", f"%{store_name}%")\
+        .order("created_at", desc=True).execute()
 
     return response.data
 
 
-def get_receipts_by_date(from_date: str, to_date: str) -> list:
+def get_receipts_by_date(
+    from_date: str,
+    to_date: str,
+    user_id: str | None = None,
+    guest_session_id: str | None = None,
+) -> list:
     """
     Get receipts between two dates.
 
@@ -398,22 +450,48 @@ def get_receipts_by_date(from_date: str, to_date: str) -> list:
     Returns all receipts scanned in that range
     """
 
-    response = supabase.table("receipts")\
-        .select("*")\
-        .gte("created_at", from_date)\
-        .lte("created_at", to_date)\
-        .order("created_at", desc=True)\
-        .execute()
+    query = supabase.table("receipts").select("*")
+    if user_id:
+        query = query.eq("user_id", user_id)
+    elif guest_session_id:
+        query = query.eq("is_guest", True).eq("guest_session_id", guest_session_id)
+    else:
+        return []
+    response = query.order("created_at", desc=True).execute()
+    start = parse_purchase_date(from_date)
+    end = parse_purchase_date(to_date)
+    if not start or not end:
+        return []
+    return [
+        receipt
+        for receipt in (response.data or [])
+        if (parsed := parse_purchase_date(receipt.get("date") or receipt.get("created_at")))
+        and start <= parsed <= end
+    ]
 
-    return response.data
 
-
-def delete_receipt(receipt_id: int) -> dict:
+def delete_receipt(
+    receipt_id: int,
+    user_id: str | None = None,
+    guest_session_id: str | None = None,
+) -> dict:
     """
     Permanently delete a single receipt by its ID.
     .eq("id", receipt_id) means where id = receipt_id
     Returns the deleted record so we can confirm what was removed
     """
+
+    if not user_id and not guest_session_id:
+        return {}
+
+    owner_query = supabase.table("receipts").select("id,user_id,is_guest,guest_session_id").eq("id", receipt_id)
+    if user_id:
+        owner_query = owner_query.eq("user_id", user_id)
+    else:
+        owner_query = owner_query.eq("is_guest", True).eq("guest_session_id", guest_session_id)
+    owned = owner_query.limit(1).execute().data or []
+    if not owned:
+        return {}
 
     try:
         supabase.table("receipt_items")\
@@ -423,10 +501,12 @@ def delete_receipt(receipt_id: int) -> dict:
     except Exception as e:
         print(f"[receipt_items] Could not delete item rows for receipt {receipt_id}: {e}")
 
-    response = supabase.table("receipts")\
-        .delete()\
-        .eq("id", receipt_id)\
-        .execute()
+    delete_query = supabase.table("receipts").delete().eq("id", receipt_id)
+    if user_id:
+        delete_query = delete_query.eq("user_id", user_id)
+    else:
+        delete_query = delete_query.eq("is_guest", True).eq("guest_session_id", guest_session_id)
+    response = delete_query.execute()
 
     # Return deleted record or empty dict if nothing found
     deleted = response.data[0] if response.data else {}

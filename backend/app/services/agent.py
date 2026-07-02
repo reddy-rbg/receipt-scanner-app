@@ -36,7 +36,7 @@ AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
 AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
-AGENT_BUILD = "single-pass-intent-plan-2026-06-28"
+AGENT_BUILD = "launch-stabilized-single-pass-2026-07-01"
 AGENT_CAPABILITIES = {
     "structured_rag": True,
     "adaptive_query_recovery": True,
@@ -58,6 +58,7 @@ AGENT_CAPABILITIES = {
     "rerank_trace": True,
     "claude_only": True,
     "single_pass_intent_plan": True,
+    "persistent_conversation_contract": True,
 }
 RECEIPT_SELECT = "id,store,address,date,time,total,subtotal,discount,tax,total_savings,items,created_at"
 ITEM_SELECT = "receipt_id,line_index,store,purchase_date,receipt_created_at,code,item_name_original,item_name_normalized,product_size,quantity,raw_quantity,unit,unit_price,line_price,source,confidence,explicit_quantity,metadata"

@@ -163,6 +163,8 @@ Run these migrations once in the Supabase SQL Editor:
 ```text
 backend/supabase_receipt_items.sql
 backend/supabase_item_aliases.sql
+backend/supabase_agent_conversations.sql
+backend/supabase_receipt_identifiers.sql
 ```
 
 These create:

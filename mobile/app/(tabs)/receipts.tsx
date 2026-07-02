@@ -22,6 +22,8 @@ type Receipt = {
   address?:string; total?:number; total_savings?:number;
   items?:any[]; subtotal?:number; discount?:number;
   tax?:number; payment_method?:string; created_at?:string;
+  transaction_number?:string; receipt_number?:string;
+  invoice_number?:string; order_number?:string;
 };
 
 type ReceiptCategory = {
@@ -354,10 +356,19 @@ export default function ReceiptsScreen() {
   async function filterByDateRange() {
     if (!fromD || !toD) return;
     try {
-      const res  = await fetch(`${API}/receipts/date?from_date=${fromD}&to_date=${toD}T23:59:59`);
+      const guestId = getGuestSessionId();
+      const token = getUserToken();
+      const params = new URLSearchParams({ from_date: fromD, to_date: `${toD}T23:59:59` });
+      if (guestId) params.set('session_id', guestId);
+      const headers:any = {};
+      if (!guestId && token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`${API}/receipts/date?${params.toString()}`, { headers });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not filter receipts.');
       showResults(data.receipts || [], `${fromD}  ${toD}`);
-    } catch {}
+    } catch (e:any) {
+      Alert.alert('Could not filter receipts', e.message || 'Please try again.');
+    }
   }
 
   function doSort() {
@@ -383,12 +394,21 @@ export default function ReceiptsScreen() {
   async function deleteReceipt() {
     if (!selected) return;
     try {
-      await fetch(`${API}/receipts/${selected.id}`, { method:'DELETE' });
+      const guestId = getGuestSessionId();
+      const token = getUserToken();
+      const suffix = guestId ? `?session_id=${encodeURIComponent(guestId)}` : '';
+      const headers:any = {};
+      if (!guestId && token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(`${API}/receipts/${selected.id}${suffix}`, { method:'DELETE', headers });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Could not delete receipt.');
       setDeleted(true);
       setAll(prev => prev.filter(r => r.id !== selected.id));
       setShown(prev => prev.filter(r => r.id !== selected.id));
       setTimeout(() => { setSelected(null); setDeleted(false); setDeleteMode(false); }, 1600);
-    } catch {}
+    } catch (e:any) {
+      Alert.alert('Could not delete receipt', e.message || 'Please try again.');
+    }
   }
 
   function startEditItem(index: number, item: any) {
@@ -863,6 +883,10 @@ export default function ReceiptsScreen() {
                 </View>
               )}
               {selected?.payment_method ? <Text style={s.payment}>Paid with {selected.payment_method}</Text> : null}
+              {selected?.transaction_number ? <Text style={s.payment}>Transaction {selected.transaction_number}</Text> : null}
+              {selected?.receipt_number ? <Text style={s.payment}>Receipt {selected.receipt_number}</Text> : null}
+              {selected?.invoice_number ? <Text style={s.payment}>Invoice {selected.invoice_number}</Text> : null}
+              {selected?.order_number ? <Text style={s.payment}>Order {selected.order_number}</Text> : null}
 
               {!deleteMode && (
                 <TouchableOpacity style={s.deleteBtn} onPress={() => setDeleteMode(true)}>

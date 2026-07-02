@@ -145,6 +145,7 @@ export default function LoginScreen() {
         name:       data.user.name,
         created_at: data.user.created_at,
         token:      accessToken,
+        refresh_token: data.session?.refresh_token || '',
         isGuest:    false,
         is_guest:   false,
       });

@@ -5,7 +5,9 @@
 
 import asyncio
 import hashlib
+import re
 import time
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -14,8 +16,105 @@ from app.services import agent_workflow
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 conversation_store: dict[str, list[dict[str, str]]] = {}
+_PERSISTENT_HISTORY_AVAILABLE: bool | None = None
 _TOKEN_USER_CACHE: dict[str, tuple[float, str]] = {}
 TOKEN_USER_CACHE_SECONDS = 300
+_RATE_BUCKETS: dict[tuple[str, str], list[float]] = {}
+
+
+def validate_guest_session_id(value: str | None) -> str:
+    session_id = (value or "").strip()
+    if (
+        len(session_id) < 12
+        or len(session_id) > 160
+        or session_id in {"guest", "default"}
+        or re.fullmatch(r"[A-Za-z0-9_-]+", session_id) is None
+    ):
+        raise HTTPException(status_code=401, detail="A valid guest session is required.")
+    return session_id
+
+
+def enforce_rate_limit(scope: str, owner: str, maximum: int, window_seconds: int) -> None:
+    now = time.monotonic()
+    key = (scope, owner)
+    recent = [stamp for stamp in _RATE_BUCKETS.get(key, []) if now - stamp < window_seconds]
+    if len(recent) >= maximum:
+        raise HTTPException(status_code=429, detail="Too many requests. Please wait a moment and try again.")
+    recent.append(now)
+    _RATE_BUCKETS[key] = recent
+    if len(_RATE_BUCKETS) > 5000:
+        _RATE_BUCKETS.clear()
+
+
+def load_persistent_history(
+    session_id: str,
+    user_id: str | None,
+    guest_session_id: str | None,
+) -> list[dict[str, str]]:
+    global _PERSISTENT_HISTORY_AVAILABLE
+    if _PERSISTENT_HISTORY_AVAILABLE is False:
+        return []
+    try:
+        from app.config import supabase
+        query = supabase.table("agent_conversation_messages")\
+            .select("role,content,created_at")\
+            .eq("session_id", session_id)
+        if user_id:
+            query = query.eq("user_id", user_id)
+        else:
+            query = query.eq("guest_session_id", guest_session_id)
+        rows = query.order("created_at", desc=True).limit(20).execute().data or []
+        _PERSISTENT_HISTORY_AVAILABLE = True
+        return [
+            {"role": str(row.get("role") or ""), "content": str(row.get("content") or "")}
+            for row in reversed(rows)
+            if row.get("role") in {"user", "assistant"} and row.get("content")
+        ]
+    except Exception as e:
+        if _PERSISTENT_HISTORY_AVAILABLE is not False:
+            print(f"[agent_history] Persistent history unavailable: {e}")
+        _PERSISTENT_HISTORY_AVAILABLE = False
+        return []
+
+
+def save_persistent_turn(
+    session_id: str,
+    user_id: str | None,
+    guest_session_id: str | None,
+    message: str,
+    response: str,
+) -> None:
+    global _PERSISTENT_HISTORY_AVAILABLE
+    if _PERSISTENT_HISTORY_AVAILABLE is False:
+        return
+    try:
+        from app.config import supabase
+        owner = {
+            "user_id": user_id,
+            "guest_session_id": None if user_id else guest_session_id,
+            "session_id": session_id,
+        }
+        supabase.table("agent_conversation_messages").insert([
+            {**owner, "role": "user", "content": message},
+            {**owner, "role": "assistant", "content": response},
+        ]).execute()
+        _PERSISTENT_HISTORY_AVAILABLE = True
+    except Exception as e:
+        if _PERSISTENT_HISTORY_AVAILABLE is not False:
+            print(f"[agent_history] Could not persist turn: {e}")
+        _PERSISTENT_HISTORY_AVAILABLE = False
+
+
+def clear_persistent_history(session_id: str, user_id: str | None, guest_session_id: str | None) -> None:
+    if _PERSISTENT_HISTORY_AVAILABLE is False:
+        return
+    try:
+        from app.config import supabase
+        query = supabase.table("agent_conversation_messages").delete().eq("session_id", session_id)
+        query = query.eq("user_id", user_id) if user_id else query.eq("guest_session_id", guest_session_id)
+        query.execute()
+    except Exception as e:
+        print(f"[agent_history] Could not clear persistent history: {e}")
 
 
 class AgentMessage(BaseModel):
@@ -70,14 +169,19 @@ async def handle_agent_request(request: Request, body: AgentMessage):
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
     user_id = await asyncio.to_thread(get_user_id, request)
-    guest_session_id = None if user_id else (body.guest_session_id or body.session_id)
-
-    if not user_id and (not guest_session_id or guest_session_id in {"guest", "default"}):
-        raise HTTPException(status_code=400, detail="Valid guest_session_id is required for guest agent requests.")
+    guest_session_id = None if user_id else validate_guest_session_id(body.guest_session_id)
 
     owner_key = user_id or guest_session_id
+    enforce_rate_limit("agent", str(owner_key), maximum=30, window_seconds=60)
     session_key = f"{owner_key}:{body.session_id}"
-    history = conversation_store.get(session_key, [])
+    history = conversation_store.get(session_key)
+    if history is None:
+        history = await asyncio.to_thread(
+            load_persistent_history,
+            body.session_id,
+            user_id,
+            guest_session_id,
+        )
 
     try:
         result = await asyncio.to_thread(
@@ -94,6 +198,16 @@ async def handle_agent_request(request: Request, body: AgentMessage):
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": response_text})
         conversation_store[session_key] = history[-20:]
+        if len(conversation_store) > 1000:
+            conversation_store.pop(next(iter(conversation_store)), None)
+        await asyncio.to_thread(
+            save_persistent_turn,
+            body.session_id,
+            user_id,
+            guest_session_id,
+            message,
+            response_text,
+        )
 
         return {
             "success": True,
@@ -107,8 +221,9 @@ async def handle_agent_request(request: Request, body: AgentMessage):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[agent] Agent error: {e}")
-        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+        request_id = uuid.uuid4().hex[:12]
+        print(f"[agent] request_id={request_id} error={e}")
+        raise HTTPException(status_code=500, detail=f"Agent request failed. Reference: {request_id}")
 
 
 @router.post("")
@@ -126,23 +241,38 @@ async def run_agent_chat(request: Request, body: AgentMessage):
     return await handle_agent_request(request, body)
 
 
+@router.get("/history")
+async def get_conversation_history(
+    request: Request,
+    session_id: str,
+    guest_session_id: str | None = None,
+):
+    user_id = await asyncio.to_thread(get_user_id, request)
+    guest_id = None if user_id else validate_guest_session_id(guest_session_id)
+    owner_key = user_id or guest_id
+    session_key = f"{owner_key}:{session_id}"
+    history = conversation_store.get(session_key)
+    if history is None:
+        history = await asyncio.to_thread(load_persistent_history, session_id, user_id, guest_id)
+        conversation_store[session_key] = history[-20:]
+    return {"success": True, "messages": history[-20:]}
+
+
 @router.post("/clear")
 async def clear_conversation(request: Request, body: ClearMessage):
-    user_id = get_user_id(request)
-    guest_session_id = None if user_id else (body.guest_session_id or body.session_id)
+    user_id = await asyncio.to_thread(get_user_id, request)
+    guest_session_id = None if user_id else validate_guest_session_id(body.guest_session_id)
     owner_key = user_id or guest_session_id
     session_key = f"{owner_key}:{body.session_id}"
     conversation_store.pop(session_key, None)
+    await asyncio.to_thread(clear_persistent_history, body.session_id, user_id, guest_session_id)
     return {"success": True, "message": "Conversation cleared."}
 
 
 @router.post("/feedback")
 async def agent_feedback(request: Request, body: AgentFeedback):
     user_id = get_user_id(request)
-    guest_session_id = None if user_id else (body.guest_session_id or body.session_id)
-
-    if not user_id and (not guest_session_id or guest_session_id in {"guest", "default"}):
-        raise HTTPException(status_code=400, detail="Valid guest_session_id is required for guest feedback.")
+    guest_session_id = None if user_id else validate_guest_session_id(body.guest_session_id)
 
     learned_alias = False
     if body.alias_term and body.alias_value:

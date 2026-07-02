@@ -51,6 +51,15 @@ from test_agent_architecture_v2 import (
     test_ttl_cache_reuses_data_without_request_wide_clear,
     test_workflow_passes_one_plan_into_execution,
 )
+from test_launch_readiness import (
+    test_account_deletion_fails_closed_without_service_role,
+    test_agent_guest_session_uses_same_strict_contract,
+    test_date_filter_is_owner_scoped_and_uses_purchase_date,
+    test_guest_session_rejects_shared_defaults,
+    test_receipt_delete_refuses_unscoped_calls,
+    test_scan_contract_includes_labeled_receipt_identifiers,
+    test_unscoped_legacy_query_router_is_not_registered,
+)
 
 
 QUALITY_GATE_TESTS = [
@@ -87,6 +96,13 @@ QUALITY_GATE_TESTS = [
     test_prepared_plan_skips_second_interpretation,
     test_workflow_passes_one_plan_into_execution,
     test_ttl_cache_reuses_data_without_request_wide_clear,
+    test_guest_session_rejects_shared_defaults,
+    test_agent_guest_session_uses_same_strict_contract,
+    test_receipt_delete_refuses_unscoped_calls,
+    test_date_filter_is_owner_scoped_and_uses_purchase_date,
+    test_unscoped_legacy_query_router_is_not_registered,
+    test_account_deletion_fails_closed_without_service_role,
+    test_scan_contract_includes_labeled_receipt_identifiers,
 ]
 
 

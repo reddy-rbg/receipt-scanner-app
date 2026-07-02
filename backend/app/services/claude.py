@@ -582,6 +582,10 @@ WHAT TO EXTRACT:
    - date: exact date printed on receipt (e.g. "04/12/26")
    - time: time of purchase if visible (e.g. "12:27:30")
    - payment_method: how they paid (e.g. "AMEX", "VISA", "CASH")
+   - transaction_number: transaction/reference number if clearly labeled; otherwise null
+   - receipt_number: receipt number if clearly labeled; otherwise null
+   - invoice_number: invoice number if clearly labeled; otherwise null
+   - order_number: order number if clearly labeled; otherwise null
 
 2. ITEMS — extract EVERY item carefully:
 - For invoices with table columns like UPC, Product Name / Description, SO Qty, Qty, Price, Sold Price, Amount:
@@ -678,8 +682,8 @@ STRICT RULES:
 - Item names must be EXACT as printed — do not paraphrase
 - total must match exactly what is printed on the receipt/invoice; use null when not visible
 - For weighted items ALWAYS capture unit and unit_price
-- Do NOT include: transaction numbers, receipt numbers, survey URLs,
-  cashier names, store membership numbers, card numbers, change due
+- Extract labeled transaction/receipt/invoice/order numbers only into their dedicated top-level fields. Never put them into item names.
+- Do NOT include survey URLs, cashier names, store membership numbers, full card numbers, authorization codes, or change due.
 
 Return JSON only — no extra text, no markdown:
 {
@@ -688,6 +692,10 @@ Return JSON only — no extra text, no markdown:
     "date": "date or null",
     "time": "time or null",
     "payment_method": "payment method or null",
+    "transaction_number": "transaction/reference number or null",
+    "receipt_number": "receipt number or null",
+    "invoice_number": "invoice number or null",
+    "order_number": "order number or null",
     "subtotal": 0.00,
     "discount": 0.00,
     "tax": 0.00,

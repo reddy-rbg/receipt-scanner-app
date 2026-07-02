@@ -13,6 +13,9 @@
 
 # APIRouter groups related endpoints together
 # like a mini FastAPI app for receipts only
+import re
+import time
+
 from fastapi import APIRouter, File, UploadFile, HTTPException, Request
 from pydantic import BaseModel
 
@@ -30,6 +33,26 @@ from app.config import MEDIA_TYPES, SUPPORTED_EXTENSIONS
 # Create the router
 # This gets connected to the main FastAPI app in main.py
 router = APIRouter()
+_SCAN_RATE_BUCKETS: dict[str, list[float]] = {}
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+
+
+def enforce_scan_rate_limit(owner: str) -> None:
+    now = time.monotonic()
+    recent = [stamp for stamp in _SCAN_RATE_BUCKETS.get(owner, []) if now - stamp < 3600]
+    if len(recent) >= 20:
+        raise HTTPException(status_code=429, detail="Receipt scan limit reached. Please try again later.")
+    recent.append(now)
+    _SCAN_RATE_BUCKETS[owner] = recent
+    if len(_SCAN_RATE_BUCKETS) > 5000:
+        _SCAN_RATE_BUCKETS.clear()
+
+
+def validate_upload_size(data: bytes) -> None:
+    if not data:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Receipt file is too large. Please upload a file under 15 MB.")
 
 
 class ReceiptItemUpdate(BaseModel):
@@ -91,9 +114,8 @@ def find_already_scanned_receipt(receipt_data: dict, user_id: str | None = None,
     return None
 
 
-def clear_receipt_memory_caches():
-    getattr(agent_service, "_RECEIPT_CACHE", {}).clear()
-    getattr(agent_service, "_ITEM_EVENT_CACHE", {}).clear()
+def clear_receipt_memory_caches(user_id: str | None = None, guest_session_id: str | None = None):
+    agent_service.clear_owner_data_caches(user_id=user_id, guest_session_id=guest_session_id)
 
 
 def get_user_id_from_request(request: Request) -> str | None:
@@ -110,6 +132,25 @@ def get_user_id_from_request(request: Request) -> str | None:
     except Exception as e:
         print(f"[auth] Token error: {e}")
     return None
+
+
+def validate_guest_session_id(session_id: str | None) -> str:
+    value = (session_id or "").strip()
+    if (
+        len(value) < 12
+        or len(value) > 160
+        or value in {"guest", "default"}
+        or re.fullmatch(r"[A-Za-z0-9_-]+", value) is None
+    ):
+        raise HTTPException(status_code=401, detail="A valid guest session is required.")
+    return value
+
+
+def require_owner(request: Request, session_id: str | None = None) -> tuple[str | None, str | None]:
+    user_id = get_user_id_from_request(request)
+    if user_id:
+        return user_id, None
+    return None, validate_guest_session_id(session_id)
 
 
 # ── ENDPOINT 1: Scan a receipt ──
@@ -160,6 +201,7 @@ async def scan_receipt(request: Request, file: UploadFile = File(...)):
 
     # ── Read file bytes ──
     file_bytes = await file.read()
+    validate_upload_size(file_bytes)
 
     # ── Extract user_id from Authorization header ──
     # Mobile app sends: Authorization: Bearer <token>
@@ -178,6 +220,7 @@ async def scan_receipt(request: Request, file: UploadFile = File(...)):
     
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required.")
+    enforce_scan_rate_limit(f"user:{user_id}")
 
     # ── Send to Claude for scanning ──
     try:
@@ -250,9 +293,13 @@ async def scan_receipt(request: Request, file: UploadFile = File(...)):
             user_id=user_id,
 
             # Duplicate detection
-            image_hash=receipt_data.get("image_hash")
+            image_hash=receipt_data.get("image_hash"),
+            transaction_number=receipt_data.get("transaction_number"),
+            receipt_number=receipt_data.get("receipt_number"),
+            invoice_number=receipt_data.get("invoice_number"),
+            order_number=receipt_data.get("order_number"),
         )
-        clear_receipt_memory_caches()
+        clear_receipt_memory_caches(user_id=user_id)
 
     except Exception as e:
         # Show exact database error for debugging
@@ -281,6 +328,7 @@ async def scan_receipt_pages(request: Request, files: list[UploadFile] = File(..
     user_id = get_user_id_from_request(request)
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required.")
+    enforce_scan_rate_limit(f"user:{user_id}")
     if not files or len(files) < 2:
         raise HTTPException(status_code=400, detail="Upload at least 2 page photos for multi-page scanning.")
 
@@ -289,7 +337,9 @@ async def scan_receipt_pages(request: Request, files: list[UploadFile] = File(..
         extension = file.filename.split(".")[-1].lower()
         if extension not in MEDIA_TYPES:
             raise HTTPException(status_code=400, detail=f"Unsupported page type: .{extension}. Please use jpg, png, webp, or gif.")
-        page_files.append((await file.read(), file.filename))
+        page_bytes = await file.read()
+        validate_upload_size(page_bytes)
+        page_files.append((page_bytes, file.filename))
 
     try:
         receipt_data = claude.scan_receipt_image_pages(page_files, user_id=user_id)
@@ -323,8 +373,12 @@ async def scan_receipt_pages(request: Request, files: list[UploadFile] = File(..
             total_savings=receipt_data.get("total_savings", 0.00),
             user_id=user_id,
             image_hash=receipt_data.get("image_hash"),
+            transaction_number=receipt_data.get("transaction_number"),
+            receipt_number=receipt_data.get("receipt_number"),
+            invoice_number=receipt_data.get("invoice_number"),
+            order_number=receipt_data.get("order_number"),
         )
-        clear_receipt_memory_caches()
+        clear_receipt_memory_caches(user_id=user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database save error: {str(e)}")
 
@@ -359,7 +413,7 @@ def get_receipts(request: Request):
 
     if not user_id:
         # Not logged in — return empty
-        return {"total_receipts": 0, "receipts": []}
+        raise HTTPException(status_code=401, detail="Authentication required.")
 
     # Fetch only this user's receipts
     try:
@@ -381,7 +435,7 @@ def get_receipts(request: Request):
 # Uses partial case insensitive matching
 # so "lowes" matches "LOWE'S HOME CENTERS, LLC"
 @router.get("/receipts/store/{store_name}")
-def get_by_store(store_name: str):
+def get_by_store(store_name: str, request: Request, session_id: str | None = None):
     """
     Filter receipts by store name.
 
@@ -393,7 +447,8 @@ def get_by_store(store_name: str):
     Returns matching receipts ordered by newest first.
     """
 
-    receipts = database.get_receipts_by_store(store_name)
+    user_id, guest_session_id = require_owner(request, session_id)
+    receipts = database.get_receipts_by_store(store_name, user_id=user_id, guest_session_id=guest_session_id)
 
     # If no receipts found for this store return helpful message
     if not receipts:
@@ -416,7 +471,7 @@ def get_by_store(store_name: str):
 # from_date and to_date come from URL query parameters
 # Dates should be in YYYY-MM-DD format
 @router.get("/receipts/date")
-def get_by_date(from_date: str, to_date: str):
+def get_by_date(from_date: str, to_date: str, request: Request, session_id: str | None = None):
     """
     Filter receipts between two dates.
 
@@ -426,7 +481,13 @@ def get_by_date(from_date: str, to_date: str):
     Returns receipts in that date range ordered by newest first.
     """
 
-    receipts = database.get_receipts_by_date(from_date, to_date)
+    user_id, guest_session_id = require_owner(request, session_id)
+    receipts = database.get_receipts_by_date(
+        from_date,
+        to_date,
+        user_id=user_id,
+        guest_session_id=guest_session_id,
+    )
 
     if not receipts:
         return {
@@ -445,7 +506,6 @@ def get_by_date(from_date: str, to_date: str):
 
 # ── ENDPOINT: Cleanup expired guest receipts ──
 # Called automatically or manually to delete guest data older than 24 hours
-@router.delete("/guest/cleanup")
 def cleanup_guest_receipts():
     """
     Delete all guest receipts older than 24 hours.
@@ -464,18 +524,21 @@ def cleanup_guest_receipts():
 
 # ── ENDPOINT: Save guest receipt ──
 @router.post("/guest/scan-receipt")
-async def guest_scan_receipt(file: UploadFile = File(...), session_id: str = "guest"):
+async def guest_scan_receipt(file: UploadFile = File(...), session_id: str | None = None):
     """
     Scan a receipt for guest users.
     Automatically marks it as guest data with 24-hour expiry.
     """
     from datetime import datetime, timedelta, timezone
 
+    session_id = validate_guest_session_id(session_id)
+    enforce_scan_rate_limit(f"guest:{session_id}")
     extension = file.filename.split(".")[-1].lower()
     if extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: .{extension}")
 
     file_bytes = await file.read()
+    validate_upload_size(file_bytes)
 
     try:
         receipt_data = claude.scan_receipt_image(file_bytes, file.filename, guest_session_id=session_id)
@@ -498,7 +561,7 @@ async def guest_scan_receipt(file: UploadFile = File(...), session_id: str = "gu
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
 
     try:
-        saved = database.supabase.table("receipts").insert({
+        saved = database.insert_receipt_with_optional_identifiers({
             "store":            receipt_data.get("store"),
             "address":          receipt_data.get("address"),
             "date":             receipt_data.get("date"),
@@ -514,7 +577,11 @@ async def guest_scan_receipt(file: UploadFile = File(...), session_id: str = "gu
             "is_guest":         True,
             "guest_session_id": session_id,
             "expires_at":       expires_at,
-        }).execute()
+            "transaction_number": receipt_data.get("transaction_number"),
+            "receipt_number": receipt_data.get("receipt_number"),
+            "invoice_number": receipt_data.get("invoice_number"),
+            "order_number": receipt_data.get("order_number"),
+        })
         saved_receipt = saved.data[0] if saved.data else {}
         database.save_receipt_items(
             saved_receipt,
@@ -523,7 +590,7 @@ async def guest_scan_receipt(file: UploadFile = File(...), session_id: str = "gu
             is_guest=True,
             expires_at=expires_at,
         )
-        clear_receipt_memory_caches()
+        clear_receipt_memory_caches(guest_session_id=session_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database save error: {str(e)}")
 
@@ -540,10 +607,12 @@ async def guest_scan_receipt(file: UploadFile = File(...), session_id: str = "gu
 
 # ── ENDPOINT: Summary stats for current user ──
 @router.post("/guest/scan-receipt-pages")
-async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_id: str = "guest"):
+async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_id: str | None = None):
     """Scan multiple receipt/invoice photos as one combined guest document."""
     from datetime import datetime, timedelta, timezone
 
+    session_id = validate_guest_session_id(session_id)
+    enforce_scan_rate_limit(f"guest:{session_id}")
     if not files or len(files) < 2:
         raise HTTPException(status_code=400, detail="Upload at least 2 page photos for multi-page scanning.")
 
@@ -552,7 +621,9 @@ async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_
         extension = file.filename.split(".")[-1].lower()
         if extension not in MEDIA_TYPES:
             raise HTTPException(status_code=400, detail=f"Unsupported page type: .{extension}. Please use jpg, png, webp, or gif.")
-        page_files.append((await file.read(), file.filename))
+        page_bytes = await file.read()
+        validate_upload_size(page_bytes)
+        page_files.append((page_bytes, file.filename))
 
     try:
         receipt_data = claude.scan_receipt_image_pages(page_files, guest_session_id=session_id)
@@ -573,7 +644,7 @@ async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_
 
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
     try:
-        saved = database.supabase.table("receipts").insert({
+        saved = database.insert_receipt_with_optional_identifiers({
             "store": receipt_data.get("store"),
             "address": receipt_data.get("address"),
             "date": receipt_data.get("date"),
@@ -589,7 +660,11 @@ async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_
             "is_guest": True,
             "guest_session_id": session_id,
             "expires_at": expires_at,
-        }).execute()
+            "transaction_number": receipt_data.get("transaction_number"),
+            "receipt_number": receipt_data.get("receipt_number"),
+            "invoice_number": receipt_data.get("invoice_number"),
+            "order_number": receipt_data.get("order_number"),
+        })
         saved_receipt = saved.data[0] if saved.data else {}
         database.save_receipt_items(
             saved_receipt,
@@ -598,7 +673,7 @@ async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_
             is_guest=True,
             expires_at=expires_at,
         )
-        clear_receipt_memory_caches()
+        clear_receipt_memory_caches(guest_session_id=session_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database save error: {str(e)}")
 
@@ -612,25 +687,36 @@ async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_
     }
 
 
-@router.get("/summary")
-def get_summary(request: Request):
-    """Return spending summary for the logged-in user only."""
-    user_id = None
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header.replace("Bearer ", "").strip()
-        try:
-            user_response = database.supabase.auth.get_user(token)
-            if user_response and user_response.user:
-                user_id = str(user_response.user.id)
-        except Exception as e:
-            print(f"[summary] Token error: {e}")
+@router.get("/guest/receipts")
+def get_guest_receipts(session_id: str):
+    """Return only receipts owned by the opaque guest session."""
+    guest_session_id = validate_guest_session_id(session_id)
+    try:
+        result = database.supabase.table("receipts")\
+            .select("*")\
+            .eq("is_guest", True)\
+            .eq("guest_session_id", guest_session_id)\
+            .order("created_at", desc=True)\
+            .execute()
+        rows = result.data or []
+    except Exception as e:
+        print(f"[guest_receipts] Database error: {e}")
+        raise HTTPException(status_code=503, detail="Receipt data is temporarily unavailable.")
+    return {"total_receipts": len(rows), "receipts": rows}
 
-    if not user_id:
-        return {"total_receipts": 0, "total_spent": 0, "total_saved": 0, "unique_stores": 0}
+
+@router.get("/summary")
+def get_summary(request: Request, session_id: str | None = None):
+    """Return spending summary for exactly one authenticated or guest owner."""
+    user_id, guest_session_id = require_owner(request, session_id)
 
     try:
-        result = database.supabase.table("receipts")            .select("total,total_savings,store")            .eq("user_id", user_id)            .execute()
+        query = database.supabase.table("receipts").select("total,total_savings,store")
+        if user_id:
+            query = query.eq("user_id", user_id)
+        else:
+            query = query.eq("is_guest", True).eq("guest_session_id", guest_session_id)
+        result = query.execute()
         receipts = result.data or []
         total_spent   = sum(r.get("total") or 0 for r in receipts)
         total_saved   = sum(r.get("total_savings") or 0 for r in receipts)
@@ -643,7 +729,7 @@ def get_summary(request: Request):
         }
     except Exception as e:
         print(f"[summary] Error: {e}")
-        return {"total_receipts": 0, "total_spent": 0, "total_saved": 0, "unique_stores": 0}
+        raise HTTPException(status_code=503, detail="Summary is temporarily unavailable.")
 
 # ── ENDPOINT 5: Delete a receipt ──
 # URL: DELETE http://127.0.0.1:8000/receipts/5
@@ -655,10 +741,7 @@ def get_price_memory(request: Request, session_id: str | None = None, limit: int
     Return personal Price Memory / Price DNA profiles.
     Logged-in users are filtered by JWT. Guests must provide session_id.
     """
-    user_id = get_user_id_from_request(request)
-    guest_session_id = None if user_id else session_id
-    if not user_id and not guest_session_id:
-        raise HTTPException(status_code=401, detail="Authentication or guest session required.")
+    user_id, guest_session_id = require_owner(request, session_id)
 
     profiles = agent_service.build_price_memory(user_id=user_id, guest_session_id=guest_session_id, limit=1000)
     return {
@@ -674,10 +757,7 @@ def search_price_memory(request: Request, item: str, session_id: str | None = No
     Search personal Price Memory for one item.
     Use this before the next purchase to decide good price / avoid price.
     """
-    user_id = get_user_id_from_request(request)
-    guest_session_id = None if user_id else session_id
-    if not user_id and not guest_session_id:
-        raise HTTPException(status_code=401, detail="Authentication or guest session required.")
+    user_id, guest_session_id = require_owner(request, session_id)
 
     result = agent_service.search_price_memory(item, user_id=user_id, guest_session_id=guest_session_id)
     return {"success": True, **result}
@@ -687,17 +767,14 @@ def search_price_memory(request: Request, item: str, session_id: str | None = No
 def backfill_vectors(request: Request, payload: BackfillVectorsRequest | None = None):
     """Backfill normalized item rows and local vectors for existing receipts."""
     payload = payload or BackfillVectorsRequest()
-    user_id = get_user_id_from_request(request)
-    guest_session_id = None if user_id else payload.session_id
-    if not user_id and not guest_session_id:
-        raise HTTPException(status_code=401, detail="Authentication or guest session required.")
+    user_id, guest_session_id = require_owner(request, payload.session_id)
 
     result = database.backfill_receipt_vectors(
         user_id=user_id,
         guest_session_id=guest_session_id,
         limit=max(1, min(payload.limit or 1000, 10000)),
     )
-    clear_receipt_memory_caches()
+    clear_receipt_memory_caches(user_id=user_id, guest_session_id=guest_session_id)
     return result
 
 
@@ -706,10 +783,7 @@ def get_shopping_plan(request: Request, session_id: str | None = None):
     """
     Build the next shopping plan from personal Price Memory.
     """
-    user_id = get_user_id_from_request(request)
-    guest_session_id = None if user_id else session_id
-    if not user_id and not guest_session_id:
-        raise HTTPException(status_code=401, detail="Authentication or guest session required.")
+    user_id, guest_session_id = require_owner(request, session_id)
 
     plan = agent_service.build_next_shopping_plan(user_id=user_id, guest_session_id=guest_session_id)
     return {"success": True, **plan}
@@ -720,10 +794,7 @@ def get_price_alerts(request: Request, session_id: str | None = None):
     """
     Return proactive Price Memory alerts.
     """
-    user_id = get_user_id_from_request(request)
-    guest_session_id = None if user_id else session_id
-    if not user_id and not guest_session_id:
-        raise HTTPException(status_code=401, detail="Authentication or guest session required.")
+    user_id, guest_session_id = require_owner(request, session_id)
 
     alerts = agent_service.build_price_alerts(user_id=user_id, guest_session_id=guest_session_id)
     return {"success": True, **alerts}
@@ -735,10 +806,7 @@ def live_price_check(body: LivePriceCheckRequest, request: Request):
     Compare a current shelf/web price against the user's receipt-based Price Memory.
     For true live provider lookups, set live_search=true; otherwise send current_price.
     """
-    user_id = get_user_id_from_request(request)
-    guest_session_id = None if user_id else body.session_id
-    if not user_id and not guest_session_id:
-        raise HTTPException(status_code=401, detail="Authentication or guest session required.")
+    user_id, guest_session_id = require_owner(request, body.session_id)
     if not body.item_name.strip():
         raise HTTPException(status_code=400, detail="item_name is required.")
     if body.current_price is None and not body.live_search:
@@ -762,10 +830,7 @@ def update_receipt_item(receipt_id: int, line_index: int, body: ReceiptItemUpdat
     Correct one scanned receipt item. This keeps Price Memory accurate after OCR mistakes.
     Updates both receipts.items JSON and the normalized receipt_items row.
     """
-    user_id = get_user_id_from_request(request)
-    guest_session_id = None if user_id else body.session_id
-    if not user_id and not guest_session_id:
-        raise HTTPException(status_code=401, detail="Authentication or guest session required.")
+    user_id, guest_session_id = require_owner(request, body.session_id)
 
     try:
         q = database.supabase.table("receipts").select("*").eq("id", receipt_id)
@@ -834,6 +899,8 @@ def update_receipt_item(receipt_id: int, line_index: int, body: ReceiptItemUpdat
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not update receipt item: {str(e)}")
 
+    clear_receipt_memory_caches(user_id=user_id, guest_session_id=guest_session_id)
+
     return {
         "success": True,
         "message": "Receipt item corrected.",
@@ -843,7 +910,7 @@ def update_receipt_item(receipt_id: int, line_index: int, body: ReceiptItemUpdat
 
 
 @router.delete("/receipts/{receipt_id}")
-def delete_receipt(receipt_id: int):
+def delete_receipt(receipt_id: int, request: Request, session_id: str | None = None):
     """
     Permanently delete a receipt by its ID.
 
@@ -855,7 +922,12 @@ def delete_receipt(receipt_id: int):
     """
 
     # Attempt to delete — returns deleted record or empty dict
-    deleted = database.delete_receipt(receipt_id)
+    user_id, guest_session_id = require_owner(request, session_id)
+    deleted = database.delete_receipt(
+        receipt_id,
+        user_id=user_id,
+        guest_session_id=guest_session_id,
+    )
 
     # If nothing was deleted that ID doesn't exist in database
     if not deleted:
