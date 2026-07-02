@@ -15,6 +15,8 @@ import math
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from datetime import datetime, timedelta
@@ -30,13 +32,14 @@ from app.services import agent_analytics
 
 MODEL = os.getenv("CLAUDE_AGENT_MODEL", "claude-opus-4-5-20251101")
 SONNET_MODEL = os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
+PLANNER_MODEL = os.getenv("CLAUDE_PLANNER_MODEL", "claude-haiku-4-5-20251001")
 LOCAL_EMBEDDING_MODEL = os.getenv("RECEIPT_ITEM_EMBEDDING_MODEL", "receiptai-contextual-local-hash-v2")
 EMBEDDING_DIMENSIONS = 1536
 AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
 AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
-AGENT_BUILD = "launch-stabilized-single-pass-2026-07-01"
+AGENT_BUILD = "canonical-events-fast-planner-2026-07-02"
 AGENT_CAPABILITIES = {
     "structured_rag": True,
     "adaptive_query_recovery": True,
@@ -59,15 +62,19 @@ AGENT_CAPABILITIES = {
     "claude_only": True,
     "single_pass_intent_plan": True,
     "persistent_conversation_contract": True,
+    "canonical_purchase_events": True,
+    "evidence_count_validation": True,
+    "fast_deterministic_planner": True,
 }
 RECEIPT_SELECT = "id,store,address,date,time,total,subtotal,discount,tax,total_savings,items,created_at"
 ITEM_SELECT = "receipt_id,line_index,store,purchase_date,receipt_created_at,code,item_name_original,item_name_normalized,product_size,quantity,raw_quantity,unit,unit_price,line_price,source,confidence,explicit_quantity,metadata"
-DATA_CACHE_TTL_SECONDS = float(os.getenv("AGENT_DATA_CACHE_TTL_SECONDS", "20"))
+DATA_CACHE_TTL_SECONDS = float(os.getenv("AGENT_DATA_CACHE_TTL_SECONDS", "60"))
 _RECEIPT_CACHE: dict[tuple[str, str, int], tuple[float, list[dict]]] = {}
 _ITEM_EVENT_CACHE: dict[tuple[str, str, int], tuple[float, list[dict]]] = {}
 _ALIAS_CACHE: dict[tuple[str, str], list[set[str]]] = {}
 _FEEDBACK_CACHE: dict[tuple[str, str], list[dict]] = {}
 _PUBLIC_MEANING_CACHE: dict[str, list[set[str]]] = {}
+_UNDERSTANDING_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 def _ttl_cache_get(cache: dict, key: tuple) -> Any | None:
@@ -122,6 +129,35 @@ def receipt_event_key(event: dict) -> tuple[str, str, str]:
         str(event.get("line_index") or ""),
         normalize_text(event.get("item_original") or ""),
     )
+
+
+def canonical_purchase_event_key(event: dict) -> tuple:
+    """Identify one physical receipt purchase across normalized and JSON sources.
+
+    `line_index` is intentionally not the primary identity: historical backfills
+    and JSON flattening can assign different indexes to the same printed line.
+    """
+    receipt_id = str(event.get("receipt_id") or "")
+    item = normalize_text(event.get("item_original") or "")
+    line_price = round(_safe_float(event.get("line_price"), 0.0), 2)
+    unit = normalize_text(event.get("unit") or "each")
+    return ("fingerprint", receipt_id, item, line_price, unit)
+
+
+def merge_purchase_event_records(primary: dict, secondary: dict) -> dict:
+    """Prefer normalized data while filling source evidence from receipt JSON."""
+    merged = dict(primary)
+    for field in (
+        "source_page", "source_bbox", "source_text", "source_image_hash",
+        "product_size", "code", "address", "time",
+    ):
+        if not merged.get(field) and secondary.get(field):
+            merged[field] = secondary[field]
+    if isinstance(secondary.get("metadata"), dict):
+        metadata = dict(secondary["metadata"])
+        metadata.update(merged.get("metadata") or {})
+        merged["metadata"] = metadata
+    return merged
 
 
 def fetch_embedding_rank_boosts(
@@ -308,7 +344,7 @@ STOP_WORDS = {
 }
 
 ITEM_SYNONYM_GROUPS = [
-    {"mutton", "goat", "lamb", "sheep", "chevon"},
+    {"mutton", "goat", "lamb", "ram", "sheep", "chevon"},
     {"meat", "beef", "pork", "chicken", "turkey", "fish", "seafood"},
     {"keema", "kheema", "qeema", "mince", "minced", "ground"},
     {"noodle", "noodles", "ramen"},
@@ -338,11 +374,11 @@ ITEM_SYNONYM_GROUPS = [
     {"soda", "pop", "softdrink"},
 ]
 
-MEAT_ALIAS_TERMS = {"meat", "mutton", "goat", "lamb", "sheep", "chevon", "beef", "pork", "chicken", "turkey", "fish", "seafood"}
-MUTTON_ALIAS_TERMS = {"mutton", "goat", "lamb", "sheep", "chevon"}
+MEAT_ALIAS_TERMS = {"meat", "mutton", "goat", "lamb", "ram", "sheep", "chevon", "beef", "pork", "chicken", "turkey", "fish", "seafood"}
+MUTTON_ALIAS_TERMS = {"mutton", "goat", "lamb", "ram", "sheep", "chevon"}
 GROUND_MEAT_TERMS = {"keema", "kheema", "qeema", "mince", "minced", "ground"}
 SPECIFIC_ITEM_FAMILIES = [
-    {"mutton", "goat", "lamb", "sheep", "chevon"},
+    {"mutton", "goat", "lamb", "ram", "sheep", "chevon"},
     {"keema", "kheema", "qeema", "mince", "minced", "ground"},
     {"chicken"},
     {"beef"},
@@ -372,7 +408,7 @@ SPECIFIC_ITEM_FAMILIES = [
     {"soda", "pop", "softdrink"},
 ]
 BROAD_CATEGORY_FAMILIES = [
-    {"meat", "mutton", "goat", "lamb", "sheep", "chevon", "beef", "pork", "chicken", "turkey", "fish", "seafood", "keema", "kheema", "qeema", "mince", "minced", "ground"},
+    {"meat", "mutton", "goat", "lamb", "ram", "sheep", "chevon", "beef", "pork", "chicken", "turkey", "fish", "seafood", "keema", "kheema", "qeema", "mince", "minced", "ground"},
     {"vegetable", "vegetables", "veggie", "veggies", "produce", "okra", "bhindi", "ladyfinger", "ladyfingers", "eggplant", "brinjal", "aubergine", "zucchini", "courgette", "bellpepper", "capsicum", "scallion", "scallions", "springonion", "greenonion", "cilantro", "coriander", "arugula", "rocket", "squash", "onion", "potato", "tomato", "carrot", "beans", "methi", "curry", "amla", "daikon", "plantain", "taro", "eddo"},
     {"fruit", "fruits", "apple", "banana", "orange", "mango", "grape", "grapes", "berry", "berries", "strawberry", "blueberry", "pineapple", "melon", "watermelon", "plantain"},
     {"dairy", "milk", "cheese", "butter", "cream", "yogurt", "yoghurt", "curd", "dahi", "paneer", "ghee"},
@@ -394,7 +430,7 @@ BROAD_CATEGORY_QUERY_TERMS = {
 }
 
 RAW_MEAT_TERMS = {
-    "meat", "mutton", "goat", "lamb", "sheep", "chevon", "beef", "pork",
+    "meat", "mutton", "goat", "lamb", "ram", "sheep", "chevon", "beef", "pork",
     "chicken", "turkey", "fish", "seafood", "mackerel", "sardine", "anchovy",
     "shrimp", "prawn", "keema", "kheema", "qeema", "mince", "minced",
     "ground", "leg", "thigh", "wingett", "wingette", "drumstick", "breast",
@@ -405,7 +441,7 @@ BROAD_MEAT_QUERY_TERMS = RAW_MEAT_TERMS - {"keema", "kheema", "qeema", "mince", 
 # Specific meat types: querying one of these means the user wants THAT meat only,
 # not a broad "all meat" category dump.  Never let these trigger category_price.
 SPECIFIC_MEAT_TYPE_TERMS = {
-    "mutton", "goat", "lamb", "sheep", "chevon",
+    "mutton", "goat", "lamb", "ram", "sheep", "chevon",
     "beef", "pork", "chicken", "turkey",
     "fish", "seafood", "mackerel", "sardine", "anchovy",
     "shrimp", "prawn", "prawns",
@@ -624,6 +660,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+@lru_cache(maxsize=16384)
 def normalize_text(text: str | None) -> str:
     """Normalize text for receipt item matching. Keeps product meaning, removes OCR noise."""
     if not text:
@@ -664,6 +701,7 @@ def normalize_text(text: str | None) -> str:
     return t
 
 
+@lru_cache(maxsize=8192)
 def strip_product_sizes(text: str) -> str:
     return PRODUCT_SIZE_RE.sub(" ", text or "")
 
@@ -679,6 +717,7 @@ def find_product_size(name: str | None) -> str | None:
     return f"{amount}-{unit}"
 
 
+@lru_cache(maxsize=4096)
 def correct_item_token(token: str) -> str:
     if token in STOP_WORDS:
         return token
@@ -712,10 +751,12 @@ def correct_item_token(token: str) -> str:
     return best_term if best_term and best_score >= 0.88 else token
 
 
+@lru_cache(maxsize=8192)
 def correct_item_typos(text: str) -> str:
     return normalize_text(" ".join(correct_item_token(token) for token in (text or "").split()))
 
 
+@lru_cache(maxsize=4096)
 def correct_query_words(text: str) -> str:
     return " ".join(QUERY_WORD_CORRECTIONS.get(token, token) for token in (text or "").split())
 
@@ -739,6 +780,7 @@ def merge_alias_family(families: list[set[str]], left: str, right: str) -> None:
     families.append(merged)
 
 
+@lru_cache(maxsize=16384)
 def term_matches_text(term: str, text: str) -> bool:
     term_norm = correct_item_typos(normalize_text(strip_product_sizes(term)))
     text_norm = correct_item_typos(normalize_text(strip_product_sizes(text)))
@@ -753,10 +795,15 @@ def family_matches_text(family: set[str], text: str) -> bool:
     return any(term_matches_text(term, text) for term in family)
 
 
-def raw_item_token_set(text: str) -> set[str]:
+@lru_cache(maxsize=8192)
+def _raw_item_tokens(text: str) -> frozenset[str]:
     """Tokenize scanned receipt text without typo-correcting it into another product."""
     normalized = normalize_text(strip_product_sizes(text))
-    return {t for t in normalized.split() if t and t not in STOP_WORDS and len(t) > 1}
+    return frozenset(t for t in normalized.split() if t and t not in STOP_WORDS and len(t) > 1)
+
+
+def raw_item_token_set(text: str) -> set[str]:
+    return set(_raw_item_tokens(text or ""))
 
 
 def family_matches_item_text(family: set[str], text: str) -> bool:
@@ -1181,9 +1228,14 @@ Optional search context:
     return families
 
 
-def token_set(text: str) -> set[str]:
+@lru_cache(maxsize=16384)
+def _token_frozenset(text: str) -> frozenset[str]:
     normalized = correct_item_typos(normalize_text(strip_product_sizes(text)))
-    return {t for t in normalized.split() if t and t not in STOP_WORDS and len(t) > 1}
+    return frozenset(t for t in normalized.split() if t and t not in STOP_WORDS and len(t) > 1)
+
+
+def token_set(text: str) -> set[str]:
+    return set(_token_frozenset(text or ""))
 
 
 def extract_query_item(user_message: str) -> str:
@@ -1312,6 +1364,7 @@ def split_space_separated_shopping_items(text: str) -> list[str]:
         current_is_only_leading_descriptor = bool(current) and all(
             t in SHOPPING_LIST_LEADING_DESCRIPTOR_TERMS for t in current
         )
+        current_ends_with_leading_descriptor = bool(current) and current[-1] in SHOPPING_LIST_LEADING_DESCRIPTOR_TERMS
         if (
             current
             and not is_boundary
@@ -1327,6 +1380,7 @@ def split_space_separated_shopping_items(text: str) -> list[str]:
             and is_boundary
             and not current_has_boundary
             and not current_is_only_leading_descriptor
+            and not current_ends_with_leading_descriptor
         ):
             groups.append(current)
             current = [token]
@@ -1615,7 +1669,7 @@ def query_semantic_family(query: str, extra_families: list[set[str]] | None = No
     query_tokens = token_set(query)
     if query_tokens & MUTTON_ALIAS_TERMS:
         for index, family in enumerate(all_semantic_families(extra_families)):
-            if family == {"mutton", "goat", "lamb", "sheep", "chevon"}:
+            if family == {"mutton", "goat", "lamb", "ram", "sheep", "chevon"}:
                 return f"family:{index}"
 
     # Specific item names must win before broad categories. Example:
@@ -1883,6 +1937,7 @@ def _asymmetric_subset_penalty(q_tokens: set[str], i_tokens: set[str]) -> float:
     return 0.0
 
 
+@lru_cache(maxsize=32768)
 def item_match_score(query: str, item_name: str, code: str | None = None) -> float:
     q_norm = correct_item_typos(normalize_text(query))
     i_norm = normalize_text(item_name)
@@ -2040,6 +2095,7 @@ def _item_row_to_event(row: dict) -> dict:
     quantity = _safe_float(row.get("quantity"), 1.0) or 1.0
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     return {
+        "event_origin": "receipt_items",
         "receipt_id": row.get("receipt_id"),
         "line_index": row.get("line_index"),
         "store": row.get("store") or "Unknown Store",
@@ -2077,7 +2133,7 @@ def fetch_owner_item_events(user_id: str | None = None, guest_session_id: str | 
     if cached is not None:
         return cached
 
-    try:
+    def load_normalized_events() -> list[dict]:
         q = supabase.table("receipt_items").select(ITEM_SELECT)
         if user_id:
             q = q.eq("user_id", user_id)
@@ -2086,46 +2142,53 @@ def fetch_owner_item_events(user_id: str | None = None, guest_session_id: str | 
         else:
             return []
         result = q.order("receipt_created_at", desc=True).limit(limit).execute()
-        events = []
+        loaded = []
         for row in (result.data or []):
             name = str(row.get("item_name_original") or "")
             if not is_valid_receipt_item_name(name):
                 continue
             if name.upper().startswith("DISCOUNT") or "discount" in name.lower() or "coupon" in name.lower():
                 continue
-            events.append(_item_row_to_event(row))
-    except Exception as e:
-        print(f"[receipt_items] Falling back to receipt JSON: {e}")
-        events = []
+            loaded.append(_item_row_to_event(row))
+        return loaded
+
+    # Both sources are required during the rolling backfill period. Fetch them
+    # concurrently so correctness does not add two serial network round trips.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        normalized_future = executor.submit(load_normalized_events)
+        receipts_future = executor.submit(fetch_owner_receipts, user_id, guest_session_id, 300)
+        try:
+            events = normalized_future.result()
+        except Exception as e:
+            print(f"[receipt_items] Falling back to receipt JSON: {e}")
+            events = []
+        try:
+            receipts_for_merge = receipts_future.result()
+        except Exception as e:
+            print(f"[receipts] Could not load JSON fallback concurrently: {e}")
+            receipts_for_merge = []
 
     # The receipt_items table is the fast path, but older scans may only have
     # item details inside the receipt JSON. Merge both sources so RAG does not
     # miss real purchases because a backfill/index step lagged behind.
     try:
-        json_events = build_item_events(fetch_owner_receipts(user_id, guest_session_id, limit=300))
-        seen = {
-            (
-                str(event.get("receipt_id") or ""),
-                str(event.get("line_index") or ""),
-                normalize_text(event.get("item_original") or ""),
-                str(event.get("line_price") or ""),
-            )
-            for event in events
+        json_events = build_item_events(receipts_for_merge)
+        event_positions = {
+            canonical_purchase_event_key(event): index
+            for index, event in enumerate(events)
         }
         for event in json_events:
-            key = (
-                str(event.get("receipt_id") or ""),
-                str(event.get("line_index") or ""),
-                normalize_text(event.get("item_original") or ""),
-                str(event.get("line_price") or ""),
-            )
-            if key not in seen:
+            key = canonical_purchase_event_key(event)
+            existing_index = event_positions.get(key)
+            if existing_index is None:
+                event_positions[key] = len(events)
                 events.append(event)
-                seen.add(key)
+            else:
+                events[existing_index] = merge_purchase_event_records(events[existing_index], event)
     except Exception as e:
         print(f"[receipt_items] Could not merge receipt JSON items: {e}")
 
-    events = events[:limit]
+    events = dedupe_item_events(events)[:limit]
     _ttl_cache_set(_ITEM_EVENT_CACHE, cache_key, events)
     return events
 
@@ -2180,6 +2243,7 @@ def build_item_events(receipts: list[dict]) -> list[dict]:
             normalized_unit_price = paid_price / purchase_qty if purchase_qty and explicit_qty else paid_price
 
             events.append({
+                "event_origin": "receipt_json",
                 "receipt_id": receipt.get("id"),
                 "line_index": index,
                 "store": receipt.get("store") or "Unknown Store",
@@ -2218,33 +2282,40 @@ def retrieve_item_events(
     extra_families: list[set[str]] | None = None,
 ) -> dict:
     all_events = fetch_owner_item_events(user_id, guest_session_id)
-    if not all_events:
-        receipts = fetch_owner_receipts(user_id, guest_session_id)
-        all_events = build_item_events(receipts)
     query = extract_query_item(item_query)
     query_variants = expand_query_variants(query, extra_families)
     semantic_family = query_semantic_family(query, extra_families)
     match_threshold = minimum_match_score(query, semantic_family)
     candidate_threshold = minimum_candidate_score(query, semantic_family)
     feedback_examples = fetch_owner_feedback_examples(user_id, guest_session_id)
-    embedding_boosts = fetch_embedding_rank_boosts(query, user_id, guest_session_id)
-    pipeline = retrieval_pipeline_trace(embedding_boosts)
     blocklist = fetch_owner_blocklist(user_id, guest_session_id)
-    scored = []
+    lexical_candidates: list[tuple[dict, str, float, float, str]] = []
     for event in all_events:
         if not event_matches_semantic_family(event, semantic_family, extra_families):
             continue
         if not event_satisfies_required_families(event, query, extra_families):
             continue
-        # Hard blocklist check: user previously marked this (query, item) pair as wrong
         if is_blocklisted(query, event.get("item_original", ""), blocklist):
             continue
         scores = [(variant, item_match_score(variant, event["item_original"], event.get("code"))) for variant in query_variants]
         matched_query, score = max(scores, key=lambda item: item[1]) if scores else (query, 0.0)
         learned_adjustment = learned_rank_adjustment(query, event, feedback_examples)
+        match_level = verified_match_level(event, query, score, extra_families)
+        lexical_candidates.append((event, matched_query, score, learned_adjustment, match_level))
+
+    # Exact/high-confidence lexical or synonym matches do not benefit from a
+    # network vector RPC. Reserve vector retrieval for genuinely ambiguous OCR.
+    has_strong_lexical_match = any(
+        match_level != "none" and score + learned_adjustment >= max(match_threshold, 0.88)
+        for _, _, score, learned_adjustment, match_level in lexical_candidates
+    )
+    embedding_boosts = {} if has_strong_lexical_match else fetch_embedding_rank_boosts(query, user_id, guest_session_id)
+    pipeline = retrieval_pipeline_trace(embedding_boosts)
+    pipeline["vector_search_skipped_for_exact_match"] = has_strong_lexical_match
+    scored = []
+    for event, matched_query, score, learned_adjustment, match_level in lexical_candidates:
         embedding_adjustment = embedding_boosts.get(receipt_event_key(event), 0.0)
         adjusted_score = max(0.0, min(1.0, score + learned_adjustment + embedding_adjustment))
-        match_level = verified_match_level(event, query, score, extra_families)
         if match_level != "none" and adjusted_score >= match_threshold:
             event_copy = dict(event)
             event_copy["match_score"] = score
@@ -2255,6 +2326,7 @@ def retrieve_item_events(
             event_copy["match_confidence"] = match_level
             scored.append(event_copy)
 
+    scored = dedupe_item_events(scored)
     scored.sort(
         key=lambda x: (
             x.get("adjusted_match_score", x["match_score"]),
@@ -2270,17 +2342,9 @@ def retrieve_item_events(
     if not matches:
         # Return only meaningful candidates. Weak fuzzy matches are worse than no match.
         candidates = []
-        for event in all_events:
-            if not event_matches_semantic_family(event, semantic_family, extra_families):
-                continue
-            if not event_satisfies_required_families(event, query, extra_families):
-                continue
-            scores = [(variant, item_match_score(variant, event["item_original"], event.get("code"))) for variant in query_variants]
-            matched_query, score = max(scores, key=lambda item: item[1]) if scores else (query, 0.0)
-            learned_adjustment = learned_rank_adjustment(query, event, feedback_examples)
+        for event, matched_query, score, learned_adjustment, match_level in lexical_candidates:
             embedding_adjustment = embedding_boosts.get(receipt_event_key(event), 0.0)
             adjusted_score = max(0.0, min(1.0, score + learned_adjustment + embedding_adjustment))
-            match_level = verified_match_level(event, query, score, extra_families)
             if match_level != "none" and adjusted_score >= candidate_threshold:
                 candidates.append({
                     "item": event["item_original"],
@@ -2679,7 +2743,7 @@ def semantic_extract_items(message: str, conversation_history: list[dict] | None
 
     try:
         response = claude_client.messages.create(
-            model=SONNET_MODEL,
+            model=PLANNER_MODEL,
             max_tokens=360,
             temperature=0,
             messages=[{
@@ -2743,6 +2807,8 @@ def deterministic_items_need_semantic_review(message: str, items: list[str]) -> 
 
 
 def deterministic_multi_item_understanding(message: str) -> dict:
+    if category_with_include_from_message(message):
+        return {}
     if not looks_like_shopping_list_price_request(message):
         return {}
     items = extract_shopping_list_items(message)
@@ -2759,6 +2825,30 @@ def deterministic_multi_item_understanding(message: str) -> dict:
         "is_receipt_question": True,
         "deterministic_multi_item_extraction": True,
     }
+
+
+def local_understanding_is_confident(local: dict | None) -> bool:
+    """Skip a model call when deterministic intent and entities are unambiguous."""
+    if not local:
+        return False
+    intent = str(local.get("intent") or "")
+    if intent not in {"item_price", "item_count"}:
+        return True
+    item_query = clean_item_query_for_display(str(local.get("item_query") or ""))
+    tokens = token_set(item_query)
+    if not tokens:
+        return False
+    if tokens & SHOPPING_LIST_NOISE_WORDS:
+        return False
+    if any(family_matches_text(family, item_query) for family in ITEM_SYNONYM_GROUPS + SPECIFIC_ITEM_FAMILIES):
+        return True
+    known_tokens = KNOWN_ITEM_TERMS | SHOPPING_LIST_BOUNDARY_TERMS
+    return len(tokens) <= 3 and tokens <= known_tokens
+
+
+def understanding_cache_key(message: str, conversation_history: list[dict] | None = None) -> str:
+    context = recent_user_context(conversation_history)
+    return hashlib.sha256(f"{normalize_text(message)}\n{context}".encode("utf-8")).hexdigest()
 
 
 def local_understand_user_query(message: str, conversation_history: list[dict] | None = None) -> dict:
@@ -3019,12 +3109,23 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
         return deterministic_multi
 
     local = local_understand_user_query(message, conversation_history)
+    if local_understanding_is_confident(local):
+        return local
+
+    cache_key = understanding_cache_key(message, conversation_history)
+    cached = _UNDERSTANDING_CACHE.get(cache_key)
+    if cached and cached[0] > time.monotonic():
+        return dict(cached[1])
+
     semantic = semantic_extract_items(message, conversation_history)
     if semantic_should_override_local(local, semantic):
+        _UNDERSTANDING_CACHE[cache_key] = (time.monotonic() + 300, dict(semantic))
         return semantic
     if local:
+        _UNDERSTANDING_CACHE[cache_key] = (time.monotonic() + 300, dict(local))
         return local
     if semantic:
+        _UNDERSTANDING_CACHE[cache_key] = (time.monotonic() + 300, dict(semantic))
         return semantic
 
     if not query_understanding_enabled():
@@ -3036,7 +3137,7 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
 
     try:
         response = claude_client.messages.create(
-            model=SONNET_MODEL,
+            model=PLANNER_MODEL,
             max_tokens=260,
             temperature=0,
             messages=[{
@@ -3050,7 +3151,11 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
         print(f"[query_understanding] unavailable: {e}")
         return {}
 
-    return normalize_understanding_payload(data)
+    understood = normalize_understanding_payload(data)
+    _UNDERSTANDING_CACHE[cache_key] = (time.monotonic() + 300, dict(understood))
+    if len(_UNDERSTANDING_CACHE) > 500:
+        _UNDERSTANDING_CACHE.clear()
+    return understood
 
 
 def build_intent_plan(
@@ -3174,7 +3279,7 @@ def category_with_include_from_message(message: str) -> str:
         return ""
     if tokens & {"vegetable", "vegetables", "veggie", "veggies", "produce"}:
         return "vegetable"
-    if tokens & {"meat", "mutton", "beef", "chicken", "goat", "lamb"} and "include" in tokens:
+    if tokens & {"meat", "mutton", "beef", "chicken", "goat", "lamb", "ram"} and "include" in tokens:
         return "meat"
     for term in BROAD_CATEGORY_QUERY_TERMS - {"meat", "vegetable", "vegetables", "veggie", "veggies", "produce"}:
         if term in tokens:
@@ -3401,7 +3506,7 @@ def semantic_alias_note(query: str, events: list[dict]) -> str | None:
     event_tokens = set()
     for event in events:
         event_tokens |= token_set(event.get("item_original") or "")
-    if "mutton" in q_tokens and {"goat", "lamb", "sheep", "chevon"} & event_tokens:
+    if "mutton" in q_tokens and {"goat", "lamb", "ram", "sheep", "chevon"} & event_tokens:
         return None
     if "cilantro" in q_tokens and "coriander" in event_tokens:
         return None
@@ -3487,22 +3592,15 @@ def event_answer_card(event: dict, title: str, kind: str = "best_price", note: s
 
 def dedupe_item_events(events: list[dict]) -> list[dict]:
     unique: list[dict] = []
-    seen: set[tuple] = set()
+    positions: dict[tuple, int] = {}
     for event in events:
-        key = (
-            event.get("receipt_id"),
-            event.get("line_index"),
-            normalize_text(event.get("item_original") or ""),
-            event.get("store") or "",
-            event.get("date") or "",
-            round(price_memory_event_price(event), 2),
-            round(_safe_float(event.get("line_price"), 0.0), 2),
-            round(_safe_float(event.get("quantity"), 1.0), 3),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(event)
+        key = canonical_purchase_event_key(event)
+        existing_index = positions.get(key)
+        if existing_index is None:
+            positions[key] = len(unique)
+            unique.append(event)
+        else:
+            unique[existing_index] = merge_purchase_event_records(unique[existing_index], event)
     return unique
 
 
@@ -3535,7 +3633,7 @@ def looks_like_raw_meat_event(event: dict) -> bool:
         return False
     if tokens & RAW_MEAT_TERMS & {"fish", "seafood", "mackerel", "sardine", "anchovy", "shrimp", "prawn"}:
         return True
-    if tokens & RAW_MEAT_TERMS & {"goat", "mutton", "lamb", "sheep", "chevon", "beef", "pork", "turkey"}:
+    if tokens & RAW_MEAT_TERMS & {"goat", "mutton", "lamb", "ram", "sheep", "chevon", "beef", "pork", "turkey"}:
         return True
     if "chicken" in tokens and (tokens & RAW_MEAT_CUT_TERMS or normalize_text(event.get("unit") or "") in {"lb", "lbs", "pound", "pounds"}):
         return True
@@ -3654,11 +3752,13 @@ def deterministic_item_answer(message: str, rag: dict) -> str:
                 lines.append(f"Receipt item: {item}.")
         else:
             lines = [f"I found {count} {display_query} purchases. Most recent: {date} at {store} ({item})."]
-            for i, event in enumerate(events[:6], 1):
+            for i, event in enumerate(events[:20], 1):
                 purchase_date = event.get("date") or event.get("created_at") or "unknown date"
                 event_store = event.get("store") or "Unknown store"
                 event_item = event.get("item_original") or display_query
                 lines.append(f"{i}. {purchase_date} - {event_item} at {event_store}")
+            if count > 20:
+                lines.append(f"Showing 20 of {count} verified purchases. Use the evidence list to inspect the remaining receipts.")
         if alias_note:
             lines.append(alias_note)
     elif asks_best and best_event:
@@ -3689,7 +3789,7 @@ def deterministic_item_answer(message: str, rag: dict) -> str:
         lines.append("Price history:")
 
     if not asks_purchase_date:
-        for i, e in enumerate(events[:6], 1):
+        for i, e in enumerate(events[:20], 1):
             date = e.get("date") or "unknown date"
             store = e.get("store") or "Unknown store"
             item = e.get("item_original") or rag.get("query")
@@ -6431,7 +6531,7 @@ def compact_tool_result(result: Any) -> Any:
     return result
 
 
-def evidence_rows_from_events(events: list[dict], limit: int = 5) -> list[dict]:
+def evidence_rows_from_events(events: list[dict], limit: int = 50) -> list[dict]:
     rows = []
     for event in dedupe_item_events(events or [])[:limit]:
         rows.append({
@@ -6563,17 +6663,10 @@ def should_use_receipt_intelligence_v2(query: Any, message: str, understanding: 
         return False
 
     if query.intent == receipt_intelligence.INTENT_ITEM_LOOKUP:
-        advanced_item_terms = {
-            "history", "trend", "trends", "list", "show", "all", "evidence",
-            "receipt", "receipts", "them", "those", "same", "good", "avoid",
-            "above", "now", "current", "market", "compare", "comparison",
-            "find", "cheap", "cheapest", "cheaper", "best", "price", "prices",
-        }
-        if tokens & advanced_item_terms:
-            return False
-        if tokens & BROAD_CATEGORY_QUERY_TERMS:
-            return False
-        return True
+        # Item facts must use the canonical event pipeline. The older v2
+        # shortcut truncated evidence before counting and could disagree with
+        # history/date answers even inside the same conversation.
+        return False
 
     if query.intent == receipt_intelligence.INTENT_GENERAL:
         return True
@@ -6674,25 +6767,25 @@ def run_agent(
     )
     v2_should_answer = should_use_receipt_intelligence_v2(deterministic_general, original_message, understanding)
     v2_lookup_error = False
-    try:
-        receipts_for_v2 = fetch_owner_receipts(user_id, guest_session_id, limit=300)
-        events_for_v2 = fetch_owner_item_events(user_id, guest_session_id, limit=1500)
-        if not events_for_v2:
-            events_for_v2 = build_item_events(receipts_for_v2)
-        if (
-            not skip_v2_for_canonical_item
-            and v2_should_answer
-        ):
-            deterministic_v2 = receipt_intelligence.answer_receipt_query(
-                original_message,
-                receipts_for_v2,
-                events_for_v2,
-            )
+    if v2_should_answer:
+        try:
+            receipts_for_v2 = fetch_owner_receipts(user_id, guest_session_id, limit=300)
+            events_for_v2 = fetch_owner_item_events(user_id, guest_session_id, limit=1500)
+            if not events_for_v2:
+                events_for_v2 = build_item_events(receipts_for_v2)
+            if skip_v2_for_canonical_item:
+                deterministic_v2 = None
+            else:
+                deterministic_v2 = receipt_intelligence.answer_receipt_query(
+                    original_message,
+                    receipts_for_v2,
+                    events_for_v2,
+                )
             if deterministic_v2:
                 return finalize_agent_result(deterministic_v2, original_message)
-    except Exception as e:
-        v2_lookup_error = True
-        print(f"[receipt_intelligence_v2] fallback to legacy agent: {e}")
+        except Exception as e:
+            v2_lookup_error = True
+            print(f"[receipt_intelligence_v2] fallback to canonical agent: {e}")
 
     if v2_should_answer and v2_lookup_error:
         return finalize_agent_result({
@@ -6721,7 +6814,15 @@ def run_agent(
 
     # Questions such as "are X and Y the same?" are not trusted alias facts.
     # Only aliases explicitly persisted through the feedback endpoint are learned.
-    extra_families = fetch_owner_alias_families(user_id, guest_session_id)
+    # Owner learning and receipt data are independent. Warm them concurrently
+    # so the first question pays one network window instead of three serial ones.
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        aliases_future = executor.submit(fetch_owner_alias_families, user_id, guest_session_id)
+        feedback_future = executor.submit(fetch_owner_feedback_examples, user_id, guest_session_id)
+        events_future = executor.submit(fetch_owner_item_events, user_id, guest_session_id)
+        extra_families = aliases_future.result()
+        feedback_future.result()
+        events_future.result()
 
     # ── Multi-item intent split ──
     # If the classifier returned 2+ distinct items (e.g. "cinnamon stick saffron turmeric cardamom"),
@@ -6953,7 +7054,13 @@ def run_agent(
         item_rag_message = original_message
     extracted_item_query = extract_query_item(item_rag_message)
     if (_single_item_intent or should_use_item_rag(item_rag_message)) and token_set(extracted_item_query):
-        rag = retrieve_item_events(item_rag_message, user_id, guest_session_id, limit=12, extra_families=extra_families)
+        complete_history_intents = {
+            AgentIntent.PURCHASE_DATE,
+            AgentIntent.PURCHASE_COUNT,
+            AgentIntent.PRICE_HISTORY,
+        }
+        retrieval_limit = 250 if intent_plan.intent in complete_history_intents else 50
+        rag = retrieve_item_events(item_rag_message, user_id, guest_session_id, limit=retrieval_limit, extra_families=extra_families)
         if not (rag.get("events") or rag.get("closest_candidates")):
             public_families = public_meaning_alias_families(extracted_item_query)
             if public_families:
@@ -6961,11 +7068,14 @@ def run_agent(
                     item_rag_message,
                     user_id,
                     guest_session_id,
-                    limit=12,
+                    limit=retrieval_limit,
                     extra_families=extra_families + public_families,
                 )
         display_query = clean_item_query_for_display(rag.get("normalized_query") or rag.get("query") or extracted_item_query)
         trusted_events = dedupe_item_events(trusted_item_events_for_answer(display_query, rag.get("events") or []))
+        rag = dict(rag)
+        rag["events"] = trusted_events
+        rag["count"] = len(trusted_events)
         should_recover = (
             (not trusted_events and not (rag.get("closest_candidates") or []))
             or looks_like_partial_combined_item_match(display_query, trusted_events)
@@ -6992,22 +7102,25 @@ def run_agent(
                 }, original_message)
         answer = deterministic_item_answer(original_message, rag)
         card = deterministic_item_answer_card(original_message, rag)
-        evidence = evidence_rows_from_card(card) or evidence_rows_from_events(rag.get("events") or [])
+        evidence = evidence_rows_from_card(card) or evidence_rows_from_events(trusted_events)
+        trace = rag_trace(
+            intent="item_purchase_date" if query_asks_for_purchase_date(original_message) else "item_price",
+            retrieval="hybrid_item_rag",
+            original_message=original_message,
+            normalized_query=rag.get("normalized_query") or extracted_item_query,
+            evidence=evidence,
+            retrieval_pipeline=rag.get("retrieval_pipeline"),
+            strict=AGENT_STRICT_MATCHING,
+            note="Canonical purchase events from complete ranked history; counts and evidence share the same deduplicated payload.",
+        )
+        trace["matched_event_count"] = len(trusted_events)
+        trace["evidence_is_complete"] = len(evidence) == len(trusted_events)
         return finalize_agent_result({
             "response": answer,
             "answer_card": card,
             "tools_used": [],
             "thinking": "",
-            "rag_trace": rag_trace(
-                intent="item_purchase_date" if query_asks_for_purchase_date(original_message) else "item_price",
-                retrieval="hybrid_item_rag",
-                original_message=original_message,
-                normalized_query=rag.get("normalized_query") or extracted_item_query,
-                evidence=evidence,
-                retrieval_pipeline=rag.get("retrieval_pipeline"),
-                strict=AGENT_STRICT_MATCHING,
-                note="Contextual item embeddings plus structured SQL, exact/fuzzy aliases, learned rank adjustments, deterministic reranking, and unit-aware price normalization.",
-            ),
+            "rag_trace": trace,
         }, original_message)
 
     if looks_like_smalltalk_or_help(message):

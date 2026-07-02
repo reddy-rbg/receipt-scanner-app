@@ -17,6 +17,7 @@ from app.services import agent_workflow
 router = APIRouter(prefix="/agent", tags=["agent"])
 conversation_store: dict[str, list[dict[str, str]]] = {}
 _PERSISTENT_HISTORY_AVAILABLE: bool | None = None
+_PERSISTENT_HISTORY_RETRY_AT = 0.0
 _TOKEN_USER_CACHE: dict[str, tuple[float, str]] = {}
 TOKEN_USER_CACHE_SECONDS = 300
 _RATE_BUCKETS: dict[tuple[str, str], list[float]] = {}
@@ -51,8 +52,8 @@ def load_persistent_history(
     user_id: str | None,
     guest_session_id: str | None,
 ) -> list[dict[str, str]]:
-    global _PERSISTENT_HISTORY_AVAILABLE
-    if _PERSISTENT_HISTORY_AVAILABLE is False:
+    global _PERSISTENT_HISTORY_AVAILABLE, _PERSISTENT_HISTORY_RETRY_AT
+    if _PERSISTENT_HISTORY_AVAILABLE is False and time.monotonic() < _PERSISTENT_HISTORY_RETRY_AT:
         return []
     try:
         from app.config import supabase
@@ -65,6 +66,7 @@ def load_persistent_history(
             query = query.eq("guest_session_id", guest_session_id)
         rows = query.order("created_at", desc=True).limit(20).execute().data or []
         _PERSISTENT_HISTORY_AVAILABLE = True
+        _PERSISTENT_HISTORY_RETRY_AT = 0.0
         return [
             {"role": str(row.get("role") or ""), "content": str(row.get("content") or "")}
             for row in reversed(rows)
@@ -74,6 +76,7 @@ def load_persistent_history(
         if _PERSISTENT_HISTORY_AVAILABLE is not False:
             print(f"[agent_history] Persistent history unavailable: {e}")
         _PERSISTENT_HISTORY_AVAILABLE = False
+        _PERSISTENT_HISTORY_RETRY_AT = time.monotonic() + 60
         return []
 
 
@@ -84,8 +87,8 @@ def save_persistent_turn(
     message: str,
     response: str,
 ) -> None:
-    global _PERSISTENT_HISTORY_AVAILABLE
-    if _PERSISTENT_HISTORY_AVAILABLE is False:
+    global _PERSISTENT_HISTORY_AVAILABLE, _PERSISTENT_HISTORY_RETRY_AT
+    if _PERSISTENT_HISTORY_AVAILABLE is False and time.monotonic() < _PERSISTENT_HISTORY_RETRY_AT:
         return
     try:
         from app.config import supabase
@@ -99,14 +102,16 @@ def save_persistent_turn(
             {**owner, "role": "assistant", "content": response},
         ]).execute()
         _PERSISTENT_HISTORY_AVAILABLE = True
+        _PERSISTENT_HISTORY_RETRY_AT = 0.0
     except Exception as e:
         if _PERSISTENT_HISTORY_AVAILABLE is not False:
             print(f"[agent_history] Could not persist turn: {e}")
         _PERSISTENT_HISTORY_AVAILABLE = False
+        _PERSISTENT_HISTORY_RETRY_AT = time.monotonic() + 60
 
 
 def clear_persistent_history(session_id: str, user_id: str | None, guest_session_id: str | None) -> None:
-    if _PERSISTENT_HISTORY_AVAILABLE is False:
+    if _PERSISTENT_HISTORY_AVAILABLE is False and time.monotonic() < _PERSISTENT_HISTORY_RETRY_AT:
         return
     try:
         from app.config import supabase

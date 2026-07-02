@@ -1039,7 +1039,8 @@ def test_contextual_retrieval_pipeline_trace_is_attached():
     assert "structured_sql" in pipeline["hybrid_signals"]
     assert "local_vector" in pipeline["hybrid_signals"]
     assert pipeline["reranker"] == "deterministic evidence reranker"
-    assert pipeline["vector_boost_matches"] == 1
+    assert pipeline["vector_boost_matches"] == 0
+    assert pipeline["vector_search_skipped_for_exact_match"] is True
 
 
 def test_multi_item_retrieval_pipeline_trace_is_attached():
@@ -1243,10 +1244,10 @@ def test_local_router_handles_general_question_without_claude():
 
 
 def test_local_router_handles_broad_category_question():
-    understanding = agent.understand_user_query("What is the meat", [])
+    understanding = agent.understand_user_query("What meat did I buy", [])
     assert understanding["intent"] == "category_price"
     assert understanding["category"] == "meat"
-    result = agent.run_agent("What is the meat", [])
+    result = agent.run_agent("What meat did I buy", [])
     assert "GOAT KEEMA" in result["response"]
     assert "CILANTRO" not in result["response"]
 

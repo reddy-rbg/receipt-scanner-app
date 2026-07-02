@@ -105,6 +105,9 @@ type RagTraceRow = {
 type RagTrace = {
   intent?: string;
   retrieval?: string;
+  evidence_count?: number;
+  matched_event_count?: number;
+  evidence_is_complete?: boolean;
   retrieval_pipeline?: {
     embedding_model?: string;
     contextual_embeddings?: boolean;
@@ -636,9 +639,8 @@ export default function AgentScreen() {
 
     const expanded = msg.traceExpanded ?? false;
     const pipeline = trace.retrieval_pipeline || {};
-    const traceLabel = pipeline.contextual_embeddings
-      ? `Contextual hybrid RAG${pipeline.vector_boost_matches != null ? ` · ${pipeline.vector_boost_matches} vector boosts` : ''}`
-      : `Matched ${rows.length} item${rows.length !== 1 ? 's' : ''} from your receipts`;
+    const matchedCount = trace.matched_event_count ?? trace.evidence_count ?? rows.length;
+    const traceLabel = `Matched ${matchedCount} verified purchase${matchedCount !== 1 ? 's' : ''}`;
 
     return (
       <View style={[s.traceBox, { borderColor: C.border, backgroundColor: C.surface }]}>
@@ -657,6 +659,7 @@ export default function AgentScreen() {
           <View style={[s.tracePipeline, { borderTopColor: C.border }]}>
             <Text style={[s.traceMeta, { color: C.text3 }]} numberOfLines={2}>
               {pipeline.embedding_model} · {pipeline.reranker || 'evidence reranker'}
+              {matchedCount > rows.length ? ` · showing ${rows.length} of ${matchedCount}` : ''}
             </Text>
           </View>
         ) : null}

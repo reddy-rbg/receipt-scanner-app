@@ -170,10 +170,44 @@ def safe_unverified_receipt_response(message: str, result: dict) -> str:
     return "I could not verify that from your receipts, so I will not guess."
 
 
+PURCHASE_COUNT_PATTERNS = (
+    re.compile(r"(?i)(\bi found\s+)(\d+)(\s+[^.\n]*?purchase(?:s| events?)?\b)"),
+    re.compile(r"(?i)(\byou bought\s+[^.\n]*?\s+)(\d+)(\s+times?\b)"),
+    re.compile(r"(?i)(\bacross\s+)(\d+)(\s+purchases?\b)"),
+)
+
+
+def validate_numeric_purchase_claim(result: dict) -> dict:
+    """Force purchase counts to equal the canonical retrieval payload."""
+    trace_data = dict(result.get("rag_trace") or {})
+    matched_count = trace_data.get("matched_event_count")
+    if not isinstance(matched_count, int) or matched_count < 0:
+        return result
+    response = str(result.get("response") or "")
+    corrected = response
+    mismatches: list[int] = []
+    for pattern in PURCHASE_COUNT_PATTERNS:
+        def replace(match: re.Match) -> str:
+            claimed = int(match.group(2))
+            if claimed != matched_count:
+                mismatches.append(claimed)
+            return f"{match.group(1)}{matched_count}{match.group(3)}"
+        corrected = pattern.sub(replace, corrected)
+    if not mismatches:
+        return result
+    trace_data["numeric_claim_corrected"] = True
+    trace_data["rejected_purchase_counts"] = sorted(set(mismatches))
+    updated = dict(result)
+    updated["response"] = corrected
+    updated["rag_trace"] = trace_data
+    return updated
+
+
 def finalize_agent_result(result: dict, original_message: str) -> dict:
     """Final gate before an answer leaves the backend."""
     if not isinstance(result, dict):
         return result
+    result = validate_numeric_purchase_claim(result)
     if not result_requires_receipt_evidence(result):
         return result
     if result_has_receipt_evidence(result) or response_is_no_evidence_result(result.get("response")):
