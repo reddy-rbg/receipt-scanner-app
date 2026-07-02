@@ -39,7 +39,7 @@ AGENT_FLEXIBLE_MEMORY_ENABLED = os.getenv("AGENT_FLEXIBLE_MEMORY_ENABLED", "true
 AGENT_STRICT_MATCHING = os.getenv("AGENT_STRICT_MATCHING", "true").lower() != "false"
 AGENT_EMBEDDING_RETRIEVAL_ENABLED = os.getenv("AGENT_EMBEDDING_RETRIEVAL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 STRICT_ITEM_MIN_SCORE = float(os.getenv("STRICT_ITEM_MIN_SCORE", "0.72"))
-AGENT_BUILD = "canonical-events-fast-planner-2026-07-02"
+AGENT_BUILD = "canonical-events-fast-planner-v2-2026-07-02"
 AGENT_CAPABILITIES = {
     "structured_rag": True,
     "adaptive_query_recovery": True,
@@ -2309,9 +2309,11 @@ def retrieve_item_events(
         match_level != "none" and score + learned_adjustment >= max(match_threshold, 0.88)
         for _, _, score, learned_adjustment, match_level in lexical_candidates
     )
-    embedding_boosts = {} if has_strong_lexical_match else fetch_embedding_rank_boosts(query, user_id, guest_session_id)
+    skip_vector_search = has_strong_lexical_match or not lexical_candidates
+    embedding_boosts = {} if skip_vector_search else fetch_embedding_rank_boosts(query, user_id, guest_session_id)
     pipeline = retrieval_pipeline_trace(embedding_boosts)
     pipeline["vector_search_skipped_for_exact_match"] = has_strong_lexical_match
+    pipeline["vector_search_skipped_without_candidates"] = not lexical_candidates
     scored = []
     for event, matched_query, score, learned_adjustment, match_level in lexical_candidates:
         embedding_adjustment = embedding_boosts.get(receipt_event_key(event), 0.0)

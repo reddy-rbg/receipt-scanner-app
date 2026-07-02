@@ -144,6 +144,16 @@ def test_exact_match_skips_vector_network_call():
     assert rag["retrieval_pipeline"]["vector_search_skipped_for_exact_match"] is True
 
 
+def test_empty_purchase_history_skips_vector_network_call():
+    def retrieve_without_vector():
+        agent.fetch_embedding_rank_boosts = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("vector RPC called"))
+        return agent.retrieve_item_events("ram", limit=250)
+
+    rag = with_events([], retrieve_without_vector)
+    assert rag["events"] == []
+    assert rag["retrieval_pipeline"]["vector_search_skipped_without_candidates"] is True
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:

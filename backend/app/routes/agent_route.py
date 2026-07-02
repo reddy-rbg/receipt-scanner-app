@@ -205,14 +205,15 @@ async def handle_agent_request(request: Request, body: AgentMessage):
         conversation_store[session_key] = history[-20:]
         if len(conversation_store) > 1000:
             conversation_store.pop(next(iter(conversation_store)), None)
-        await asyncio.to_thread(
+        # Persistence is eventual and must not hold up the visible answer.
+        asyncio.create_task(asyncio.to_thread(
             save_persistent_turn,
             body.session_id,
             user_id,
             guest_session_id,
             message,
             response_text,
-        )
+        ))
 
         return {
             "success": True,
