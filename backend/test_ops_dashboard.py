@@ -56,3 +56,9 @@ def test_operator_login_never_mutates_the_service_role_client():
     assert "def create_auth_client()" in CONFIG
     assert "create_auth_client().auth" in AUTH_ROUTES
     assert "database.supabase.auth.sign_in" not in AUTH_ROUTES
+
+
+def test_receipt_editor_can_be_created_for_receipt_only_assignments():
+    assert 'CUSTOMER_REQUIRED_ROLES = {"customer_owner", "customer_user", "auditor", "service_account"}' in RBAC_ROUTES
+    assert "Receipt Editors may be created without a customer" in APP
+    assert "operatorFormError" in APP

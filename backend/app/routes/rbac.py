@@ -12,6 +12,7 @@ from app.services import rbac
 
 
 router = APIRouter(prefix="/rbac", tags=["access-control"])
+CUSTOMER_REQUIRED_ROLES = {"customer_owner", "customer_user", "auditor", "service_account"}
 
 
 class CustomerCreate(BaseModel):
@@ -171,7 +172,7 @@ def create_operator(body: OperatorCreate, request: Request):
         raise HTTPException(status_code=403, detail="Platform administrator access required for this role.")
     if body.role_key not in rbac.ROLE_PERMISSIONS:
         raise HTTPException(status_code=400, detail="Unknown role.")
-    if body.role_key not in {"platform_admin", "master_user", "support_agent"} and not body.customer_id:
+    if body.role_key in CUSTOMER_REQUIRED_ROLES and not body.customer_id:
         raise HTTPException(status_code=400, detail="customer_id is required for this role.")
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", body.email.strip()):
         raise HTTPException(status_code=400, detail="A valid operator email is required.")
@@ -246,7 +247,7 @@ def assign_role(body: RoleAssignmentCreate, request: Request):
         raise HTTPException(status_code=403, detail="You cannot manage roles for this customer.")
     if body.role_key not in rbac.ROLE_PERMISSIONS:
         raise HTTPException(status_code=400, detail="Unknown role.")
-    if body.role_key not in {"platform_admin", "master_user", "support_agent"} and not body.customer_id:
+    if body.role_key in CUSTOMER_REQUIRED_ROLES and not body.customer_id:
         raise HTTPException(status_code=400, detail="customer_id is required for this role.")
     payload = {**body.model_dump(), "assigned_by": context.user_id, "active": True}
     result = supabase.table("rbac_user_roles").upsert(payload, on_conflict="user_id,role_key,customer_id").execute()
