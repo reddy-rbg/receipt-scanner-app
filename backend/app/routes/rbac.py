@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.config import supabase
-from app.services import rbac
+from app.services import database, rbac
 
 
 router = APIRouter(prefix="/rbac", tags=["access-control"])
@@ -47,6 +47,18 @@ class ReceiptAssignmentCreate(BaseModel):
     expires_at: datetime | None = None
 
 
+class BulkReceiptAssignmentCreate(BaseModel):
+    assignee_user_id: str
+    receipt_ids: list[int] = Field(default_factory=list)
+    all_accessible: bool = False
+    from_date: str | None = None
+    to_date: str | None = None
+    year: int | None = Field(default=None, ge=2000, le=2200)
+    month: int | None = Field(default=None, ge=1, le=12)
+    permissions: list[str] = Field(default_factory=lambda: ["receipts.read", "receipts.correct_items"])
+    expires_at: datetime | None = None
+
+
 class OperatorCreate(BaseModel):
     email: str
     name: str = Field(min_length=2, max_length=120)
@@ -76,6 +88,17 @@ def _validate_permissions(values: list[str]) -> list[str]:
     if not cleaned or any(value not in allowed for value in cleaned):
         raise HTTPException(status_code=400, detail="One or more permissions are invalid.")
     return cleaned
+
+
+def _require_assignment_manager(context: rbac.AccessContext) -> None:
+    if not context.is_global and "customer_owner" not in context.role_keys:
+        raise HTTPException(status_code=403, detail="Only an administrator or customer owner can assign receipt work.")
+
+
+def _validate_receipt_assignee(user_id: str) -> None:
+    rows = supabase.table("rbac_user_roles").select("id").eq("user_id", user_id).eq("role_key", "receipt_editor").eq("active", True).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(status_code=400, detail="The selected operator is not an active Receipt Editor.")
 
 
 @router.get("/me")
@@ -134,7 +157,9 @@ def _visible_role_rows(context: rbac.AccessContext) -> list[dict]:
     if not context.is_global:
         if not context.customer_ids:
             return []
-        query = query.in_("customer_id", sorted(context.customer_ids))
+        scoped = query.in_("customer_id", sorted(context.customer_ids)).order("created_at", desc=True).execute().data or []
+        created = supabase.table("rbac_user_roles").select("id,user_id,role_key,customer_id,active,created_at,assigned_by").eq("assigned_by", context.user_id).order("created_at", desc=True).execute().data or []
+        return list({str(row.get("id")): row for row in scoped + created}.values())
     return query.order("created_at", desc=True).execute().data or []
 
 
@@ -356,6 +381,8 @@ def list_support_grants(request: Request):
 @router.post("/receipt-assignments", status_code=201)
 def assign_receipt(body: ReceiptAssignmentCreate, request: Request):
     context = rbac.get_access_context(request)
+    _require_assignment_manager(context)
+    _validate_receipt_assignee(body.assignee_user_id)
     receipt = rbac.get_receipt_for_access(context, body.receipt_id, "receipts.update")
     permissions = _validate_permissions(body.permissions)
     permitted = {"receipts.read", "receipts.update", "receipts.correct_items", "receipts.view_image"}
@@ -367,6 +394,69 @@ def assign_receipt(body: ReceiptAssignmentCreate, request: Request):
     created = (result.data or [payload])[0]
     rbac.audit(context, "receipt.assign", "receipt", body.receipt_id, receipt.get("customer_id"), metadata={"assignee_user_id": body.assignee_user_id, "permissions": permissions})
     return created
+
+
+@router.post("/receipt-assignments/bulk", status_code=201)
+def assign_receipts_bulk(body: BulkReceiptAssignmentCreate, request: Request):
+    """Assign an authorized receipt set selected explicitly or by calendar filters."""
+    context = rbac.get_access_context(request)
+    _require_assignment_manager(context)
+    _validate_receipt_assignee(body.assignee_user_id)
+    permissions = _validate_permissions(body.permissions)
+    permitted = {"receipts.read", "receipts.update", "receipts.correct_items", "receipts.view_image"}
+    if any(value not in permitted for value in permissions):
+        raise HTTPException(status_code=400, detail="Receipt assignments may contain receipt permissions only.")
+
+    receipts = rbac.list_accessible_receipts(context, permission="receipts.update", limit=5000)
+    explicit_ids = {int(value) for value in body.receipt_ids}
+    start = database.parse_purchase_date(body.from_date) if body.from_date else None
+    end = database.parse_purchase_date(body.to_date) if body.to_date else None
+    if bool(body.from_date) != bool(body.to_date) or (body.from_date and (not start or not end or start > end)):
+        raise HTTPException(status_code=400, detail="Send a valid from_date and to_date range.")
+    has_filter = bool(explicit_ids or body.all_accessible or start or body.year)
+    if not has_filter:
+        raise HTTPException(status_code=400, detail="Select receipts, a date range, month, year, or all receipts.")
+
+    selected: list[dict] = []
+    for receipt in receipts:
+        receipt_id = int(receipt.get("id"))
+        purchased = database.parse_purchase_date(receipt.get("date") or receipt.get("created_at"))
+        matches = body.all_accessible or receipt_id in explicit_ids
+        if start and end and purchased and start <= purchased <= end:
+            matches = True
+        if body.year and purchased and purchased.year == body.year and (not body.month or purchased.month == body.month):
+            matches = True
+        if matches:
+            selected.append(receipt)
+    if not selected:
+        raise HTTPException(status_code=404, detail="No authorized receipts matched this assignment filter.")
+
+    payloads = [{
+        "assignee_user_id": body.assignee_user_id,
+        "receipt_id": receipt["id"],
+        "permissions": permissions,
+        "assigned_by": context.user_id,
+        "expires_at": body.expires_at.isoformat() if body.expires_at else None,
+        "revoked_at": None,
+    } for receipt in selected]
+    assignment_rows: list[dict] = []
+    for start_index in range(0, len(payloads), 250):
+        batch = payloads[start_index:start_index + 250]
+        result = supabase.table("receipt_assignments").upsert(batch, on_conflict="assignee_user_id,receipt_id").execute()
+        assignment_rows.extend(result.data or [])
+    rbac.clear_context_cache(body.assignee_user_id)
+    selected_ids = [int(receipt["id"]) for receipt in selected]
+    rbac.audit(context, "receipt.assignment.bulk", "receipt_set", customer_id=rbac.primary_customer_id(context), metadata={
+        "assignee_user_id": body.assignee_user_id,
+        "receipt_count": len(selected_ids),
+        "receipt_ids": selected_ids[:200],
+        "all_accessible": body.all_accessible,
+        "from_date": body.from_date,
+        "to_date": body.to_date,
+        "year": body.year,
+        "month": body.month,
+    })
+    return {"success": True, "assigned": len(selected_ids), "receipt_ids": selected_ids, "assignments": assignment_rows}
 
 
 @router.delete("/receipt-assignments/{assignment_id}")

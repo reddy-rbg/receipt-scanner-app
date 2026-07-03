@@ -62,3 +62,13 @@ def test_receipt_editor_can_be_created_for_receipt_only_assignments():
     assert 'CUSTOMER_REQUIRED_ROLES = {"customer_owner", "customer_user", "auditor", "service_account"}' in RBAC_ROUTES
     assert "Receipt Editors may be created without a customer" in APP
     assert "operatorFormError" in APP
+
+
+def test_bulk_assignment_supports_multiple_and_calendar_scopes():
+    assert '/receipt-assignments/bulk' in RBAC_ROUTES
+    assert 'all_accessible: bool = False' in RBAC_ROUTES
+    assert 'from_date: str | None = None' in RBAC_ROUTES
+    assert 'year: int | None' in RBAC_ROUTES
+    assert 'range(0, len(payloads), 250)' in RBAC_ROUTES
+    for label in ("Selected receipts", "Date range", "One month", "One year", "All accessible receipts"):
+        assert label in APP

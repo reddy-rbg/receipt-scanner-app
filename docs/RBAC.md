@@ -35,7 +35,7 @@ A support agent has zero receipt visibility by default. A customer owner, master
 
 - **Overview:** authorized receipt totals, assignments, support grants, roles, and recent activity.
 - **Receipts:** scoped receipt search, header correction, and line-item correction.
-- **Assignments:** route individual receipts to correction operators and revoke work.
+- **Assignments:** route one receipt, selected receipts, a date range, a month, a year, or all authorized receipts to correction operators; assignments can be revoked.
 - **Support access:** create and revoke receipt- or customer-scoped access windows.
 - **Users:** create operator accounts, assign roles, and activate/deactivate accounts.
 - **Customers:** create and inspect isolated organization workspaces.
