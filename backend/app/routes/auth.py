@@ -12,7 +12,7 @@ import os
 import re
 import urllib.request
 import json as _json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.services import database
 from app.config import create_auth_client
@@ -32,6 +32,11 @@ class ForgotPasswordRequest(BaseModel):
 
 class RefreshSessionRequest(BaseModel):
     refresh_token: str
+
+
+class ResetPasswordRequest(BaseModel):
+    access_token: str
+    new_password: str
 
 
 def validate_password(password: str) -> str | None:
@@ -217,7 +222,7 @@ def refresh_session(req: RefreshSessionRequest):
 
 
 @router.post("/forgot-password")
-def forgot_password(req: ForgotPasswordRequest):
+def forgot_password(req: ForgotPasswordRequest, request: Request):
     """Send a Supabase password recovery email."""
     email = req.email.strip().lower()
     if not email:
@@ -233,8 +238,9 @@ def forgot_password(req: ForgotPasswordRequest):
     try:
         payload_data = {"email": email}
         reset_redirect_url = os.environ.get("PASSWORD_RESET_REDIRECT_URL", "").strip()
-        if reset_redirect_url:
-            payload_data["redirect_to"] = reset_redirect_url
+        if not reset_redirect_url:
+            reset_redirect_url = f"{str(request.base_url).rstrip('/')}/reset-password/"
+        payload_data["redirect_to"] = reset_redirect_url
         payload = _json.dumps(payload_data).encode()
         reset_req = urllib.request.Request(
             f"{supabase_url}/auth/v1/recover",
@@ -258,6 +264,28 @@ def forgot_password(req: ForgotPasswordRequest):
         if "rate" in msg or "429" in msg:
             raise HTTPException(status_code=429, detail="Too many reset attempts. Please wait and try again.")
         raise HTTPException(status_code=500, detail=f"Could not send password reset email: {str(e)}")
+
+
+@router.post("/reset-password")
+def reset_password(req: ResetPasswordRequest):
+    """Set a new password after Supabase validates the recovery access token."""
+    password_error = validate_password(req.new_password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+    token = req.access_token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Recovery token is required.")
+    try:
+        verified = database.supabase.auth.get_user(token)
+        if not verified or not verified.user:
+            raise HTTPException(status_code=401, detail="This recovery link is invalid or expired.")
+        database.supabase.auth.admin.update_user_by_id(str(verified.user.id), {"password": req.new_password})
+        return {"success": True, "message": "Password updated. You can now sign in."}
+    except HTTPException:
+        raise
+    except Exception as error:
+        print(f"[password_reset] Recovery failed: {error}")
+        raise HTTPException(status_code=401, detail="This recovery link is invalid or expired.")
 
 
 @router.post("/logout")

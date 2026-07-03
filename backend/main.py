@@ -87,7 +87,7 @@ app.add_middleware(
 @app.middleware("http")
 async def operations_security_headers(request, call_next):
     response = await call_next(request)
-    if request.url.path == "/ops" or request.url.path.startswith("/ops/"):
+    if request.url.path == "/ops" or request.url.path.startswith("/ops/") or request.url.path.startswith("/reset-password"):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -107,6 +107,11 @@ app.mount(
     "/ops",
     StaticFiles(directory=str(Path(__file__).parent / "ops_dashboard"), html=True),
     name="operations-dashboard",
+)
+app.mount(
+    "/reset-password",
+    StaticFiles(directory=str(Path(__file__).parent / "reset_password"), html=True),
+    name="password-reset",
 )
 
 # ── Health check ──

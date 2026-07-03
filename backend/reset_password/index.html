@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Reset password · ReceiptAI</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="card">
+    <div class="mark">R</div>
+    <p class="eyebrow">RECEIPTAI SECURITY</p>
+    <h1>Choose a new password</h1>
+    <p id="intro" class="muted">Use at least 8 characters with uppercase, lowercase, and a special character.</p>
+    <form id="resetForm">
+      <label>New password<input id="password" type="password" minlength="8" autocomplete="new-password" required /></label>
+      <label>Confirm password<input id="confirmPassword" type="password" minlength="8" autocomplete="new-password" required /></label>
+      <p id="error" class="error"></p>
+      <button id="submitButton" type="submit">Update password</button>
+    </form>
+    <section id="success" class="success hidden"><strong>Password updated</strong><p>You can return to ReceiptAI and sign in with your new password.</p></section>
+  </main>
+  <script src="./reset.js" defer></script>
+</body>
+</html>
