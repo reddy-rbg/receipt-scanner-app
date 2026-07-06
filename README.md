@@ -46,6 +46,9 @@ No receipt evidence -> no purchase claim.
 | AI Agent | Ask about prices, stores, item history, spending, comparisons, and shopping plans |
 | Evidence gate | Receipt facts must come from saved receipt evidence, not model guesses |
 | General advice | Food, shopping, and savings advice is supported without pretending it came from receipts |
+| Secure operations | Backend-enforced roles, customer scopes, receipt assignments, support grants, and audit logs |
+| Operations console | Separate role-aware web dashboard for administrators, support staff, auditors, and receipt editors |
+| Account recovery | Hosted password-reset flow that returns users safely to the deployed application |
 | Mobile first | Built for Expo Go, local LAN testing, and future app-store builds |
 
 ## Architecture At A Glance
@@ -53,7 +56,10 @@ No receipt evidence -> no purchase claim.
 ```mermaid
 flowchart TD
   A["Expo mobile app"] --> B["FastAPI backend"]
+  J["Operations console"] --> B
   B --> C["Supabase Auth"]
+  B --> K["RBAC and scoped authorization"]
+  K --> L["Roles, support grants, receipt assignments, and audit"]
   B --> D["Claude receipt extraction"]
   D --> E["receipts table"]
   D --> F["receipt_items table"]
@@ -73,11 +79,14 @@ ReceiptScanner/
     app/
       routes/             Auth, receipt, query, and agent routes
       services/           Scanning, storage, retrieval, and agent logic
+    ops_dashboard/        Role-aware operations web console
+    reset_password/       Hosted password-recovery page
     main.py               FastAPI entrypoint
     requirements.txt      Python dependencies
     Procfile              Railway start command
     nixpacks.toml         Railway build config
     supabase_*.sql        Supabase migrations
+  docs/RBAC.md            Access-control roles, scopes, and deployment guide
   assets/readme/          README visuals
 ```
 
@@ -102,6 +111,64 @@ timings and the exact intent plan used for the answer.
 | `backend/app/services/receipt_intelligence.py` | Deterministic receipt Q&A and item matching |
 
 Receipt fact answers are allowed only when matching receipt evidence is found.
+
+Production retrieval counts unique purchase occasions rather than duplicated
+evidence rows. Purchase-history answers therefore align their headline count,
+listed events, and receipt evidence. The current single-pass orchestration also
+avoids repeated interpretation and unnecessary response waits.
+
+## Production Access Control
+
+ReceiptAI uses backend-enforced role-based access control (RBAC). The mobile app
+and operations console may hide unavailable controls, but the FastAPI backend is
+always the security boundary.
+
+| Role | Production access |
+| --- | --- |
+| `platform_admin` | Full platform administration, customer data, roles, settings, and audit |
+| `master_user` | Cross-customer receipts, reports, analytics, support approval, and audit |
+| `customer_owner` | Members, receipts, analytics, corrections, and support approval for one customer |
+| `customer_user` | Only receipts and purchase history owned by that user |
+| `support_agent` | No customer data by default; approved, scoped, time-limited access only |
+| `receipt_editor` | Correct assigned customers or receipts; cannot delete receipts or manage users |
+| `auditor` | Read-only access to assigned receipt and audit scopes |
+| `service_account` | Explicitly scoped scan/reprocessing access for trusted backend jobs |
+
+Cross-user receipt access requires a global role, customer role, active support
+grant, or active receipt assignment. Unknown and unauthorized receipts return the
+same not-found response so the API does not reveal another customer's data.
+
+### Operations Console
+
+The deployed backend serves the separate operations console at:
+
+```text
+https://web-production-3605f4.up.railway.app/ops/
+```
+
+Authorized users can:
+
+- Create and activate/deactivate operator accounts.
+- Assign customer-scoped roles and inspect effective permissions.
+- Search authorized receipts and correct receipt headers or line items.
+- Assign one receipt, selected receipts, a date range, month, year, or all
+  authorized receipts to a Receipt Editor.
+- Create and revoke time-limited support access.
+- Review security-sensitive activity in the audit log.
+
+See [`docs/RBAC.md`](docs/RBAC.md) for the complete role matrix, deployment
+steps, support workflow, and launch verification checklist.
+
+### Password Recovery
+
+Password recovery is hosted by the production backend at:
+
+```text
+https://web-production-3605f4.up.railway.app/reset-password/
+```
+
+Set `PASSWORD_RESET_REDIRECT_URL` to this deployed route and add the same URL to
+the Supabase Auth redirect allowlist.
 
 ## Run Locally
 
@@ -148,11 +215,16 @@ SUPABASE_SERVICE_KEY=
 ANTHROPIC_API_KEY=
 GOOGLE_SEARCH_API_KEY=
 GOOGLE_SEARCH_ENGINE_ID=
+RBAC_BOOTSTRAP_ADMIN_USER_IDS=
+PASSWORD_RESET_REDIRECT_URL=https://web-production-3605f4.up.railway.app/reset-password/
 ```
 
 Important:
 
 - `SUPABASE_SERVICE_KEY` is backend-only.
+- `RBAC_BOOTSTRAP_ADMIN_USER_IDS` is an optional comma-separated list of
+  Supabase user UUIDs used only to bootstrap the first platform administrator.
+- `PASSWORD_RESET_REDIRECT_URL` must also be allowed in Supabase Auth settings.
 - Mobile code should use only public/frontend-safe variables.
 - Do not commit `.env` files.
 
@@ -165,12 +237,15 @@ backend/supabase_receipt_items.sql
 backend/supabase_item_aliases.sql
 backend/supabase_agent_conversations.sql
 backend/supabase_receipt_identifiers.sql
+backend/supabase_rbac.sql
 ```
 
 These create:
 
 - `receipt_items` for fast structured item retrieval.
 - `receipt_item_aliases` for taught meanings such as `goat = mutton`.
+- RBAC customers, role assignments, support grants, receipt assignments, and
+  audit events for scoped operations access.
 
 ## API Highlights
 
@@ -185,6 +260,10 @@ These create:
 | `POST` | `/agent` | Ask the AI Agent |
 | `POST` | `/agent/chat` | Chat-style Agent request |
 | `GET` | `/agent-health` | Verify deployed backend build and config |
+| `GET` | `/rbac/me` | Return the current operator's roles, scopes, and permissions |
+| `POST` | `/rbac/users` | Create an operator account and initial role |
+| `POST` | `/rbac/receipt-assignments/bulk` | Assign filtered receipt work to a Receipt Editor |
+| `GET` | `/rbac/audit` | Read authorized security audit events |
 
 ## Deployment
 
@@ -226,6 +305,9 @@ cd backend
 python test_receipt_intelligence_v2.py
 python test_agent_hard_scenarios.py
 python test_agent_quality_gate.py
+python test_rbac_authorization.py
+python test_ops_dashboard.py
+python test_password_reset.py
 ```
 
 Mobile type check:
