@@ -24,8 +24,9 @@ MODEL_SONNET = "claude-sonnet-4-5-20250929"
 MODEL_HAIKU = "claude-haiku-4-5-20251001"
 SCAN_MODEL = os.getenv("CLAUDE_SCAN_MODEL", MODEL_SONNET)
 MAX_CLAUDE_IMAGE_BYTES = 3_600_000
-MAX_PDF_SCAN_PAGES = int(os.getenv("MAX_PDF_SCAN_PAGES", "4"))
+MAX_PDF_SCAN_PAGES = int(os.getenv("MAX_PDF_SCAN_PAGES", "16"))
 MAX_SCAN_IMAGE_PAGES = int(os.getenv("MAX_SCAN_IMAGE_PAGES", "8"))
+MAX_SCAN_OUTPUT_TOKENS = int(os.getenv("MAX_SCAN_OUTPUT_TOKENS", "16000"))
 
 
 def convert_pdf_to_images(pdf_bytes: bytes, max_pages: int = MAX_PDF_SCAN_PAGES) -> list[bytes]:
@@ -409,11 +410,21 @@ def normalize_receipt_data(data: dict) -> dict:
         " ".join(str(note) for note in data.get("validation_notes") or []),
         " ".join(str(item.get("name") or "") for item in data.get("items") or [] if isinstance(item, dict)),
     ]).lower()
-    invoice_like = any(term in invoice_text for term in ["invoice", "wholesale", "sold to", "ship to", "tobacco license"])
+    invoice_like = any(term in invoice_text for term in [
+        "invoice",
+        "wholesale",
+        "sold to",
+        "ship to",
+        "tobacco license",
+        "price list",
+        "pricing and availability",
+        "effective from",
+        "order by email",
+    ])
     has_line_amounts = any(_safe_float(item.get("price"), 0) > 0 for item in data.get("items") or [] if isinstance(item, dict))
     if invoice_like and _safe_float(data.get("total"), 0) == 0 and has_line_amounts:
         data["total"] = None
-        data["validation_notes"].append("Final invoice total was not visible on the scanned page.")
+        data["validation_notes"].append("Final invoice/price-list total was not visible on the scanned page.")
     if not isinstance(data.get("validation"), dict):
         data["validation"] = {"is_receipt": True, "confidence": None}
     return data
@@ -541,7 +552,7 @@ def scan_receipt_image(
     # ── Step 6: Send to Claude with detailed extraction instructions ──
     message = claude_client.messages.create(
         model=SCAN_MODEL,
-        max_tokens=6000,
+        max_tokens=MAX_SCAN_OUTPUT_TOKENS,
         messages=[
             {
                 "role": "user",
@@ -549,20 +560,23 @@ def scan_receipt_image(
                     {
                         # Detailed extraction instructions for Claude
                         "type": "text",
-                        "text": """You are a receipt and invoice scanner. Carefully read this document image.
+                        "text": """You are a receipt, invoice, and wholesale vendor price-list scanner. Carefully read this document image.
 
-FIRST — check if this is a readable receipt or invoice:
-- Receipts and invoices are both allowed when they show a merchant/vendor, item/service lines, and totals.
+FIRST — check if this is a readable receipt, invoice, or wholesale vendor price list:
+- Receipts and invoices are allowed when they show a merchant/vendor, item/service lines, and totals.
+- Wholesale/vendor price lists, order guides, and catalog price sheets are also allowed when they show a vendor/store name plus item descriptions and prices, even if QTY columns are blank and no final paid total is printed.
+- For wholesale/vendor price lists, treat the document as a receipt-like business purchase record because the user may upload supplier purchase documents for resale inventory.
 - Messy receipts/invoices are allowed. If the document is wrinkled, folded, crushed, stained, faded, curved, or partially shadowed but the vendor, totals, and item lines are still readable, scan it.
 - Do not reject only because the receipt is damaged, folded, or not neat.
-- Reject the scan only if the receipt is too far away, too small in the image, blurry, low resolution, or if item lines/totals are not clearly legible.
+- Reject the scan only if the receipt/document is too far away, too small in the image, blurry, low resolution, or if item names and prices are not clearly legible.
+- Do NOT reject a wholesale/vendor price list only because it has no subtotal, tax, payment method, transaction number, or final total.
 - Reject the scan if you can only guess item names or prices.
-- If NOT a receipt/invoice or too unclear to read accurately, respond ONLY with:
+- If NOT a receipt/invoice/wholesale price list or too unclear to read accurately, respond ONLY with:
   {"error": "Cannot read this receipt or invoice clearly. Please retake the photo closer, sharper, and with the full document visible."}
 - If it IS readable, extract all data below.
 - If multiple pages are provided, extract rows from every page in order and combine them into one invoice/receipt JSON.
 - For damaged/folded receipts or invoices, extract all readable lines and add unclear or hidden parts to validation_notes instead of inventing them.
-- In validation.confidence, use 0.90+ only when store, date/total, and most item lines are clearly readable. Use below 0.72 for far, tiny, blurry, or uncertain scans.
+- In validation.confidence, use 0.90+ only when store/vendor, date or effective date, and most item lines/prices are clearly readable. Use below 0.72 for far, tiny, blurry, or uncertain scans.
 
 
 CRITICAL PRODUCT SIZE VS QUANTITY RULES:
@@ -579,7 +593,7 @@ WHAT TO EXTRACT:
 1. STORE INFO
    - store: exact store name as printed (e.g. "WAL*MART" or "LOWE'S HOME CENTERS, LLC")
    - address: full store address if visible (e.g. "PEA RIDGE, AR")
-   - date: exact date printed on receipt (e.g. "04/12/26")
+   - date: exact purchase date printed on receipt/invoice (e.g. "04/12/26"). For price lists with an "Effective From" date range, use the start date as date and add the full effective range to validation_notes.
    - time: time of purchase if visible (e.g. "12:27:30")
    - payment_method: how they paid (e.g. "AMEX", "VISA", "CASH")
    - transaction_number: transaction/reference number if clearly labeled; otherwise null
@@ -598,6 +612,24 @@ WHAT TO EXTRACT:
   - price: use Amount. This is the line total.
   - source: "invoice".
   - If the invoice says Page 1 of 2, only extract visible rows from this image and add a validation note that more pages may be needed for full invoice totals.
+
+- For wholesale/vendor price lists with columns like DESCRIPTION, PRICE, QTY:
+  - Extract EVERY visible product row from every scanned page, top to bottom and left column before right column when the page is two-column.
+  - store: vendor/company name printed on the document, such as "OM Produce".
+  - code: null unless a SKU/UPC/item code is visible.
+  - name: exact DESCRIPTION text.
+  - normalized_name: lowercase searchable item name.
+  - product_size: package/pack size from the description, such as "25-30 LB", "5 LB", "12 CT", "16X1 LB", or "8/800 GM".
+  - quantity: use the QTY column only if a quantity is filled in. If the QTY column is blank, set quantity to 1.
+  - explicit_quantity: true only when the QTY column is filled or an explicit order quantity is printed; otherwise false.
+  - unit: "each" unless the row clearly represents a weight/volume purchase quantity separate from product size.
+  - unit_price: use the PRICE column.
+  - price: if QTY is filled, use quantity * unit_price; if QTY is blank, use the PRICE column value.
+  - quantity_type: "package_size" when the size is part of the description and QTY is blank.
+  - unit_label: use the product_size when available, otherwise "each".
+  - source: "price_list".
+  - Do NOT treat pack sizes like "25-30 LB", "5 LB", or "12 CT" as purchased quantity.
+  - Do NOT invent a final receipt total for price lists.
 
    For REGULAR items (sold by unit/each):
    - code: product barcode/SKU printed near item (e.g. "007874235334") or null
@@ -675,6 +707,7 @@ WHAT TO EXTRACT:
    - tax: tax amount charged (0.00 if not shown)
    - total: final total amount paid — must match receipt/invoice exactly
    - For invoices where the final total is not visible on this page, use total: null. Do NOT use 0.00 unless the document explicitly shows a zero total.
+   - For wholesale/vendor price lists or catalog sheets without a final paid total, use subtotal: null, tax: 0.00, discount: 0.00, and total: null. Do NOT sum all catalog item prices into a fake total.
    - total_savings: total savings shown at bottom (0.00 if not shown)
 
 STRICT RULES:
