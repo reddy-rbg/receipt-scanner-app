@@ -239,7 +239,7 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
         f"Extracted {len(items)} priced item rows across {len(page_counts)} page(s).",
         f"Page item counts: {page_counts}",
         "Quantity columns were blank; each listed price was saved as one receipt-like line with quantity 1.",
-        "Final paid total was not printed; total is null.",
+        "Final paid total was not printed; total will be calculated from visible item lines.",
     ]
     if effective_match:
         notes.append(f"Effective From: {start_date} - {end_date}")
@@ -486,6 +486,16 @@ def normalize_receipt_data(data: dict) -> dict:
         name = str(item.get("name") or item.get("item") or "").strip()
         item["name"] = name
         item.setdefault("source", source)
+        item_price = _safe_float(item.get("price"), 0.0)
+        discount_like = (
+            item_price < 0
+            or bool(item.get("is_discount"))
+            or bool(_re.search(r"\b(discount|coupon|savings?|promo|promotion|markdown|rebate|reward|offer)\b", name, _re.I))
+        )
+        if discount_like:
+            item["is_discount"] = True
+            if not str(item.get("source") or "").strip() or item.get("source") == source:
+                item["source"] = "discount"
         match = size_re.search(name)
         if match and not item.get("product_size"):
             unit = _re.sub(r"\s+", "", match.group(2).upper())
@@ -498,15 +508,22 @@ def normalize_receipt_data(data: dict) -> dict:
                 .replace("prcm", "prem")
                 .strip()
             )
-        if item.get("product_size") and not qty_re.search(name):
+        if item.get("is_discount"):
+            item["quantity"] = item.get("quantity") or 1
+            item["unit"] = item.get("unit") or "each"
+            item["unit_price"] = item_price
+            item["explicit_quantity"] = bool(item.get("explicit_quantity"))
+        elif item.get("product_size") and not qty_re.search(name):
             item["quantity"] = 1
             item["unit"] = item.get("unit") or "each"
             item["unit_price"] = item.get("price") or item.get("unit_price")
             item["explicit_quantity"] = False
         else:
             item["explicit_quantity"] = bool(item.get("explicit_quantity")) or bool(qty_re.search(name))
-        item["quantity_type"] = quantity_type(item.get("unit"), item.get("product_size"))
-        if item.get("product_size") and item.get("unit", "each") == "each":
+        item["quantity_type"] = "discount" if item.get("is_discount") else quantity_type(item.get("unit"), item.get("product_size"))
+        if item.get("is_discount"):
+            item["unit_label"] = "discount"
+        elif item.get("product_size") and item.get("unit", "each") == "each":
             item["unit_label"] = f"{item.get('product_size')} package"
         elif item.get("unit") and item.get("unit") != "each":
             item["unit_label"] = f"per {item.get('unit')}"
@@ -593,6 +610,47 @@ def normalize_receipt_data(data: dict) -> dict:
             data[field] = []
     if data.get("total") in ("", "null"):
         data["total"] = None
+
+    positive_line_total = round(sum(
+        _safe_float(item.get("price"), 0.0)
+        for item in data.get("items") or []
+        if isinstance(item, dict) and _safe_float(item.get("price"), 0.0) > 0
+    ), 2)
+    negative_line_discount = round(sum(
+        abs(_safe_float(item.get("price"), 0.0))
+        for item in data.get("items") or []
+        if isinstance(item, dict) and _safe_float(item.get("price"), 0.0) < 0
+    ), 2)
+    printed_subtotal = _safe_float(data.get("subtotal"), 0.0)
+    printed_discount = abs(_safe_float(data.get("discount"), 0.0))
+    printed_tax = _safe_float(data.get("tax"), 0.0)
+    printed_total = _safe_float(data.get("total"), None)
+
+    if positive_line_total > 0 and printed_subtotal <= 0:
+        data["subtotal"] = positive_line_total
+        data.setdefault("calculated_fields", {})["subtotal"] = "sum_positive_item_lines"
+
+    if negative_line_discount > 0 and printed_discount <= 0:
+        data["discount"] = negative_line_discount
+        data.setdefault("calculated_fields", {})["discount"] = "sum_negative_discount_lines"
+    elif printed_discount > 0:
+        data["discount"] = printed_discount
+
+    if negative_line_discount > 0 and _safe_float(data.get("total_savings"), 0.0) <= 0:
+        data["total_savings"] = negative_line_discount
+        data.setdefault("calculated_fields", {})["total_savings"] = "sum_negative_discount_lines"
+
+    if printed_total is None and positive_line_total > 0:
+        discount_for_total = _safe_float(data.get("discount"), 0.0)
+        calculated_total = round(positive_line_total - discount_for_total + printed_tax, 2)
+        data["total"] = max(calculated_total, 0.0)
+        data.setdefault("calculated_fields", {})["total"] = "subtotal_minus_discount_plus_tax"
+        data.setdefault("validation_notes", [])
+        if not any("calculated total" in str(note).lower() for note in data["validation_notes"]):
+            data["validation_notes"].append(
+                "Calculated total from item lines because no final printed total was visible."
+            )
+
     invoice_text = " ".join([
         str(data.get("store") or ""),
         str(data.get("address") or ""),
@@ -612,8 +670,9 @@ def normalize_receipt_data(data: dict) -> dict:
     ])
     has_line_amounts = any(_safe_float(item.get("price"), 0) > 0 for item in data.get("items") or [] if isinstance(item, dict))
     if invoice_like and _safe_float(data.get("total"), 0) == 0 and has_line_amounts:
-        data["total"] = None
-        data["validation_notes"].append("Final invoice/price-list total was not visible on the scanned page.")
+        data["total"] = round(positive_line_total - _safe_float(data.get("discount"), 0.0) + _safe_float(data.get("tax"), 0.0), 2)
+        data.setdefault("calculated_fields", {})["total"] = "invoice_or_price_list_item_sum"
+        data["validation_notes"].append("Final invoice/price-list total was not visible; total was calculated from visible item lines.")
     if not isinstance(data.get("validation"), dict):
         data["validation"] = {"is_receipt": True, "confidence": None}
     return data
