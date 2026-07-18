@@ -4,6 +4,7 @@ anthropic
 supabase
 python-dotenv
 pdf2image
+pdfplumber
 Pillow
 python-multipart
 langgraph

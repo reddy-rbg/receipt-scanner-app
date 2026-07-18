@@ -84,6 +84,195 @@ def convert_pdf_to_image(pdf_bytes: bytes) -> bytes:
     return convert_pdf_to_images(pdf_bytes, max_pages=1)[0]
 
 
+PRICE_LIST_CATEGORY_PREFIXES = (
+    "INDIAN / ASIAN PRODUCE",
+    "AMERICAN PRODUCE",
+    "FRESH PRODUCTS - READY TO COOK/EAT",
+    "DRY FRUITS & NUTS",
+    "FROZEN PRODUCTS",
+    "DAIRY PRODUCTS",
+    "HOUSEHOLD PRODUCTS",
+    "PAPER PRODUCTS",
+    "RELIGIOUS PRODUCTS",
+    "NEW ARRIVAL",
+    "SPECIALTY",
+    "CLASSICS",
+    "ESSENTIALS",
+    "PEPPERS",
+    "GINGER",
+    "GREENS & HERBS",
+    "FRUITS",
+    "MANGOES",
+)
+
+
+def _clean_price_list_description(description: str) -> str:
+    text = re.sub(r"\s+", " ", str(description or "")).strip(" -")
+    upper = text.upper()
+    for prefix in sorted(PRICE_LIST_CATEGORY_PREFIXES, key=len, reverse=True):
+        if upper.startswith(prefix + " "):
+            return text[len(prefix):].strip(" -")
+    return text
+
+
+def _extract_price_list_product_size(description: str) -> str | None:
+    text = str(description or "")
+    patterns = [
+        r"\b\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s*(?:LB|LBS|CT|OZ|GM|KG|GAL|L)\b",
+        r"\b\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*(?:LB|LBS|CT|OZ|GM|KG|GAL|L)\b",
+        r"\b\d+(?:\.\d+)?\s*(?:LB|LBS|CT|OZ|GM|KG|GAL|ML|L|LTR|PCS|ROLLS|CM)\b",
+        r"\b\d+\s*X\s*\d+(?:\.\d+)?\s*(?:LB|LBS|CT|OZ|GM|KG|GAL|ML|L|PCS)\b",
+    ]
+    matches: list[str] = []
+    for pattern in patterns:
+        matches.extend(re.findall(pattern, text, flags=re.I))
+    if not matches:
+        return None
+    return re.sub(r"\s+", " ", matches[-1]).upper()
+
+
+def _infer_price_list_vendor(text: str, filename: str) -> str:
+    lowered = text.lower()
+    if "omproduce.com" in lowered or "om produce" in lowered:
+        return "OM Produce"
+    email_match = re.search(r"[\w.+-]+@([\w.-]+)", lowered)
+    if email_match:
+        domain = email_match.group(1).split(".")[0]
+        cleaned = re.sub(r"[^a-z0-9]+", " ", domain).strip()
+        if cleaned:
+            return cleaned.title()
+    stem = os.path.splitext(os.path.basename(filename or ""))[0]
+    stem = re.sub(r"[-_]+", " ", stem).strip()
+    return stem or "Vendor Price List"
+
+
+def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | None:
+    """Parse digital wholesale/vendor price-list PDFs without Claude token limits.
+
+    Vision extraction is excellent for photographed receipts, but a 14-page
+    supplier catalog can contain hundreds of rows. Asking Claude to return all
+    rows in one JSON response truncates the result.  For text PDFs with
+    DESCRIPTION/PRICE/QTY style rows, parse deterministically and save through
+    the same normal receipt pipeline.
+    """
+    try:
+        import io
+        import pdfplumber
+    except Exception as error:
+        print(f"[pdf_price_list] pdfplumber unavailable; falling back to Claude scan: {error}")
+        return None
+
+    price_line = re.compile(r"^\s*(?P<description>.+?)\s+(?P<price>\d+\.\d{2})\s*$")
+    page_counts: list[int] = []
+    items: list[dict] = []
+    all_text: list[str] = []
+
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page_number, page in enumerate(pdf.pages, 1):
+                text = page.extract_text() or ""
+                all_text.append(text)
+                page_count = 0
+                for line in text.splitlines():
+                    match = price_line.match(line)
+                    if not match:
+                        continue
+                    description = _clean_price_list_description(match.group("description"))
+                    if not description or description.upper() in {"DESCRIPTION", "PRICE", "QTY"}:
+                        continue
+                    try:
+                        price = float(match.group("price"))
+                    except Exception:
+                        continue
+                    if price <= 0:
+                        continue
+                    product_size = _extract_price_list_product_size(description)
+                    items.append({
+                        "code": None,
+                        "name": description,
+                        "normalized_name": description.lower().strip(),
+                        "product_size": product_size,
+                        "quantity": 1,
+                        "unit": "each",
+                        "unit_price": price,
+                        "price": price,
+                        "quantity_type": "package_size" if product_size else "each",
+                        "unit_label": product_size or "each",
+                        "explicit_quantity": False,
+                        "source": "price_list",
+                        "metadata": {
+                            "source_document": "digital_price_list_pdf",
+                            "page": page_number,
+                        },
+                    })
+                    page_count += 1
+                page_counts.append(page_count)
+    except Exception as error:
+        print(f"[pdf_price_list] Could not parse digital PDF text; falling back to Claude scan: {error}")
+        return None
+
+    joined_text = "\n".join(all_text)
+    lowered = joined_text.lower()
+    price_list_markers = [
+        "description price qty",
+        "effective from",
+        "order by email",
+        "pricing and availability",
+    ]
+    marker_count = sum(1 for marker in price_list_markers if marker in lowered)
+    if len(items) < 20 or marker_count < 2:
+        return None
+
+    effective_match = re.search(
+        r"Effective\s+From:\s*(\d{1,2}/\d{1,2}/\d{2,4})\s*-\s*(\d{1,2}/\d{1,2}/\d{2,4})",
+        joined_text,
+        re.I,
+    )
+    start_date = effective_match.group(1) if effective_match else None
+    end_date = effective_match.group(2) if effective_match else None
+    address_match = re.search(r"\b\d{3,6}\s+[A-Za-z0-9 .'-]+,\s*[A-Za-z .'-]+\s+[A-Z]{2}-?\d{5}\b", joined_text)
+    address = address_match.group(0).replace("TX-", "TX ") if address_match else None
+    store = _infer_price_list_vendor(joined_text, filename)
+
+    notes = [
+        "Parsed as a digital wholesale/vendor price-list PDF and saved through the normal receipt flow.",
+        f"Extracted {len(items)} priced item rows across {len(page_counts)} page(s).",
+        f"Page item counts: {page_counts}",
+        "Quantity columns were blank; each listed price was saved as one receipt-like line with quantity 1.",
+        "Final paid total was not printed; total is null.",
+    ]
+    if effective_match:
+        notes.append(f"Effective From: {start_date} - {end_date}")
+
+    return {
+        "store": store,
+        "address": address,
+        "date": start_date,
+        "time": None,
+        "payment_method": None,
+        "transaction_number": None,
+        "receipt_number": None,
+        "invoice_number": None,
+        "order_number": None,
+        "subtotal": 0.0,
+        "discount": 0.0,
+        "tax": 0.0,
+        "total": None,
+        "total_savings": 0.0,
+        "items": items,
+        "handwritten_items": [],
+        "returned_items": [],
+        "manual_adjustments": [],
+        "validation": {
+            "is_receipt": True,
+            "confidence": 0.98,
+            "document_type": "wholesale_price_list",
+            "deterministic_pdf_parse": True,
+        },
+        "validation_notes": notes,
+    }
+
+
 def detect_image_media_type(image_bytes: bytes) -> str:
     if image_bytes.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
@@ -518,6 +707,22 @@ def scan_receipt_image(
     # e.g. "receipt.pdf" → "pdf"
     # e.g. "receipt.jpg" → "jpg"
     extension = filename.split(".")[-1].lower()
+
+    if extension == "pdf" and page_images_override is None:
+        parsed_price_list = try_parse_digital_price_list_pdf(image_bytes, filename)
+        if parsed_price_list:
+            print(
+                "[scan] Digital price-list PDF parsed deterministically: "
+                f"{len(parsed_price_list.get('items') or [])} item row(s)"
+            )
+            data = normalize_receipt_data(parsed_price_list)
+            validate_scan_quality(data)
+            data["image_hash"] = image_hash
+            if user_id:
+                data["owner_user_id"] = user_id
+            if guest_session_id:
+                data["guest_session_id"] = guest_session_id
+            return data
 
     # ── Step 4: Handle PDF files ──
     # PDFs must be converted to images before sending to Claude
