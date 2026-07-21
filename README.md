@@ -59,26 +59,68 @@ No receipt evidence -> no purchase claim.
 ## Architecture At A Glance
 
 ```mermaid
-flowchart TD
-  A["Expo mobile app"] --> B["FastAPI backend"]
-  J["Operations console"] --> B
-  B --> C["Supabase Auth"]
-  B --> K["RBAC and scoped authorization"]
-  K --> L["Roles, support grants, receipt assignments, and audit"]
-  B --> M["Hybrid scan router"]
-  M --> N["Deterministic PDF/table parser"]
-  M --> D["Claude Vision fallback"]
-  N --> O["Parse confidence and page audit"]
-  D --> O
-  O --> E["receipts table"]
-  O --> F["receipt_items table"]
-  O --> P["ai_token_usage table"]
-  B --> G["ReceiptAI Agent"]
-  G --> H["Deterministic receipt retrieval"]
-  H --> F
-  H --> E
-  G --> I["Evidence-gated answer"]
-  J --> P
+flowchart LR
+  %% ReceiptAI production architecture
+
+  subgraph Client["User + Operator Surfaces"]
+    Mobile["Expo Mobile App<br/>Scan • Memory • Agent"]
+    Ops["Operations Console<br/>RBAC • Support • Token Usage"]
+  end
+
+  subgraph API["FastAPI Backend"]
+    Auth["Supabase Auth<br/>Sessions + Password Reset"]
+    RBAC["RBAC Guard<br/>Roles • Scopes • Audit"]
+    Router["Hybrid Scan Router<br/>Cost-aware extraction"]
+    Agent["ReceiptAI Agent<br/>Intent plan + answer composer"]
+  end
+
+  subgraph Extract["Extraction Intelligence"]
+    Parser["Deterministic PDF/Table Parser<br/>0-token path for digital PDFs"]
+    Claude["Claude Vision Fallback<br/>Images + low-confidence PDFs"]
+    Gate["Confidence + Evidence Gate<br/>page audit • totals • warnings"]
+  end
+
+  subgraph Data["Supabase Purchase Memory"]
+    Receipts[("receipts")]
+    Items[("receipt_items")]
+    Tokens[("ai_token_usage")]
+    Access[("RBAC tables<br/>roles • grants • assignments")]
+  end
+
+  Mobile --> Auth
+  Mobile --> Router
+  Mobile --> Agent
+  Ops --> RBAC
+  RBAC --> Access
+
+  Router --> Parser
+  Router --> Claude
+  Parser --> Gate
+  Claude --> Gate
+  Gate --> Receipts
+  Gate --> Items
+  Gate --> Tokens
+
+  Agent --> Items
+  Agent --> Receipts
+  Items --> Agent
+  Receipts --> Agent
+  Agent --> Mobile
+
+  Ops --> Tokens
+  Ops --> Access
+
+  classDef client fill:#241B52,stroke:#8C7CFF,color:#FFFFFF,stroke-width:2px;
+  classDef api fill:#102A43,stroke:#38BDF8,color:#FFFFFF,stroke-width:2px;
+  classDef extract fill:#123524,stroke:#62E6C8,color:#FFFFFF,stroke-width:2px;
+  classDef data fill:#2A1E11,stroke:#F5BD61,color:#FFFFFF,stroke-width:2px;
+  classDef secure fill:#3A1720,stroke:#FF707E,color:#FFFFFF,stroke-width:2px;
+
+  class Mobile,Ops client;
+  class Auth,Router,Agent api;
+  class Parser,Claude,Gate extract;
+  class Receipts,Items,Tokens data;
+  class RBAC,Access secure;
 ```
 
 ## Repository Layout
