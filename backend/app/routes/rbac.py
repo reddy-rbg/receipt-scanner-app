@@ -621,12 +621,35 @@ def token_usage_summary(
     }
 
 
+def _issue_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize recent issue rows for operations dashboard cards."""
+    severity_counts = {"error": 0, "warning": 0, "info": 0}
+    sources: set[str] = set()
+    for event in events:
+        severity = str(event.get("severity") or "info").lower()
+        severity_counts[severity if severity in severity_counts else "info"] += 1
+        if event.get("source"):
+            sources.add(str(event["source"]))
+    return {
+        "total": len(events),
+        "errors": severity_counts["error"],
+        "warnings": severity_counts["warning"],
+        "info": severity_counts["info"],
+        "sources": len(sources),
+        "latest": events[0].get("created_at") if events else None,
+    }
+
+
 @router.get("/error-events")
 def error_events(
     request: Request,
     limit: int = Query(default=200, ge=1, le=500),
+    severity: str | None = Query(default=None),
 ):
-    """Return recent backend error events for future operations dashboards."""
+    """Return recent backend issues for the operations dashboard."""
+    normalized_severity = severity.lower() if severity else None
+    if normalized_severity and normalized_severity not in {"error", "warning", "info"}:
+        raise HTTPException(status_code=400, detail="severity must be one of: error, warning, info")
     context = rbac.get_access_context(request)
     if context.is_global:
         rbac.require_permission(context, "audit.read")
@@ -635,15 +658,23 @@ def error_events(
         customer_id = rbac.primary_customer_id(context)
         rbac.require_permission(context, "audit.read", customer_id)
         if not context.customer_ids:
-            return {"available": True, "events": []}
+            return {"available": True, "summary": _issue_summary([]), "events": []}
         query = supabase.table("app_error_events").select("*").in_("customer_id", sorted(context.customer_ids))
+    if normalized_severity:
+        query = query.eq("severity", normalized_severity)
     try:
-        return {"available": True, "events": query.order("created_at", desc=True).limit(limit).execute().data or []}
+        events = query.order("created_at", desc=True).limit(limit).execute().data or []
+        return {
+            "available": True,
+            "summary": _issue_summary(events),
+            "events": events,
+        }
     except Exception as error:
         print(f"[error_events] Summary unavailable: {error}")
         return {
             "available": False,
             "message": "Error event table is not configured yet. Run backend/supabase_error_events.sql in Supabase SQL editor.",
+            "summary": _issue_summary([]),
             "events": [],
         }
 

@@ -11,7 +11,7 @@ const hasRole = (...roles) => roles.some(role => state.profile?.roles?.some(item
 
 const pages = [
   ['tokens','Token usage','T',()=>has('analytics.read_global') || has('analytics.read_customer')],
-  ['errors','Errors','!',()=>has('audit.read')],
+  ['errors','Issues','!',()=>has('audit.read')],
   ['overview','Overview','◇',()=>true], ['receipts','Receipts','▤',()=>has('receipts.read')],
   ['assignments','Assignments','◎',()=>has('receipts.update') || hasRole('receipt_editor')],
   ['support','Support access','◌',()=>has('support.approve_access') || hasRole('support_agent')],
@@ -114,13 +114,19 @@ async function renderTokens(period='month'){
 }
 window.renderTokens=renderTokens;
 
-async function renderErrors(){
-  const data=await api('/rbac/error-events?limit=200');
+async function renderErrors(severity='all'){
+  const query=severity==='all'?'':'&severity='+encodeURIComponent(severity);
+  const data=await api('/rbac/error-events?limit=200'+query);
   const rows=data.events||[];
-  $('content').innerHTML=pageHead('Error tracker','Recent backend errors with request id, source, severity and stack context.')+
+  const summary=data.summary||{};
+  const filterButton=(key,label)=>`<button class="${severity===key?'primary':'secondary'}" onclick="renderErrors('${key}')">${label}</button>`;
+  $('content').innerHTML=pageHead('Issue tracker','Track backend errors, warnings, slow requests, request ids, and stack context.',`<div class="actions">${filterButton('all','All')}${filterButton('error','Errors')}${filterButton('warning','Warnings')}${filterButton('info','Info')}</div>`)+
   (!data.available?`<section class="panel setup-panel"><div class="panel-body"><h4>Setup needed</h4><p class="muted">${esc(data.message)}</p></div></section>`:'')+
-  `<section class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Request</th><th>Message</th><th>Error</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${dateTime(row.created_at)}</td><td><span class="pill ${row.severity==='error'?'red':'purple'}">${esc(row.severity||'event')}</span></td><td>${esc(row.source||'unknown')}</td><td>${esc(row.request_id||'--')}</td><td>${esc(row.message||'--')}</td><td>${esc(row.error_type||'--')}</td></tr>`).join('')}</tbody></table></div>`:empty('No error events in this scope.')}</section>`;
+  `<div class="stats"><div class="stat"><span>Total issues</span><strong>${number(summary.total)}</strong><em>${summary.latest?`Latest ${dateTime(summary.latest)}`:'No recent events'}</em></div><div class="stat"><span>Errors</span><strong>${number(summary.errors)}</strong><em>crashes + server failures</em></div><div class="stat"><span>Warnings</span><strong>${number(summary.warnings)}</strong><em>slow or recoverable issues</em></div><div class="stat"><span>Sources</span><strong>${number(summary.sources)}</strong><em>unique backend areas</em></div></div>`+
+  `<section class="panel"><div class="panel-head"><h4>Recent issues</h4><span class="muted">Latest ${number(rows.length)}</span></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Request ID</th><th>Message</th><th>Error type</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${dateTime(row.created_at)}</td><td><span class="pill ${row.severity==='error'?'red':row.severity==='warning'?'warn':'purple'}">${esc(row.severity||'event')}</span></td><td>${esc(row.source||'unknown')}</td><td>${esc(row.request_id||'--')}</td><td>${esc(row.message||'--')}</td><td>${esc(row.error_type||'--')}</td></tr>`).join('')}</tbody></table></div>`:empty('No issues found in this scope.')}</section>`+
+  `<section class="panel" style="margin-top:18px"><div class="panel-body"><h4>How to use this during testing</h4><p class="muted">When the app shows a bug, copy the Request ID from the failing response/log and search it here. Slow requests are warning events, server failures are error events, and each row keeps source + metadata for debugging without storing passwords, receipt images, or request bodies.</p></div></section>`;
 }
+window.renderErrors=renderErrors;
 
 async function renderRoles(){const roles=(await api('/rbac/roles')).roles||[];$('content').innerHTML=pageHead('Roles & permissions','Review the exact capabilities granted to each operator group.')+`<section class="panel">${roles.map(r=>`<article class="role-card"><div class="page-head" style="margin:0"><div><h4>${esc(r.display_name)}</h4><div class="muted">${esc(r.description)}</div></div>${hasRole('platform_admin')&&r.role_key!=='platform_admin'?`<button class="secondary" onclick="permissionModal('${esc(r.role_key)}')">Edit permissions</button>`:''}</div><div class="permission-list">${(r.permissions||[]).map(p=>`<span class="pill">${esc(p)}</span>`).join('')}</div></article>`).join('')}</section>`;state.cache.roles=roles}
 window.permissionModal=roleKey=>{const role=state.cache.roles.find(r=>r.role_key===roleKey);const all=[...new Set(state.cache.roles.flatMap(r=>r.permissions||[]))].sort();modal(`Permissions · ${role.display_name}`,`<form id="permissionForm"><div class="permission-list">${all.map(p=>`<label class="pill"><input style="width:auto" type="checkbox" name="permission" value="${esc(p)}" ${(role.permissions||[]).includes(p)?'checked':''} /> ${esc(p)}</label>`).join('')}</div><div class="form-actions"><button type="button" class="ghost" onclick="closeModal()">Cancel</button><button class="primary">Save permissions</button></div></form>`);$('permissionForm').onsubmit=async e=>{e.preventDefault();const permissions=[...e.target.querySelectorAll('input:checked')].map(x=>x.value);await api(`/rbac/roles/${roleKey}/permissions`,{method:'PUT',body:JSON.stringify({permissions})});closeModal();toast('Role permissions updated');renderRoles()}};

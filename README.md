@@ -265,6 +265,8 @@ AI_INPUT_COST_PER_MILLION_TOKENS=
 AI_OUTPUT_COST_PER_MILLION_TOKENS=
 LOG_LEVEL=INFO
 LOG_JSON=false
+SLOW_REQUEST_MS=3000
+LOG_CLIENT_ERROR_EVENTS=false
 ```
 
 Important:
@@ -279,6 +281,9 @@ Important:
   are optional; when set, the operations console estimates AI cost in USD.
 - `LOG_LEVEL` and `LOG_JSON` control backend log verbosity and whether Railway
   logs are human-readable or JSON formatted.
+- `SLOW_REQUEST_MS` controls when a backend request becomes a warning in the
+  operations Issues dashboard. `LOG_CLIENT_ERROR_EVENTS=true` also records 4xx
+  client/API responses as warnings when you need deeper debugging.
 - Mobile code should use only public/frontend-safe variables.
 - Do not commit `.env` files.
 
@@ -303,7 +308,9 @@ These create:
 - RBAC customers, role assignments, support grants, receipt assignments, and
   audit events for scoped operations access.
 - `ai_token_usage` for the operations token dashboard.
-- `app_error_events` for future operations error tracking and dashboards.
+- `app_error_events` for the operations Issues dashboard, including backend
+  errors, warnings, slow requests, request IDs, source, metadata, and stack
+  context where available.
 
 ## API Highlights
 
@@ -323,7 +330,7 @@ These create:
 | `POST` | `/rbac/receipt-assignments/bulk` | Assign filtered receipt work to a Receipt Editor |
 | `GET` | `/rbac/audit` | Read authorized security audit events |
 | `GET` | `/rbac/token-usage` | Read authorized AI token utilization dashboard data |
-| `GET` | `/rbac/error-events` | Read authorized backend error-event dashboard data |
+| `GET` | `/rbac/error-events` | Read authorized backend Issues dashboard data |
 
 ## Deployment
 

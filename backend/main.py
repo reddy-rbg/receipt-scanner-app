@@ -19,6 +19,8 @@ from app.services.app_logger import configure_logging, get_logger, record_error_
 
 configure_logging()
 logger = get_logger(__name__)
+SLOW_REQUEST_MS = int(os.getenv("SLOW_REQUEST_MS", "3000") or "3000")
+LOG_CLIENT_ERROR_EVENTS = os.getenv("LOG_CLIENT_ERROR_EVENTS", "false").lower() in {"1", "true", "yes", "on"}
 
 
 # ── Auto-cleanup task ──
@@ -136,16 +138,42 @@ async def request_logging_middleware(request: Request, call_next):
 
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     response.headers["X-Request-ID"] = rid
+    request_context = {
+        "request_id": rid,
+        "method": request.method,
+        "path": request.url.path,
+        "status_code": response.status_code,
+        "duration_ms": duration_ms,
+    }
     logger.info(
         "HTTP request completed",
-        extra={
-            "request_id": rid,
-            "method": request.method,
-            "path": request.url.path,
-            "status_code": response.status_code,
-            "duration_ms": duration_ms,
-        },
+        extra=request_context,
     )
+    if response.status_code >= 500:
+        record_error_event(
+            source="server_response",
+            message=f"{request.method} {request.url.path} returned {response.status_code}",
+            request_id_value=rid,
+            metadata=request_context,
+        )
+    elif LOG_CLIENT_ERROR_EVENTS and response.status_code >= 400:
+        logger.warning("Client request warning", extra=request_context)
+        record_error_event(
+            source="client_response",
+            message=f"{request.method} {request.url.path} returned {response.status_code}",
+            severity="warning",
+            request_id_value=rid,
+            metadata=request_context,
+        )
+    elif SLOW_REQUEST_MS > 0 and duration_ms >= SLOW_REQUEST_MS:
+        logger.warning("Slow request warning", extra=request_context)
+        record_error_event(
+            source="slow_request",
+            message=f"{request.method} {request.url.path} took {duration_ms}ms",
+            severity="warning",
+            request_id_value=rid,
+            metadata={**request_context, "threshold_ms": SLOW_REQUEST_MS},
+        )
     return response
 
 # ── Connect all routes ──
