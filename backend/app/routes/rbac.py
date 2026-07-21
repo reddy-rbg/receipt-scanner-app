@@ -1,10 +1,10 @@
 """Administrative RBAC endpoints. All authorization is enforced server-side."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.config import supabase
@@ -13,6 +13,7 @@ from app.services import database, rbac
 
 router = APIRouter(prefix="/rbac", tags=["access-control"])
 CUSTOMER_REQUIRED_ROLES = {"customer_owner", "customer_user", "auditor", "service_account"}
+TOKEN_PERIOD_DAYS = {"day": 1, "week": 7, "month": 31, "year": 366}
 
 
 class CustomerCreate(BaseModel):
@@ -99,6 +100,41 @@ def _validate_receipt_assignee(user_id: str) -> None:
     rows = supabase.table("rbac_user_roles").select("id").eq("user_id", user_id).eq("role_key", "receipt_editor").eq("active", True).limit(1).execute().data or []
     if not rows:
         raise HTTPException(status_code=400, detail="The selected operator is not an active Receipt Editor.")
+
+
+def _parse_utc(value: Any) -> datetime | None:
+    try:
+        text = str(value or "").replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(text)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _token_bucket(created_at: datetime, period: str) -> str:
+    if period == "day":
+        return created_at.strftime("%H:00")
+    if period == "week":
+        return created_at.strftime("%a")
+    if period == "year":
+        return created_at.strftime("%b")
+    return created_at.strftime("%b %d")
+
+
+def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
+    input_tokens = sum(int(row.get("input_tokens") or 0) for row in rows)
+    output_tokens = sum(int(row.get("output_tokens") or 0) for row in rows)
+    total_tokens = sum(int(row.get("total_tokens") or 0) for row in rows) or input_tokens + output_tokens
+    cached_tokens = sum(int(row.get("cached_input_tokens") or 0) for row in rows)
+    estimated_costs = [row.get("estimated_cost_usd") for row in rows if row.get("estimated_cost_usd") is not None]
+    return {
+        "events": len(rows),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cached_input_tokens": cached_tokens,
+        "total_tokens": total_tokens,
+        "estimated_cost_usd": round(sum(float(value or 0) for value in estimated_costs), 6) if estimated_costs else None,
+    }
 
 
 @router.get("/me")
@@ -507,6 +543,81 @@ def operations_overview(request: Request):
         "open_assignments": open_assignments,
         "active_support_grants": active_support_grants,
         "roles": sorted(context.role_keys),
+    }
+
+
+@router.get("/token-usage")
+def token_usage_summary(
+    request: Request,
+    period: str = Query(default="month", pattern="^(day|week|month|year)$"),
+    limit: int = Query(default=5000, ge=1, le=10000),
+):
+    """Operations dashboard AI usage summary.
+
+    Reads only the current operator's authorized customer scope unless the
+    operator has global data access. Missing table is reported cleanly so the
+    scanner continues working before the migration is installed.
+    """
+    context = rbac.get_access_context(request)
+    if context.is_global:
+        rbac.require_permission(context, "analytics.read_global")
+    else:
+        customer_id = rbac.primary_customer_id(context)
+        rbac.require_permission(context, "analytics.read_customer", customer_id)
+        if not context.customer_ids:
+            return {"available": True, "period": period, "summary": _sum_token_rows([]), "series": [], "by_operation": [], "by_model": [], "by_file_type": [], "recent": []}
+
+    since = datetime.now(timezone.utc) - timedelta(days=TOKEN_PERIOD_DAYS[period])
+    query = supabase.table("ai_token_usage").select("*").gte("created_at", since.isoformat()).order("created_at", desc=True).limit(limit)
+    if not context.is_global:
+        query = query.in_("customer_id", sorted(context.customer_ids))
+
+    try:
+        rows = query.execute().data or []
+    except Exception as error:
+        print(f"[token_usage] Summary unavailable: {error}")
+        return {
+            "available": False,
+            "period": period,
+            "message": "Token logging table is not configured yet. Run backend/supabase_token_usage.sql in Supabase SQL editor.",
+            "summary": _sum_token_rows([]),
+            "series": [],
+            "by_operation": [],
+            "by_model": [],
+            "by_file_type": [],
+            "recent": [],
+        }
+
+    buckets: dict[str, list[dict]] = {}
+    by_operation: dict[str, list[dict]] = {}
+    by_model: dict[str, list[dict]] = {}
+    by_file_type: dict[str, list[dict]] = {}
+    for row in rows:
+        created = _parse_utc(row.get("created_at")) or datetime.now(timezone.utc)
+        buckets.setdefault(_token_bucket(created, period), []).append(row)
+        by_operation.setdefault(str(row.get("operation") or "unknown"), []).append(row)
+        by_model.setdefault(str(row.get("model") or "unknown"), []).append(row)
+        by_file_type.setdefault(str(row.get("file_type") or "unknown"), []).append(row)
+
+    def ranked(mapping: dict[str, list[dict]]) -> list[dict[str, Any]]:
+        return sorted(
+            [{"key": key, **_sum_token_rows(values)} for key, values in mapping.items()],
+            key=lambda item: item["total_tokens"],
+            reverse=True,
+        )[:10]
+
+    summary = _sum_token_rows(rows)
+    optimized_events = [row for row in rows if row.get("optimized")]
+    return {
+        "available": True,
+        "period": period,
+        "since": since.isoformat(),
+        "summary": {**summary, "optimized_events": len(optimized_events)},
+        "series": [{"label": key, **_sum_token_rows(values)} for key, values in reversed(list(buckets.items()))],
+        "by_operation": ranked(by_operation),
+        "by_model": ranked(by_model),
+        "by_file_type": ranked(by_file_type),
+        "recent": rows[:25],
     }
 
 

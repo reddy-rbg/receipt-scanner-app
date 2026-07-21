@@ -19,6 +19,7 @@ import hashlib
 import os
 import re
 from app.config import claude_client, CLAUDE_MODEL, MEDIA_TYPES, supabase
+from app.services import token_usage
 
 MODEL_SONNET = "claude-sonnet-4-5-20250929"
 MODEL_HAIKU = "claude-haiku-4-5-20251001"
@@ -781,6 +782,16 @@ def scan_receipt_image(
                 data["owner_user_id"] = user_id
             if guest_session_id:
                 data["guest_session_id"] = guest_session_id
+            data["_token_usage"] = {
+                "feature": "receipt_scan",
+                "operation": "digital_price_list_pdf",
+                "model": "deterministic_pdf_parser",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "optimized": True,
+                "optimization": "digital_pdf_text_parser",
+                "metadata": {"item_count": len(data.get("items") or [])},
+            }
             return data
 
     # ── Step 4: Handle PDF files ──
@@ -1027,6 +1038,7 @@ Return JSON only — no extra text, no markdown:
     )
 
     # ── Step 8: Clean Claude's response ──
+    usage = token_usage.usage_from_message(message)
     raw = message.content[0].text.strip()
 
     # Claude sometimes wraps JSON in ```json ... ``` markdown
@@ -1079,6 +1091,15 @@ Return JSON only — no extra text, no markdown:
         data["owner_user_id"] = user_id
     if guest_session_id:
         data["guest_session_id"] = guest_session_id
+    data["_token_usage"] = {
+        "feature": "receipt_scan",
+        "operation": "vision_scan",
+        "model": SCAN_MODEL,
+        **usage,
+        "optimized": False,
+        "optimization": None,
+        "metadata": {"page_count": len(page_images), "max_output_tokens": MAX_SCAN_OUTPUT_TOKENS},
+    }
 
     return data
 

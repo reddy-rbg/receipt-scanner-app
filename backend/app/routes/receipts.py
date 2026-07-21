@@ -22,7 +22,7 @@ from pydantic import BaseModel
 # Import our service files
 # claude.py   — all Claude AI logic (scanning, answering)
 # database.py — all Supabase database logic
-from app.services import claude, database, rbac
+from app.services import claude, database, rbac, token_usage
 from app.services import agent as agent_service
 
 # Import supported file types from config
@@ -53,6 +53,42 @@ def validate_upload_size(data: bytes) -> None:
         raise HTTPException(status_code=400, detail="The uploaded file is empty.")
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Receipt file is too large. Please upload a file under 15 MB.")
+
+
+def record_scan_token_usage(
+    receipt_data: dict,
+    *,
+    user_id: str | None = None,
+    guest_session_id: str | None = None,
+    customer_id: str | None = None,
+    receipt_id: int | None = None,
+    filename: str | None = None,
+    file_bytes: int | None = None,
+) -> None:
+    usage = receipt_data.get("_token_usage") or {}
+    extension = (filename or "").split(".")[-1].lower() if filename else None
+    token_usage.record_token_usage(
+        feature=usage.get("feature") or "receipt_scan",
+        operation=usage.get("operation") or "unknown_scan",
+        model=usage.get("model") or "unknown",
+        user_id=user_id,
+        guest_session_id=guest_session_id,
+        customer_id=customer_id,
+        receipt_id=receipt_id,
+        filename=filename,
+        file_type=extension,
+        file_bytes=file_bytes,
+        input_tokens=usage.get("input_tokens", 0),
+        output_tokens=usage.get("output_tokens", 0),
+        cached_input_tokens=usage.get("cached_input_tokens", 0),
+        optimized=bool(usage.get("optimized")),
+        optimization=usage.get("optimization"),
+        metadata=usage.get("metadata") or {},
+    )
+
+
+def public_receipt_data(receipt_data: dict) -> dict:
+    return {key: value for key, value in receipt_data.items() if not str(key).startswith("_")}
 
 
 class ReceiptItemUpdate(BaseModel):
@@ -317,6 +353,14 @@ async def scan_receipt(request: Request, file: UploadFile = File(...)):
             order_number=receipt_data.get("order_number"),
         )
         clear_receipt_memory_caches(user_id=user_id)
+        record_scan_token_usage(
+            receipt_data,
+            user_id=user_id,
+            customer_id=customer_id,
+            receipt_id=saved.get("id"),
+            filename=file.filename,
+            file_bytes=len(file_bytes),
+        )
 
     except Exception as e:
         # Show exact database error for debugging
@@ -331,7 +375,7 @@ async def scan_receipt(request: Request, file: UploadFile = File(...)):
         "duplicate": False,
         "message":  "Receipt scanned and saved!",
         "filename": file.filename,
-        "receipt":  receipt_data,
+        "receipt":  public_receipt_data(receipt_data),
         "saved_id": saved.get("id")  # the ID assigned by Supabase
     }
 
@@ -400,6 +444,14 @@ async def scan_receipt_pages(request: Request, files: list[UploadFile] = File(..
             order_number=receipt_data.get("order_number"),
         )
         clear_receipt_memory_caches(user_id=user_id)
+        record_scan_token_usage(
+            receipt_data,
+            user_id=user_id,
+            customer_id=customer_id,
+            receipt_id=saved.get("id"),
+            filename=f"{len(files)} pages",
+            file_bytes=sum(len(content) for content, _ in page_files),
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database save error: {str(e)}")
 
@@ -408,7 +460,7 @@ async def scan_receipt_pages(request: Request, files: list[UploadFile] = File(..
         "duplicate": False,
         "message": "Receipt pages scanned and saved!",
         "filename": f"{len(files)} pages",
-        "receipt": receipt_data,
+        "receipt": public_receipt_data(receipt_data),
         "saved_id": saved.get("id"),
     }
 
@@ -592,6 +644,13 @@ async def guest_scan_receipt(file: UploadFile = File(...), session_id: str | Non
             expires_at=expires_at,
         )
         clear_receipt_memory_caches(guest_session_id=session_id)
+        record_scan_token_usage(
+            receipt_data,
+            guest_session_id=session_id,
+            receipt_id=saved_receipt.get("id") if saved_receipt else None,
+            filename=file.filename,
+            file_bytes=len(file_bytes),
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database save error: {str(e)}")
 
@@ -599,7 +658,7 @@ async def guest_scan_receipt(file: UploadFile = File(...), session_id: str | Non
         "success":  True,
         "duplicate": False,
         "message":  "Receipt scanned! Note: Guest data expires in 24 hours.",
-        "receipt":  receipt_data,
+        "receipt":  public_receipt_data(receipt_data),
         "expires_at": expires_at,
         "saved_id": saved_receipt.get("id") if saved_receipt else None
     }
@@ -675,6 +734,13 @@ async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_
             expires_at=expires_at,
         )
         clear_receipt_memory_caches(guest_session_id=session_id)
+        record_scan_token_usage(
+            receipt_data,
+            guest_session_id=session_id,
+            receipt_id=saved_receipt.get("id") if saved_receipt else None,
+            filename=f"{len(files)} pages",
+            file_bytes=sum(len(content) for content, _ in page_files),
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database save error: {str(e)}")
 
@@ -682,7 +748,7 @@ async def guest_scan_receipt_pages(files: list[UploadFile] = File(...), session_
         "success": True,
         "duplicate": False,
         "message": "Receipt pages scanned! Note: Guest data expires in 24 hours.",
-        "receipt": receipt_data,
+        "receipt": public_receipt_data(receipt_data),
         "expires_at": expires_at,
         "saved_id": saved_receipt.get("id") if saved_receipt else None,
     }

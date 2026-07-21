@@ -1,6 +1,7 @@
 const API = location.origin;
 const state = { token: sessionStorage.getItem('ops_token'), refresh: sessionStorage.getItem('ops_refresh'), profile: null, page: 'overview', cache: {} };
 const $ = (id) => document.getElementById(id);
+const number = (value) => Number(value || 0).toLocaleString();
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const money = (value) => `$${Number(value || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const shortDate = (value) => value ? new Date(value).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '—';
@@ -9,6 +10,7 @@ const has = (permission) => state.profile?.permissions?.includes('*') || state.p
 const hasRole = (...roles) => roles.some(role => state.profile?.roles?.some(item => item.role_key === role));
 
 const pages = [
+  ['tokens','Token usage','T',()=>has('analytics.read_global') || has('analytics.read_customer')],
   ['overview','Overview','◇',()=>true], ['receipts','Receipts','▤',()=>has('receipts.read')],
   ['assignments','Assignments','◎',()=>has('receipts.update') || hasRole('receipt_editor')],
   ['support','Support access','◌',()=>has('support.approve_access') || hasRole('support_agent')],
@@ -52,7 +54,7 @@ function renderNav(){
 }
 async function navigate(page){
   state.page=page;renderNav();const item=pages.find(p=>p[0]===page);$('pageTitle').textContent=item?.[1]||'Operations';$('content').innerHTML='<div class="loading-panel">Loading…</div>';
-  try{await ({overview:renderOverview,receipts:renderReceipts,assignments:renderAssignments,support:renderSupport,users:renderUsers,customers:renderCustomers,roles:renderRoles,audit:renderAudit}[page]||renderOverview)()}
+  try{await ({overview:renderOverview,receipts:renderReceipts,assignments:renderAssignments,support:renderSupport,users:renderUsers,customers:renderCustomers,tokens:renderTokens,roles:renderRoles,audit:renderAudit}[page]||renderOverview)()}
   catch(error){$('content').innerHTML=empty(error.message);toast(error.message,true)}
 }
 
@@ -86,6 +88,30 @@ window.toggleUser=async(id,active)=>{if(!confirm(`${active?'Activate':'Deactivat
 
 async function renderCustomers(){const rows=await getCustomers(true);$('content').innerHTML=pageHead('Customers','Organization workspaces and isolated receipt scopes.',hasRole('platform_admin')?'<button class="primary" onclick="customerModal()">New customer</button>':'')+`<section class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Customer</th><th>Type</th><th>Identifier</th><th>Created</th></tr></thead><tbody>${rows.map(c=>`<tr><td><strong>${esc(c.name)}</strong></td><td><span class="pill">${esc(c.kind)}</span></td><td>${esc(c.slug||c.id)}</td><td>${shortDate(c.created_at)}</td></tr>`).join('')}</tbody></table></div>`:empty('No customer workspaces in your scope.')}</section>`}
 window.customerModal=()=>{modal('Create customer',`<form id="customerForm" class="stack"><label>Organization name<input name="name" required /></label><label>URL slug<input name="slug" placeholder="north-store-group" /></label><div class="form-actions"><button type="button" class="ghost" onclick="closeModal()">Cancel</button><button class="primary">Create</button></div></form>`);$('customerForm').onsubmit=async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.target));if(!data.slug)delete data.slug;await api('/rbac/customers',{method:'POST',body:JSON.stringify(data)});closeModal();toast('Customer created');renderCustomers()}};
+
+function tokenBarRows(rows,label='key'){
+  if(!rows?.length)return empty('No token events for this range yet.');
+  const max=Math.max(...rows.map(row=>Number(row.total_tokens||0)),1);
+  return `<div class="token-bars">${rows.map(row=>`<div class="token-bar-row"><div class="token-bar-top"><strong>${esc(row[label]||row.key||row.label||'Unknown')}</strong><span>${number(row.total_tokens)} tokens</span></div><div class="token-track"><div class="token-fill" style="width:${Math.max(3,Math.round((Number(row.total_tokens||0)/max)*100))}%"></div></div><small>${number(row.events)} event${row.events===1?'':'s'} - in ${number(row.input_tokens)} / out ${number(row.output_tokens)}</small></div>`).join('')}</div>`;
+}
+function recentTokenTable(rows){
+  if(!rows?.length)return empty('No recent token events.');
+  return `<div class="table-wrap"><table><thead><tr><th>Time</th><th>Operation</th><th>Model</th><th>File</th><th>Tokens</th><th>Optimized</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${dateTime(row.created_at)}</td><td><span class="pill purple">${esc(row.operation||'unknown')}</span></td><td>${esc(row.model||'unknown')}</td><td>${esc(row.filename||row.file_type||'--')}</td><td>${number(row.total_tokens)}</td><td>${row.optimized?`<span class="pill green">${esc(row.optimization||'yes')}</span>`:'--'}</td></tr>`).join('')}</tbody></table></div>`;
+}
+async function renderTokens(period='month'){
+  const data=await api(`/rbac/token-usage?period=${encodeURIComponent(period)}`);
+  const summary=data.summary||{};
+  const periodButtons=['day','week','month','year'].map(key=>`<button class="${key===data.period?'primary':'secondary'}" onclick="renderTokens('${key}')">${key[0].toUpperCase()+key.slice(1)}</button>`).join('');
+  const cost=summary.estimated_cost_usd==null?'Set env rates':money(summary.estimated_cost_usd);
+  $('content').innerHTML=pageHead('Token utilization','Monitor AI token usage by day, week, month, year, file type and operation.',`<div class="actions">${periodButtons}</div>`)+
+  (!data.available?`<section class="panel setup-panel"><div class="panel-body"><h4>Setup needed</h4><p class="muted">${esc(data.message)}</p></div></section>`:'')+
+  `<div class="stats"><div class="stat"><span>Total tokens</span><strong>${number(summary.total_tokens)}</strong><em>${number(summary.events)} events</em></div><div class="stat"><span>Input tokens</span><strong>${number(summary.input_tokens)}</strong><em>prompt + files</em></div><div class="stat"><span>Output tokens</span><strong>${number(summary.output_tokens)}</strong><em>model response</em></div><div class="stat"><span>Estimated cost</span><strong>${esc(cost)}</strong><em>${number(summary.optimized_events)} optimized</em></div></div>`+
+  `<div class="grid-2"><section class="panel"><div class="panel-head"><h4>Usage trend</h4><span class="pill">${esc(data.period)}</span></div><div class="panel-body">${tokenBarRows(data.series,'label')}</div></section><section class="panel"><div class="panel-head"><h4>By operation</h4></div><div class="panel-body">${tokenBarRows(data.by_operation)}</div></section></div>`+
+  `<div class="grid-2" style="margin-top:18px"><section class="panel"><div class="panel-head"><h4>By model</h4></div><div class="panel-body">${tokenBarRows(data.by_model)}</div></section><section class="panel"><div class="panel-head"><h4>By file type</h4></div><div class="panel-body">${tokenBarRows(data.by_file_type)}</div></section></div>`+
+  `<section class="panel" style="margin-top:18px"><div class="panel-head"><h4>Recent file/API events</h4><span class="muted">Latest 25</span></div>${recentTokenTable(data.recent)}</section>`+
+  `<section class="panel" style="margin-top:18px"><div class="panel-body"><h4>Cost controls to enforce</h4><div class="permission-list"><span class="pill green">Digital PDF parser first</span><span class="pill green">Duplicate hash cache</span><span class="pill">Daily scan limits</span><span class="pill">Model routing</span><span class="pill">Prompt cache</span></div><p class="muted">Keep token-heavy work in the deployed backend so Play Store users benefit automatically without your laptop running.</p></div></section>`;
+}
+window.renderTokens=renderTokens;
 
 async function renderRoles(){const roles=(await api('/rbac/roles')).roles||[];$('content').innerHTML=pageHead('Roles & permissions','Review the exact capabilities granted to each operator group.')+`<section class="panel">${roles.map(r=>`<article class="role-card"><div class="page-head" style="margin:0"><div><h4>${esc(r.display_name)}</h4><div class="muted">${esc(r.description)}</div></div>${hasRole('platform_admin')&&r.role_key!=='platform_admin'?`<button class="secondary" onclick="permissionModal('${esc(r.role_key)}')">Edit permissions</button>`:''}</div><div class="permission-list">${(r.permissions||[]).map(p=>`<span class="pill">${esc(p)}</span>`).join('')}</div></article>`).join('')}</section>`;state.cache.roles=roles}
 window.permissionModal=roleKey=>{const role=state.cache.roles.find(r=>r.role_key===roleKey);const all=[...new Set(state.cache.roles.flatMap(r=>r.permissions||[]))].sort();modal(`Permissions · ${role.display_name}`,`<form id="permissionForm"><div class="permission-list">${all.map(p=>`<label class="pill"><input style="width:auto" type="checkbox" name="permission" value="${esc(p)}" ${(role.permissions||[]).includes(p)?'checked':''} /> ${esc(p)}</label>`).join('')}</div><div class="form-actions"><button type="button" class="ghost" onclick="closeModal()">Cancel</button><button class="primary">Save permissions</button></div></form>`);$('permissionForm').onsubmit=async e=>{e.preventDefault();const permissions=[...e.target.querySelectorAll('input:checked')].map(x=>x.value);await api(`/rbac/roles/${roleKey}/permissions`,{method:'PUT',body:JSON.stringify({permissions})});closeModal();toast('Role permissions updated');renderRoles()}};
