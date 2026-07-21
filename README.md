@@ -11,10 +11,12 @@
   <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
   <img alt="Supabase" src="https://img.shields.io/badge/Data-Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" />
   <img alt="Railway" src="https://img.shields.io/badge/Deploy-Railway-111827?style=for-the-badge&logo=railway&logoColor=white" />
+  <img alt="Hybrid AI" src="https://img.shields.io/badge/AI-Hybrid%20Parser%20%2B%20Claude-8C7CFF?style=for-the-badge" />
+  <img alt="RBAC" src="https://img.shields.io/badge/Security-RBAC%20Scoped-62E6C8?style=for-the-badge" />
 </p>
 
 <p>
-  <b>Scan receipts</b> -> <b>save clean purchase memory</b> -> <b>ask the AI Agent</b> -> <b>get evidence-backed answers</b>
+  <b>Scan receipts</b> -> <b>optimize extraction cost</b> -> <b>save purchase memory</b> -> <b>ask the AI Agent</b> -> <b>get evidence-backed answers</b>
 </p>
 
 </div>
@@ -42,12 +44,15 @@ No receipt evidence -> no purchase claim.
 | Capability | What it means |
 | --- | --- |
 | Receipt scanning | Upload receipt images or PDFs and extract structured purchase data |
+| Hybrid PDF extraction | Digital table PDFs are parsed deterministically first; weak parses fall back to Claude Vision |
 | Purchase memory | Store receipts, line items, totals, stores, dates, quantities, and guest sessions |
+| Discounts and savings | Discounts are preserved as receipt evidence and surfaced in receipts, memory, and reports |
 | AI Agent | Ask about prices, stores, item history, spending, comparisons, and shopping plans |
 | Evidence gate | Receipt facts must come from saved receipt evidence, not model guesses |
 | General advice | Food, shopping, and savings advice is supported without pretending it came from receipts |
 | Secure operations | Backend-enforced roles, customer scopes, receipt assignments, support grants, and audit logs |
-| Operations console | Separate role-aware web dashboard for administrators, support staff, auditors, and receipt editors |
+| Operations console | Separate role-aware web dashboard for administrators, support staff, auditors, receipt editors, and token monitoring |
+| Token usage dashboard | Day/week/month/year AI token utilization by model, operation, file type, and recent scan events |
 | Account recovery | Hosted password-reset flow that returns users safely to the deployed application |
 | Mobile first | Built for Expo Go, local LAN testing, and future app-store builds |
 
@@ -60,14 +65,20 @@ flowchart TD
   B --> C["Supabase Auth"]
   B --> K["RBAC and scoped authorization"]
   K --> L["Roles, support grants, receipt assignments, and audit"]
-  B --> D["Claude receipt extraction"]
-  D --> E["receipts table"]
-  D --> F["receipt_items table"]
+  B --> M["Hybrid scan router"]
+  M --> N["Deterministic PDF/table parser"]
+  M --> D["Claude Vision fallback"]
+  N --> O["Parse confidence and page audit"]
+  D --> O
+  O --> E["receipts table"]
+  O --> F["receipt_items table"]
+  O --> P["ai_token_usage table"]
   B --> G["ReceiptAI Agent"]
   G --> H["Deterministic receipt retrieval"]
   H --> F
   H --> E
   G --> I["Evidence-gated answer"]
+  J --> P
 ```
 
 ## Repository Layout
@@ -89,6 +100,34 @@ ReceiptScanner/
   docs/RBAC.md            Access-control roles, scopes, and deployment guide
   assets/readme/          README visuals
 ```
+
+## Hybrid Scanning and Token Optimization
+
+ReceiptAI now uses a production-safe hybrid extraction strategy:
+
+```text
+Upload PDF/image
+  -> detect file type
+  -> try deterministic extraction for digital text/table PDFs
+  -> validate rows, prices, pages, vendor, and confidence
+  -> save directly only when the parse is strong
+  -> fall back to Claude Vision when the parse looks incomplete
+  -> store receipt evidence, structured rows, savings/discounts, and token metrics
+```
+
+This keeps costs low without silently trusting weak table extraction.
+
+| Document type | First path | Fallback path |
+| --- | --- | --- |
+| Digital price list / table PDF | Backend text/table parser | Claude Vision if page or row confidence is low |
+| Normal photographed receipt | Claude Vision scan | Validation error if unreadable |
+| Multi-page receipt photos | Combined page scan | Validation and duplicate checks |
+| Duplicate upload | Existing receipt by hash | No extra model call |
+
+The parser records a `parse_audit` with page count, rows per page, marker count,
+warnings, confidence, and whether the document was accepted without AI. Token
+usage events are logged separately so the operations console can show which
+files and models are driving cost.
 
 ## Agent Brain
 
@@ -116,6 +155,20 @@ Production retrieval counts unique purchase occasions rather than duplicated
 evidence rows. Purchase-history answers therefore align their headline count,
 listed events, and receipt evidence. The current single-pass orchestration also
 avoids repeated interpretation and unnecessary response waits.
+
+## Memory and Savings Intelligence
+
+The Memory tab is designed to be useful even without asking the Agent. It tracks:
+
+- item-level price memory and repeat purchase history;
+- spending, category, and monthly trends;
+- discounts and `total_savings` captured from receipts;
+- store-wise savings in the Spending view;
+- shopping opportunities based on observed lowest/usual/good-deal prices.
+
+Discount lines stay grounded in the receipt evidence. If a receipt has a coupon,
+markdown, reward, or negative line item, the backend preserves that discount and
+the mobile app can surface it in receipt detail and monthly memory.
 
 ## Production Access Control
 
@@ -154,6 +207,8 @@ Authorized users can:
 - Assign one receipt, selected receipts, a date range, month, year, or all
   authorized receipts to a Receipt Editor.
 - Create and revoke time-limited support access.
+- Monitor AI token usage by day, week, month, year, model, operation, file type,
+  and recent scan events.
 - Review security-sensitive activity in the audit log.
 
 See [`docs/RBAC.md`](docs/RBAC.md) for the complete role matrix, deployment
@@ -217,6 +272,11 @@ GOOGLE_SEARCH_API_KEY=
 GOOGLE_SEARCH_ENGINE_ID=
 RBAC_BOOTSTRAP_ADMIN_USER_IDS=
 PASSWORD_RESET_REDIRECT_URL=https://web-production-3605f4.up.railway.app/reset-password/
+MAX_PDF_SCAN_PAGES=16
+MAX_SCAN_IMAGE_PAGES=8
+MAX_SCAN_OUTPUT_TOKENS=16000
+AI_INPUT_COST_PER_MILLION_TOKENS=
+AI_OUTPUT_COST_PER_MILLION_TOKENS=
 ```
 
 Important:
@@ -225,6 +285,10 @@ Important:
 - `RBAC_BOOTSTRAP_ADMIN_USER_IDS` is an optional comma-separated list of
   Supabase user UUIDs used only to bootstrap the first platform administrator.
 - `PASSWORD_RESET_REDIRECT_URL` must also be allowed in Supabase Auth settings.
+- `MAX_PDF_SCAN_PAGES`, `MAX_SCAN_IMAGE_PAGES`, and `MAX_SCAN_OUTPUT_TOKENS`
+  control large scan limits and should be adjusted carefully.
+- `AI_INPUT_COST_PER_MILLION_TOKENS` and `AI_OUTPUT_COST_PER_MILLION_TOKENS`
+  are optional; when set, the operations console estimates AI cost in USD.
 - Mobile code should use only public/frontend-safe variables.
 - Do not commit `.env` files.
 
@@ -238,6 +302,7 @@ backend/supabase_item_aliases.sql
 backend/supabase_agent_conversations.sql
 backend/supabase_receipt_identifiers.sql
 backend/supabase_rbac.sql
+backend/supabase_token_usage.sql
 ```
 
 These create:
@@ -246,6 +311,7 @@ These create:
 - `receipt_item_aliases` for taught meanings such as `goat = mutton`.
 - RBAC customers, role assignments, support grants, receipt assignments, and
   audit events for scoped operations access.
+- `ai_token_usage` for the operations token dashboard.
 
 ## API Highlights
 
@@ -264,6 +330,7 @@ These create:
 | `POST` | `/rbac/users` | Create an operator account and initial role |
 | `POST` | `/rbac/receipt-assignments/bulk` | Assign filtered receipt work to a Receipt Editor |
 | `GET` | `/rbac/audit` | Read authorized security audit events |
+| `GET` | `/rbac/token-usage` | Read authorized AI token utilization dashboard data |
 
 ## Deployment
 
@@ -288,6 +355,14 @@ Health check:
 https://web-production-3605f4.up.railway.app/agent-health
 ```
 
+After deploying backend changes, open `/ops/` with an authorized operator
+account and verify:
+
+- receipt scanning still saves normal receipts;
+- digital table PDFs show optimized parser usage in Token usage;
+- low-confidence PDFs fall back to Claude instead of silently saving weak data;
+- `/rbac/token-usage?period=month` returns dashboard data after the SQL migration.
+
 ### Expo App
 
 Expo/EAS should build from:
@@ -308,6 +383,15 @@ python test_agent_quality_gate.py
 python test_rbac_authorization.py
 python test_ops_dashboard.py
 python test_password_reset.py
+```
+
+Focused checks used for the current production documentation:
+
+```powershell
+cd backend
+python -m py_compile app/services/claude.py app/services/token_usage.py app/routes/receipts.py app/routes/rbac.py
+python test_receipt_intelligence_v2.py
+python test_ops_dashboard.py
 ```
 
 Mobile type check:
