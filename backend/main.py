@@ -5,14 +5,20 @@
 
 import asyncio
 import os
+import time
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.routes import receipts, auth, agent_route, rbac
 from app.services import agent as agent_service
 from app.services import agent_workflow
+from app.services.app_logger import configure_logging, get_logger, record_error_event, request_id
+
+
+configure_logging()
+logger = get_logger(__name__)
 
 
 # ── Auto-cleanup task ──
@@ -93,6 +99,53 @@ async def operations_security_headers(request, call_next):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'"
+    return response
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    """Log API traffic with request id, route, status, duration, file/line.
+
+    Privacy rule: do not log request bodies here. Uploads, passwords, receipts,
+    and auth headers can contain sensitive customer data.
+    """
+    rid = request.headers.get("X-Request-ID") or request_id()
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as error:
+        duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        logger.exception(
+            "Unhandled request error",
+            extra={
+                "request_id": rid,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": 500,
+                "duration_ms": duration_ms,
+            },
+        )
+        record_error_event(
+            source="request",
+            message=f"{request.method} {request.url.path} failed",
+            request_id_value=rid,
+            metadata={"method": request.method, "path": request.url.path, "duration_ms": duration_ms},
+            error=error,
+        )
+        raise
+
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    response.headers["X-Request-ID"] = rid
+    logger.info(
+        "HTTP request completed",
+        extra={
+            "request_id": rid,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+        },
+    )
     return response
 
 # ── Connect all routes ──

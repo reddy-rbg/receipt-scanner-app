@@ -11,6 +11,7 @@ const hasRole = (...roles) => roles.some(role => state.profile?.roles?.some(item
 
 const pages = [
   ['tokens','Token usage','T',()=>has('analytics.read_global') || has('analytics.read_customer')],
+  ['errors','Errors','!',()=>has('audit.read')],
   ['overview','Overview','◇',()=>true], ['receipts','Receipts','▤',()=>has('receipts.read')],
   ['assignments','Assignments','◎',()=>has('receipts.update') || hasRole('receipt_editor')],
   ['support','Support access','◌',()=>has('support.approve_access') || hasRole('support_agent')],
@@ -54,7 +55,7 @@ function renderNav(){
 }
 async function navigate(page){
   state.page=page;renderNav();const item=pages.find(p=>p[0]===page);$('pageTitle').textContent=item?.[1]||'Operations';$('content').innerHTML='<div class="loading-panel">Loading…</div>';
-  try{await ({overview:renderOverview,receipts:renderReceipts,assignments:renderAssignments,support:renderSupport,users:renderUsers,customers:renderCustomers,tokens:renderTokens,roles:renderRoles,audit:renderAudit}[page]||renderOverview)()}
+  try{await ({overview:renderOverview,receipts:renderReceipts,assignments:renderAssignments,support:renderSupport,users:renderUsers,customers:renderCustomers,tokens:renderTokens,errors:renderErrors,roles:renderRoles,audit:renderAudit}[page]||renderOverview)()}
   catch(error){$('content').innerHTML=empty(error.message);toast(error.message,true)}
 }
 
@@ -112,6 +113,14 @@ async function renderTokens(period='month'){
   `<section class="panel" style="margin-top:18px"><div class="panel-body"><h4>Cost controls to enforce</h4><div class="permission-list"><span class="pill green">Digital PDF parser first</span><span class="pill green">Duplicate hash cache</span><span class="pill">Daily scan limits</span><span class="pill">Model routing</span><span class="pill">Prompt cache</span></div><p class="muted">Keep token-heavy work in the deployed backend so Play Store users benefit automatically without your laptop running.</p></div></section>`;
 }
 window.renderTokens=renderTokens;
+
+async function renderErrors(){
+  const data=await api('/rbac/error-events?limit=200');
+  const rows=data.events||[];
+  $('content').innerHTML=pageHead('Error tracker','Recent backend errors with request id, source, severity and stack context.')+
+  (!data.available?`<section class="panel setup-panel"><div class="panel-body"><h4>Setup needed</h4><p class="muted">${esc(data.message)}</p></div></section>`:'')+
+  `<section class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Request</th><th>Message</th><th>Error</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${dateTime(row.created_at)}</td><td><span class="pill ${row.severity==='error'?'red':'purple'}">${esc(row.severity||'event')}</span></td><td>${esc(row.source||'unknown')}</td><td>${esc(row.request_id||'--')}</td><td>${esc(row.message||'--')}</td><td>${esc(row.error_type||'--')}</td></tr>`).join('')}</tbody></table></div>`:empty('No error events in this scope.')}</section>`;
+}
 
 async function renderRoles(){const roles=(await api('/rbac/roles')).roles||[];$('content').innerHTML=pageHead('Roles & permissions','Review the exact capabilities granted to each operator group.')+`<section class="panel">${roles.map(r=>`<article class="role-card"><div class="page-head" style="margin:0"><div><h4>${esc(r.display_name)}</h4><div class="muted">${esc(r.description)}</div></div>${hasRole('platform_admin')&&r.role_key!=='platform_admin'?`<button class="secondary" onclick="permissionModal('${esc(r.role_key)}')">Edit permissions</button>`:''}</div><div class="permission-list">${(r.permissions||[]).map(p=>`<span class="pill">${esc(p)}</span>`).join('')}</div></article>`).join('')}</section>`;state.cache.roles=roles}
 window.permissionModal=roleKey=>{const role=state.cache.roles.find(r=>r.role_key===roleKey);const all=[...new Set(state.cache.roles.flatMap(r=>r.permissions||[]))].sort();modal(`Permissions · ${role.display_name}`,`<form id="permissionForm"><div class="permission-list">${all.map(p=>`<label class="pill"><input style="width:auto" type="checkbox" name="permission" value="${esc(p)}" ${(role.permissions||[]).includes(p)?'checked':''} /> ${esc(p)}</label>`).join('')}</div><div class="form-actions"><button type="button" class="ghost" onclick="closeModal()">Cancel</button><button class="primary">Save permissions</button></div></form>`);$('permissionForm').onsubmit=async e=>{e.preventDefault();const permissions=[...e.target.querySelectorAll('input:checked')].map(x=>x.value);await api(`/rbac/roles/${roleKey}/permissions`,{method:'PUT',body:JSON.stringify({permissions})});closeModal();toast('Role permissions updated');renderRoles()}};

@@ -621,6 +621,33 @@ def token_usage_summary(
     }
 
 
+@router.get("/error-events")
+def error_events(
+    request: Request,
+    limit: int = Query(default=200, ge=1, le=500),
+):
+    """Return recent backend error events for future operations dashboards."""
+    context = rbac.get_access_context(request)
+    if context.is_global:
+        rbac.require_permission(context, "audit.read")
+        query = supabase.table("app_error_events").select("*")
+    else:
+        customer_id = rbac.primary_customer_id(context)
+        rbac.require_permission(context, "audit.read", customer_id)
+        if not context.customer_ids:
+            return {"available": True, "events": []}
+        query = supabase.table("app_error_events").select("*").in_("customer_id", sorted(context.customer_ids))
+    try:
+        return {"available": True, "events": query.order("created_at", desc=True).limit(limit).execute().data or []}
+    except Exception as error:
+        print(f"[error_events] Summary unavailable: {error}")
+        return {
+            "available": False,
+            "message": "Error event table is not configured yet. Run backend/supabase_error_events.sql in Supabase SQL editor.",
+            "events": [],
+        }
+
+
 @router.get("/audit")
 def read_audit(request: Request, customer_id: str | None = None, limit: int = 100):
     context = rbac.get_access_context(request)

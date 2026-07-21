@@ -263,6 +263,8 @@ MAX_SCAN_IMAGE_PAGES=8
 MAX_SCAN_OUTPUT_TOKENS=16000
 AI_INPUT_COST_PER_MILLION_TOKENS=
 AI_OUTPUT_COST_PER_MILLION_TOKENS=
+LOG_LEVEL=INFO
+LOG_JSON=false
 ```
 
 Important:
@@ -275,6 +277,8 @@ Important:
   control large scan limits and should be adjusted carefully.
 - `AI_INPUT_COST_PER_MILLION_TOKENS` and `AI_OUTPUT_COST_PER_MILLION_TOKENS`
   are optional; when set, the operations console estimates AI cost in USD.
+- `LOG_LEVEL` and `LOG_JSON` control backend log verbosity and whether Railway
+  logs are human-readable or JSON formatted.
 - Mobile code should use only public/frontend-safe variables.
 - Do not commit `.env` files.
 
@@ -289,6 +293,7 @@ backend/supabase_agent_conversations.sql
 backend/supabase_receipt_identifiers.sql
 backend/supabase_rbac.sql
 backend/supabase_token_usage.sql
+backend/supabase_error_events.sql
 ```
 
 These create:
@@ -298,6 +303,7 @@ These create:
 - RBAC customers, role assignments, support grants, receipt assignments, and
   audit events for scoped operations access.
 - `ai_token_usage` for the operations token dashboard.
+- `app_error_events` for future operations error tracking and dashboards.
 
 ## API Highlights
 
@@ -317,6 +323,7 @@ These create:
 | `POST` | `/rbac/receipt-assignments/bulk` | Assign filtered receipt work to a Receipt Editor |
 | `GET` | `/rbac/audit` | Read authorized security audit events |
 | `GET` | `/rbac/token-usage` | Read authorized AI token utilization dashboard data |
+| `GET` | `/rbac/error-events` | Read authorized backend error-event dashboard data |
 
 ## Deployment
 
