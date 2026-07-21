@@ -72,6 +72,7 @@ type ReceiptLite = {
   date?: string | null;
   created_at?: string | null;
   total?: number | string | null;
+  discount?: number | string | null;
   total_savings?: number | string | null;
   items?: any[];
 };
@@ -80,6 +81,14 @@ type CategorySpend = {
   key: string;
   label: string;
   total: number;
+  receipts: number;
+  pct: number;
+};
+
+type StoreSavings = {
+  store: string;
+  saved: number;
+  spend: number;
   receipts: number;
   pct: number;
 };
@@ -101,6 +110,7 @@ type MonthlySnapshot = {
   trendPct: number | null;
   topCategory: CategorySpend | null;
   categories: CategorySpend[];
+  storeSavings: StoreSavings[];
 };
 
 type MemoryFilter = 'all' | 'soon' | 'compare' | 'learning';
@@ -109,6 +119,22 @@ type MemoryView = 'today' | 'spending' | 'items' | 'more';
 
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
+const receiptItemDiscountSavings = (receipt: ReceiptLite) => (receipt.items || []).reduce((sum, item) => {
+  const price = n(item?.price);
+  const name = String(item?.name || item?.item_name || '').toLowerCase();
+  const source = String(item?.source || '').toLowerCase();
+  const markedDiscount = Boolean(item?.is_discount)
+    || source === 'discount'
+    || /\b(discount|coupon|savings?|promo|promotion|markdown|rebate|reward|offer)\b/.test(name);
+  return markedDiscount || price < 0 ? sum + Math.abs(price) : sum;
+}, 0);
+const receiptSavingsValue = (receipt: ReceiptLite) => {
+  const explicitSavings = n(receipt.total_savings);
+  if (explicitSavings > 0) return explicitSavings;
+  const explicitDiscount = n(receipt.discount);
+  if (explicitDiscount > 0) return explicitDiscount;
+  return receiptItemDiscountSavings(receipt);
+};
 const parseReceiptDate = (value: any) => {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -544,14 +570,26 @@ export default function PriceMemoryScreen() {
 
       const targetReceipts = byMonth[targetKey] || [];
       const total = targetReceipts.reduce((sum, receipt) => sum + n(receipt.total), 0);
-      const saved = targetReceipts.reduce((sum, receipt) => sum + n(receipt.total_savings), 0);
+      const saved = targetReceipts.reduce((sum, receipt) => sum + receiptSavingsValue(receipt), 0);
       const storeTotals: Record<string, number> = {};
+      const storeSavingsTotals: Record<string, StoreSavings> = {};
       const categoryTotals: Record<string, CategorySpend> = {};
       targetReceipts.forEach(receipt => {
         const store = receipt.store || 'Unknown store';
         const totalValue = n(receipt.total);
+        const savedValue = receiptSavingsValue(receipt);
         const category = receiptCategory(receipt);
         storeTotals[store] = (storeTotals[store] || 0) + totalValue;
+        storeSavingsTotals[store] = storeSavingsTotals[store] || {
+          store,
+          saved: 0,
+          spend: 0,
+          receipts: 0,
+          pct: 0,
+        };
+        storeSavingsTotals[store].saved += savedValue;
+        storeSavingsTotals[store].spend += totalValue;
+        storeSavingsTotals[store].receipts += 1;
         categoryTotals[category.key] = categoryTotals[category.key] || {
           key: category.key,
           label: category.label,
@@ -570,6 +608,16 @@ export default function PriceMemoryScreen() {
           pct: total > 0 ? (category.total / total) * 100 : 0,
         }))
         .sort((a, b) => b.total - a.total);
+      const storeSavings = Object.values(storeSavingsTotals)
+        .map(store => ({
+          ...store,
+          saved: n(store.saved.toFixed(2)),
+          spend: n(store.spend.toFixed(2)),
+          pct: store.spend > 0 ? (store.saved / store.spend) * 100 : 0,
+        }))
+        .filter(store => store.saved > 0)
+        .sort((a, b) => b.saved - a.saved)
+        .slice(0, 6);
       const targetIndex = monthKeys.indexOf(targetKey);
       const previousKey = targetIndex > 0 ? monthKeys[targetIndex - 1] : '';
       const previousTotal = (byMonth[previousKey] || []).reduce((sum, receipt) => sum + n(receipt.total), 0);
@@ -602,6 +650,7 @@ export default function PriceMemoryScreen() {
         trendPct,
         topCategory: categories[0] || null,
         categories,
+        storeSavings,
       });
     } catch {
       setMonthly(null);
@@ -1156,7 +1205,7 @@ export default function PriceMemoryScreen() {
     learningQueue.length,
     dataQualityFlags.length,
   ].filter(Boolean).length;
-  const monthlyContentCount = monthly ? 1 + monthly.categories.length : 0;
+  const monthlyContentCount = monthly ? 1 + monthly.categories.length + monthly.storeSavings.length : 0;
   const viewChips: { key: MemoryView; label: string; count: number }[] = [
     { key: 'today', label: 'Today', count: Math.max(1, Math.min(5, shoppingContentCount)) },
     { key: 'spending', label: 'Spending', count: monthlyContentCount },
@@ -1471,6 +1520,37 @@ export default function PriceMemoryScreen() {
                 ? 'This is your first month with enough scanned receipt history.'
                 : `${Math.abs(monthly.trendPct).toFixed(0)}% ${monthly.trendPct >= 0 ? 'higher' : 'lower'} than the previous scanned month.`}
             </Text>
+
+            {monthly.storeSavings.length > 0 ? (
+              <View style={s.storeSavingsBox}>
+                <View style={s.planHeader}>
+                  <View>
+                    <Text style={s.storeSavingsKicker}>Savings by store</Text>
+                    <Text style={s.planTitle}>Where discounts helped most</Text>
+                  </View>
+                  <View style={s.storeSavingsPill}>
+                    <Text style={s.storeSavingsPillTxt}>{money(monthly.saved)}</Text>
+                  </View>
+                </View>
+                {monthly.storeSavings.map((store, index) => (
+                  <View key={`${store.store}-savings-${index}`} style={s.storeSavingsRow}>
+                    <View style={s.storeSavingsRank}>
+                      <Text style={s.storeSavingsRankTxt}>{index + 1}</Text>
+                    </View>
+                    <View style={{ flex:1 }}>
+                      <Text style={s.storeSavingsName} numberOfLines={1}>{store.store}</Text>
+                      <Text style={s.storeSavingsMeta}>
+                        {store.receipts} receipt{store.receipts === 1 ? '' : 's'} · {store.pct.toFixed(1)}% of spend saved
+                      </Text>
+                    </View>
+                    <View style={s.storeSavingsValueBox}>
+                      <Text style={s.storeSavingsValue}>{money(store.saved)}</Text>
+                      <Text style={s.storeSavingsLabel}>saved</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
 
             {watch ? (
               <View style={[
@@ -2665,6 +2745,18 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   opportunitySaveVal:{ color:C.green, fontSize:15, fontWeight:'900' },
   opportunitySaveLbl:{ color:C.text3, fontSize:9, fontWeight:'800', marginTop:2, textTransform:'uppercase' },
   opportunitySwing:{ color:C.gold, fontSize:10, fontWeight:'800', marginTop:5 },
+  storeSavingsBox:{ backgroundColor:'rgba(74,222,128,0.07)', borderWidth:1, borderColor:'rgba(74,222,128,0.20)', borderRadius:14, padding:14, marginTop:14, marginBottom:14 },
+  storeSavingsKicker:{ color:C.green, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
+  storeSavingsPill:{ backgroundColor:'rgba(74,222,128,0.12)', borderWidth:1, borderColor:'rgba(74,222,128,0.28)', borderRadius:12, paddingHorizontal:10, paddingVertical:7 },
+  storeSavingsPillTxt:{ color:C.green, fontWeight:'900', fontSize:13 },
+  storeSavingsRow:{ flexDirection:'row', alignItems:'flex-start', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:'rgba(74,222,128,0.16)' },
+  storeSavingsRank:{ width:28, height:28, borderRadius:99, backgroundColor:'rgba(74,222,128,0.12)', borderWidth:1, borderColor:'rgba(74,222,128,0.25)', alignItems:'center', justifyContent:'center' },
+  storeSavingsRankTxt:{ color:C.green, fontSize:12, fontWeight:'900' },
+  storeSavingsName:{ color:C.text, fontSize:13, fontWeight:'900' },
+  storeSavingsMeta:{ color:C.text2, fontSize:11, marginTop:3 },
+  storeSavingsValueBox:{ alignItems:'flex-end', minWidth:76 },
+  storeSavingsValue:{ color:C.green, fontSize:14, fontWeight:'900' },
+  storeSavingsLabel:{ color:C.text3, fontSize:9, fontWeight:'900', marginTop:2, textTransform:'uppercase' },
   storeIntelBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:14, marginBottom:14 },
   storeIntelKicker:{ color:C.accent, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },
   storeIntelPill:{ backgroundColor:'rgba(124,106,255,0.12)', borderWidth:1, borderColor:'rgba(124,106,255,0.26)', borderRadius:12, minWidth:34, paddingHorizontal:10, paddingVertical:7, alignItems:'center' },
