@@ -147,6 +147,55 @@ def _infer_price_list_vendor(text: str, filename: str) -> str:
     return stem or "Vendor Price List"
 
 
+def _parser_safe_float(value, default=0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        if isinstance(value, str):
+            value = value.replace("$", "").replace(",", "").strip()
+        return float(value)
+    except Exception:
+        return default
+
+
+def validate_deterministic_pdf_parse(data: dict, *, page_count: int, marker_count: int) -> tuple[bool, list[str], float]:
+    """Gate zero-token PDF parsing so weak parses fall back to Claude Vision.
+
+    Deterministic parsing is best for digital text/table PDFs, but it should
+    only skip Claude when it captured enough structured evidence to be safe.
+    """
+    items = [item for item in (data.get("items") or []) if isinstance(item, dict)]
+    prices = [item.get("price") for item in items]
+    priced_items = [price for price in prices if _parser_safe_float(price, 0) > 0]
+    page_counts = data.get("parse_audit", {}).get("page_item_counts") or []
+    warnings: list[str] = []
+
+    if not items:
+        warnings.append("No table rows were parsed from the PDF text.")
+    if len(items) < 20:
+        warnings.append(f"Only {len(items)} priced rows were parsed; too low for safe price-list extraction.")
+    if marker_count < 2:
+        warnings.append("PDF did not contain enough price-list/table markers.")
+    if page_count and len(page_counts) != page_count:
+        warnings.append("Parser did not inspect every PDF page.")
+    if page_count > 1 and any(count == 0 for count in page_counts):
+        warnings.append("One or more pages produced zero item rows.")
+    if len(priced_items) != len(items):
+        warnings.append("Some parsed rows are missing positive prices.")
+    if not str(data.get("store") or "").strip():
+        warnings.append("Vendor/store name was not detected.")
+    if page_count > 4 and len(items) < page_count * 5:
+        warnings.append("Parsed item density is suspiciously low for a multi-page table PDF.")
+
+    confidence = 0.98
+    confidence -= min(0.24, len(warnings) * 0.08)
+    if page_count > 0:
+        populated_pages = sum(1 for count in page_counts if count > 0)
+        confidence -= max(0, (page_count - populated_pages) / max(1, page_count)) * 0.25
+    confidence = round(max(0.0, min(0.99, confidence)), 2)
+    return confidence >= 0.86 and not warnings, warnings, confidence
+
+
 def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | None:
     """Parse digital wholesale/vendor price-list PDFs without Claude token limits.
 
@@ -235,6 +284,15 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
     address = address_match.group(0).replace("TX-", "TX ") if address_match else None
     store = _infer_price_list_vendor(joined_text, filename)
 
+    parse_audit = {
+        "parser": "digital_pdf_text_price_list_v2",
+        "page_count": len(page_counts),
+        "page_item_counts": page_counts,
+        "marker_count": marker_count,
+        "rows_extracted": len(items),
+        "fallback_policy": "fallback_to_claude_when_confidence_below_0_86_or_warnings_present",
+    }
+
     notes = [
         "Parsed as a digital wholesale/vendor price-list PDF and saved through the normal receipt flow.",
         f"Extracted {len(items)} priced item rows across {len(page_counts)} page(s).",
@@ -245,7 +303,7 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
     if effective_match:
         notes.append(f"Effective From: {start_date} - {end_date}")
 
-    return {
+    parsed = {
         "store": store,
         "address": address,
         "date": start_date,
@@ -270,8 +328,23 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
             "document_type": "wholesale_price_list",
             "deterministic_pdf_parse": True,
         },
+        "parse_audit": parse_audit,
         "validation_notes": notes,
     }
+    accepted, warnings, confidence = validate_deterministic_pdf_parse(
+        parsed,
+        page_count=len(page_counts),
+        marker_count=marker_count,
+    )
+    parsed["validation"]["confidence"] = confidence
+    parsed["parse_audit"]["accepted_without_ai"] = accepted
+    parsed["parse_audit"]["warnings"] = warnings
+    if warnings:
+        parsed["validation_notes"].extend(f"Deterministic parser warning: {warning}" for warning in warnings)
+    if not accepted:
+        print(f"[pdf_price_list] Deterministic parse confidence {confidence} too low; falling back to Claude: {warnings}")
+        return None
+    return parsed
 
 
 def detect_image_media_type(image_bytes: bytes) -> str:
@@ -790,7 +863,10 @@ def scan_receipt_image(
                 "output_tokens": 0,
                 "optimized": True,
                 "optimization": "digital_pdf_text_parser",
-                "metadata": {"item_count": len(data.get("items") or [])},
+                "metadata": {
+                    "item_count": len(data.get("items") or []),
+                    "parse_audit": data.get("parse_audit") or {},
+                },
             }
             return data
 
