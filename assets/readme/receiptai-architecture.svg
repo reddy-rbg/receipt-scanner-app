@@ -1,0 +1,158 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ReceiptAI production architecture</title>
+  <desc id="desc">Clean layered architecture diagram for ReceiptAI showing mobile app, operations console, FastAPI backend, hybrid scan extraction, Supabase memory, and evidence-gated AI answers.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#070A12"/>
+      <stop offset="0.45" stop-color="#101827"/>
+      <stop offset="1" stop-color="#11101F"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#8C7CFF"/>
+      <stop offset="1" stop-color="#5B6CFF"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#62E6C8"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F5BD61"/>
+      <stop offset="1" stop-color="#FB923C"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FF707E"/>
+      <stop offset="1" stop-color="#F43F5E"/>
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="11" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.49 0 0 0 0 0.42 0 0 0 0 1 0 0 0 0.6 0"/>
+      <feBlend in="SourceGraphic"/>
+    </filter>
+    <marker id="arrowPurple" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2L10 6L2 10" stroke="#8C7CFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrowCyan" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2L10 6L2 10" stroke="#62E6C8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .title { font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 42px; font-weight: 900; fill: #FFFFFF; letter-spacing: -1px; }
+      .subtitle { font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 16px; font-weight: 600; fill: #A7B0C2; }
+      .section { font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 13px; font-weight: 900; fill: #DDE5F3; letter-spacing: 1px; }
+      .cardTitle { font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 16px; font-weight: 900; fill: #FFFFFF; }
+      .cardText { font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 12px; font-weight: 650; fill: #AAB4C6; }
+      .tiny { font-family: Inter, Segoe UI, Arial, sans-serif; font-size: 11px; font-weight: 800; fill: #7DD3FC; letter-spacing: .8px; }
+      .panel { fill: rgba(255,255,255,.055); stroke: rgba(255,255,255,.13); stroke-width: 1.2; }
+      .card { fill: rgba(7,10,18,.82); stroke: rgba(255,255,255,.13); stroke-width: 1.2; }
+      .linePurple { stroke: #8C7CFF; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 10 16; animation: flow 2.2s linear infinite; }
+      .lineCyan { stroke: #62E6C8; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 10 16; animation: flow 2.2s linear infinite; }
+      .lineMuted { stroke: rgba(255,255,255,.22); stroke-width: 2; stroke-linecap: round; }
+      .pulse { transform-origin: center; animation: pulse 2.8s ease-in-out infinite; }
+      .float { animation: float 4.2s ease-in-out infinite; }
+      .float2 { animation: float 4.2s ease-in-out infinite; animation-delay: -1.5s; }
+      @keyframes flow { to { stroke-dashoffset: -52; } }
+      @keyframes pulse { 0%,100% { opacity:.76; transform:scale(1); } 50% { opacity:1; transform:scale(1.045); } }
+      @keyframes float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-5px); } }
+    </style>
+  </defs>
+
+  <rect width="1200" height="720" rx="32" fill="url(#bg)"/>
+  <circle cx="105" cy="88" r="150" fill="#62E6C8" opacity=".08"/>
+  <circle cx="1115" cy="645" r="190" fill="#8C7CFF" opacity=".10"/>
+  <circle cx="640" cy="330" r="280" stroke="url(#purple)" stroke-opacity=".13" stroke-width="2"/>
+
+  <text x="56" y="70" class="tiny">PRODUCTION ARCHITECTURE</text>
+  <text x="56" y="118" class="title">ReceiptAI Architecture</text>
+  <text x="58" y="148" class="subtitle">Cost-aware receipt extraction, secure purchase memory, and evidence-gated AI answers.</text>
+
+  <!-- Column panels -->
+  <rect class="panel" x="48" y="190" width="230" height="390" rx="24"/>
+  <rect class="panel" x="318" y="190" width="250" height="390" rx="24"/>
+  <rect class="panel" x="608" y="190" width="250" height="390" rx="24"/>
+  <rect class="panel" x="898" y="190" width="254" height="390" rx="24"/>
+
+  <text x="78" y="225" class="section">1. SURFACES</text>
+  <text x="348" y="225" class="section">2. SECURE BACKEND</text>
+  <text x="638" y="225" class="section">3. EXTRACTION</text>
+  <text x="928" y="225" class="section">4. PURCHASE MEMORY</text>
+
+  <!-- Surfaces -->
+  <g class="float">
+    <rect class="card" x="78" y="254" width="170" height="86" rx="18" stroke="#8C7CFF"/>
+    <circle cx="110" cy="286" r="14" fill="url(#purple)" opacity=".9"/>
+    <text x="132" y="286" class="cardTitle">Mobile App</text>
+    <text x="132" y="309" class="cardText">Scan • Memory • Agent</text>
+  </g>
+  <g class="float2">
+    <rect class="card" x="78" y="372" width="170" height="86" rx="18" stroke="#8C7CFF"/>
+    <circle cx="110" cy="404" r="14" fill="url(#purple)" opacity=".75"/>
+    <text x="132" y="404" class="cardTitle">Ops Console</text>
+    <text x="132" y="427" class="cardText">RBAC • support • tokens</text>
+  </g>
+
+  <!-- Backend -->
+  <rect class="card" x="348" y="252" width="190" height="70" rx="16" stroke="#38BDF8"/>
+  <text x="376" y="282" class="cardTitle">Auth</text>
+  <text x="376" y="304" class="cardText">Supabase sessions</text>
+
+  <rect class="card" x="348" y="342" width="190" height="70" rx="16" stroke="#FF707E"/>
+  <text x="376" y="372" class="cardTitle">RBAC Guard</text>
+  <text x="376" y="394" class="cardText">roles • scopes • audit</text>
+
+  <rect class="card pulse" x="348" y="432" width="190" height="84" rx="16" stroke="#62E6C8"/>
+  <text x="376" y="464" class="cardTitle">Hybrid Router</text>
+  <text x="376" y="486" class="cardText">parser first, AI only</text>
+  <text x="376" y="503" class="cardText">when confidence is low</text>
+
+  <!-- Extraction -->
+  <rect class="card" x="638" y="252" width="190" height="78" rx="16" stroke="#62E6C8"/>
+  <text x="666" y="282" class="cardTitle">PDF/Table Parser</text>
+  <text x="666" y="304" class="cardText">0-token path for</text>
+  <text x="666" y="321" class="cardText">digital documents</text>
+
+  <rect class="card" x="638" y="354" width="190" height="78" rx="16" stroke="#8C7CFF"/>
+  <text x="666" y="384" class="cardTitle">Claude Fallback</text>
+  <text x="666" y="406" class="cardText">images and weak PDFs</text>
+
+  <rect class="card pulse" x="638" y="456" width="190" height="78" rx="16" stroke="#F5BD61"/>
+  <text x="666" y="486" class="cardTitle">Confidence Gate</text>
+  <text x="666" y="508" class="cardText">page audit • totals</text>
+  <text x="666" y="525" class="cardText">warnings • evidence</text>
+
+  <!-- Data -->
+  <g>
+    <rect class="card" x="928" y="246" width="194" height="60" rx="16" stroke="#F5BD61"/>
+    <text x="960" y="282" class="cardTitle">receipts</text>
+    <rect class="card" x="928" y="322" width="194" height="60" rx="16" stroke="#F5BD61"/>
+    <text x="960" y="358" class="cardTitle">receipt_items</text>
+    <rect class="card" x="928" y="398" width="194" height="60" rx="16" stroke="#62E6C8"/>
+    <text x="960" y="434" class="cardTitle">ai_token_usage</text>
+    <rect class="card" x="928" y="474" width="194" height="60" rx="16" stroke="#FF707E"/>
+    <text x="960" y="510" class="cardTitle">RBAC tables</text>
+  </g>
+
+  <!-- Main flow arrows -->
+  <path class="linePurple" d="M248 296 C282 296 305 288 348 288" marker-end="url(#arrowPurple)"/>
+  <path class="linePurple" d="M248 416 C285 416 305 378 348 378" marker-end="url(#arrowPurple)"/>
+  <path class="lineCyan" d="M538 474 C574 474 598 295 638 295" marker-end="url(#arrowCyan)"/>
+  <path class="linePurple" d="M538 474 C575 474 598 394 638 394" marker-end="url(#arrowPurple)"/>
+  <path class="lineCyan" d="M733 330 L733 354" marker-end="url(#arrowCyan)"/>
+  <path class="linePurple" d="M733 432 L733 456" marker-end="url(#arrowPurple)"/>
+  <path class="lineCyan" d="M828 496 C872 496 888 353 928 353" marker-end="url(#arrowCyan)"/>
+  <path class="lineCyan" d="M828 496 C873 496 888 429 928 429" marker-end="url(#arrowCyan)"/>
+  <path class="linePurple" d="M828 496 C875 496 891 505 928 505" marker-end="url(#arrowPurple)"/>
+
+  <!-- Agent loop -->
+  <rect class="card" x="346" y="610" width="506" height="62" rx="20" stroke="#8C7CFF"/>
+  <text x="379" y="648" class="cardTitle">ReceiptAI Agent answers only from retrieved receipt evidence</text>
+  <path class="lineMuted" d="M1025 382 C1025 632 855 641 852 641" marker-end="url(#arrowPurple)"/>
+  <path class="lineMuted" d="M599 610 C425 588 224 528 164 458" marker-end="url(#arrowPurple)"/>
+
+  <!-- Footer ribbon -->
+  <rect x="72" y="618" width="210" height="54" rx="18" fill="rgba(98,230,200,.10)" stroke="rgba(98,230,200,.35)"/>
+  <text x="95" y="642" class="cardTitle">Cost Control</text>
+  <text x="95" y="660" class="cardText">parse first • log tokens</text>
+
+  <rect x="890" y="618" width="236" height="54" rx="18" fill="rgba(245,189,97,.10)" stroke="rgba(245,189,97,.35)"/>
+  <text x="916" y="642" class="cardTitle">Evidence Rule</text>
+  <text x="916" y="660" class="cardText">no receipt evidence = no claim</text>
+</svg>

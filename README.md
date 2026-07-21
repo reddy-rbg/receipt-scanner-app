@@ -58,70 +58,14 @@ No receipt evidence -> no purchase claim.
 
 ## Architecture At A Glance
 
-```mermaid
-flowchart LR
-  %% ReceiptAI production architecture
+<img src="./assets/readme/receiptai-architecture.svg" alt="ReceiptAI production architecture diagram" width="100%" />
 
-  subgraph Client["User + Operator Surfaces"]
-    Mobile["Expo Mobile App<br/>Scan • Memory • Agent"]
-    Ops["Operations Console<br/>RBAC • Support • Token Usage"]
-  end
+The architecture is intentionally split into four clean layers:
 
-  subgraph API["FastAPI Backend"]
-    Auth["Supabase Auth<br/>Sessions + Password Reset"]
-    RBAC["RBAC Guard<br/>Roles • Scopes • Audit"]
-    Router["Hybrid Scan Router<br/>Cost-aware extraction"]
-    Agent["ReceiptAI Agent<br/>Intent plan + answer composer"]
-  end
-
-  subgraph Extract["Extraction Intelligence"]
-    Parser["Deterministic PDF/Table Parser<br/>0-token path for digital PDFs"]
-    Claude["Claude Vision Fallback<br/>Images + low-confidence PDFs"]
-    Gate["Confidence + Evidence Gate<br/>page audit • totals • warnings"]
-  end
-
-  subgraph Data["Supabase Purchase Memory"]
-    Receipts[("receipts")]
-    Items[("receipt_items")]
-    Tokens[("ai_token_usage")]
-    Access[("RBAC tables<br/>roles • grants • assignments")]
-  end
-
-  Mobile --> Auth
-  Mobile --> Router
-  Mobile --> Agent
-  Ops --> RBAC
-  RBAC --> Access
-
-  Router --> Parser
-  Router --> Claude
-  Parser --> Gate
-  Claude --> Gate
-  Gate --> Receipts
-  Gate --> Items
-  Gate --> Tokens
-
-  Agent --> Items
-  Agent --> Receipts
-  Items --> Agent
-  Receipts --> Agent
-  Agent --> Mobile
-
-  Ops --> Tokens
-  Ops --> Access
-
-  classDef client fill:#241B52,stroke:#8C7CFF,color:#FFFFFF,stroke-width:2px;
-  classDef api fill:#102A43,stroke:#38BDF8,color:#FFFFFF,stroke-width:2px;
-  classDef extract fill:#123524,stroke:#62E6C8,color:#FFFFFF,stroke-width:2px;
-  classDef data fill:#2A1E11,stroke:#F5BD61,color:#FFFFFF,stroke-width:2px;
-  classDef secure fill:#3A1720,stroke:#FF707E,color:#FFFFFF,stroke-width:2px;
-
-  class Mobile,Ops client;
-  class Auth,Router,Agent api;
-  class Parser,Claude,Gate extract;
-  class Receipts,Items,Tokens data;
-  class RBAC,Access secure;
-```
+1. **Surfaces** — Expo mobile app for customers and the operations console for admins/support.
+2. **Secure backend** — FastAPI handles auth, RBAC, scan routing, and the Agent.
+3. **Extraction intelligence** — deterministic PDF/table parsing first, Claude fallback only when needed.
+4. **Purchase memory** — Supabase stores receipts, item rows, RBAC state, and AI token usage.
 
 ## Repository Layout
 
