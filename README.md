@@ -60,7 +60,7 @@ No receipt evidence -> no purchase claim.
 
 <img src="./assets/readme/receiptai-architecture.svg" alt="ReceiptAI production architecture diagram" width="100%" />
 
-The architecture is intentionally split into four clean layers:
+The architecture is split into four clean layers:
 
 1. **Surfaces** — Expo mobile app for customers and the operations console for admins/support.
 2. **Secure backend** — FastAPI handles auth, RBAC, scan routing, and the Agent.
