@@ -28,6 +28,8 @@ MAX_CLAUDE_IMAGE_BYTES = 3_600_000
 MAX_PDF_SCAN_PAGES = int(os.getenv("MAX_PDF_SCAN_PAGES", "16"))
 MAX_SCAN_IMAGE_PAGES = int(os.getenv("MAX_SCAN_IMAGE_PAGES", "8"))
 MAX_SCAN_OUTPUT_TOKENS = int(os.getenv("MAX_SCAN_OUTPUT_TOKENS", "16000"))
+MAX_SCAN_IMAGE_LONG_EDGE = int(os.getenv("MAX_SCAN_IMAGE_LONG_EDGE", "1800"))
+SCAN_IMAGE_JPEG_QUALITY = int(os.getenv("SCAN_IMAGE_JPEG_QUALITY", "82"))
 
 
 def convert_pdf_to_images(pdf_bytes: bytes, max_pages: int = MAX_PDF_SCAN_PAGES) -> list[bytes]:
@@ -579,6 +581,104 @@ def auto_crop_receipt_region(image_bytes: bytes) -> tuple[bytes, dict]:
         return image_bytes, {"auto_cropped_receipt": False, "reason": "preprocess_error"}
 
 
+def _image_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
+    try:
+        from PIL import Image
+        import io
+
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            return image.size
+    except Exception:
+        return None, None
+
+
+def _estimate_vision_image_tokens(width: int | None, height: int | None) -> int | None:
+    """Approximate image-token load for comparing optimization before/after.
+
+    Providers may change internal accounting, so this is dashboard guidance,
+    not billing truth. Actual billed tokens still come from Claude's response
+    usage object.
+    """
+    if not width or not height:
+        return None
+    return max(1, round((width * height) / 750))
+
+
+def optimize_scan_image_for_claude(image_bytes: bytes, *, page_index: int = 1) -> tuple[bytes, str, dict]:
+    """Optimize camera/gallery receipt photos before sending to Vision.
+
+    Digital PDFs can be parsed as text, but photos are pixels. This keeps the
+    Vision fallback while reducing useless pixels: crop receipt area when
+    possible, upscale tiny receipt crops for readability, cap dimensions, and
+    encode to efficient JPEG.
+    """
+    try:
+        from PIL import Image, ImageOps
+        import io
+
+        original_width, original_height = _image_dimensions(image_bytes)
+        working_bytes, crop_info = auto_crop_receipt_region(image_bytes)
+        image = ImageOps.exif_transpose(Image.open(io.BytesIO(working_bytes))).convert("RGB")
+
+        before_resize = image.size
+        resized = False
+        max_edge = max(1, MAX_SCAN_IMAGE_LONG_EDGE)
+        if max(image.size) > max_edge:
+            ratio = max_edge / max(image.size)
+            image = image.resize((max(1, int(image.width * ratio)), max(1, int(image.height * ratio))), Image.Resampling.LANCZOS)
+            resized = True
+
+        output = io.BytesIO()
+        image.save(
+            output,
+            format="JPEG",
+            quality=max(40, min(95, SCAN_IMAGE_JPEG_QUALITY)),
+            optimize=True,
+        )
+        optimized_bytes = output.getvalue()
+        if len(optimized_bytes) > MAX_CLAUDE_IMAGE_BYTES:
+            optimized_bytes, media_type = compress_image_for_claude(optimized_bytes)
+        else:
+            media_type = "image/jpeg"
+
+        final_width, final_height = _image_dimensions(optimized_bytes)
+        original_tokens = _estimate_vision_image_tokens(original_width, original_height)
+        optimized_tokens = _estimate_vision_image_tokens(final_width, final_height)
+        saved_tokens = (
+            max(0, original_tokens - optimized_tokens)
+            if original_tokens is not None and optimized_tokens is not None
+            else None
+        )
+        metadata = {
+            "page": page_index,
+            "original_bytes": len(image_bytes),
+            "optimized_bytes": len(optimized_bytes),
+            "original_size": [original_width, original_height] if original_width and original_height else None,
+            "pre_resize_size": list(before_resize),
+            "optimized_size": [final_width, final_height] if final_width and final_height else None,
+            "resized": resized,
+            "auto_cropped_receipt": bool(crop_info.get("auto_cropped_receipt")),
+            "crop_info": crop_info,
+            "estimated_original_image_tokens": original_tokens,
+            "estimated_optimized_image_tokens": optimized_tokens,
+            "estimated_image_tokens_saved": saved_tokens,
+            "byte_reduction_percent": round(max(0, 1 - (len(optimized_bytes) / max(1, len(image_bytes)))) * 100, 2),
+        }
+        return optimized_bytes, media_type, metadata
+    except Exception as error:
+        print(f"[scan] Image optimization skipped: {error}")
+        page_bytes, media_type = compress_image_for_claude(image_bytes)
+        width, height = _image_dimensions(page_bytes)
+        return page_bytes, media_type, {
+            "page": page_index,
+            "optimization_fallback": True,
+            "reason": "optimizer_error",
+            "error": str(error)[:200],
+            "optimized_bytes": len(page_bytes),
+            "optimized_size": [width, height] if width and height else None,
+        }
+
+
 def compress_image_for_claude(image_bytes: bytes) -> tuple[bytes, str]:
     """Keep raw image bytes below Claude's base64 image limit."""
     if len(image_bytes) <= MAX_CLAUDE_IMAGE_BYTES:
@@ -1106,17 +1206,20 @@ def scan_receipt_image(
         page_images = [image_bytes]
 
     image_blocks = []
+    scan_optimization_events: list[dict] = []
     for page_index, page_bytes in enumerate(page_images, 1):
         if extension != "pdf":
-            cropped_bytes, crop_info = auto_crop_receipt_region(page_bytes)
-            if crop_info.get("auto_cropped_receipt"):
+            page_bytes, page_media_type, optimization_info = optimize_scan_image_for_claude(page_bytes, page_index=page_index)
+            scan_optimization_events.append(optimization_info)
+            if optimization_info.get("auto_cropped_receipt"):
                 print(
                     "[scan] Auto-cropped receipt image "
-                    f"page={page_index} original={crop_info.get('original_size')} "
-                    f"cropped={crop_info.get('cropped_size')}"
+                    f"page={page_index} original={optimization_info.get('original_size')} "
+                    f"optimized={optimization_info.get('optimized_size')} "
+                    f"estimated_tokens_saved={optimization_info.get('estimated_image_tokens_saved')}"
                 )
-                page_bytes = cropped_bytes
-        page_bytes, page_media_type = compress_image_for_claude(page_bytes)
+        else:
+            page_bytes, page_media_type = compress_image_for_claude(page_bytes)
         image_data = base64.standard_b64encode(page_bytes).decode("utf-8")
         image_blocks.append({
             "type": "image",
@@ -1401,9 +1504,17 @@ Return JSON only — no extra text, no markdown:
         "operation": "vision_scan",
         "model": SCAN_MODEL,
         **usage,
-        "optimized": False,
-        "optimization": None,
-        "metadata": {"page_count": len(page_images), "max_output_tokens": MAX_SCAN_OUTPUT_TOKENS},
+        "optimized": bool(scan_optimization_events),
+        "optimization": "image_preprocess_v1" if scan_optimization_events else None,
+        "metadata": {
+            "page_count": len(page_images),
+            "max_output_tokens": MAX_SCAN_OUTPUT_TOKENS,
+            "image_optimization": scan_optimization_events,
+            "estimated_image_tokens_saved": sum(
+                int(event.get("estimated_image_tokens_saved") or 0)
+                for event in scan_optimization_events
+            ),
+        },
     }
 
     return data

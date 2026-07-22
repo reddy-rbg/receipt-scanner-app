@@ -261,6 +261,8 @@ PASSWORD_RESET_REDIRECT_URL=https://web-production-3605f4.up.railway.app/reset-p
 MAX_PDF_SCAN_PAGES=16
 MAX_SCAN_IMAGE_PAGES=8
 MAX_SCAN_OUTPUT_TOKENS=16000
+MAX_SCAN_IMAGE_LONG_EDGE=1800
+SCAN_IMAGE_JPEG_QUALITY=82
 AI_INPUT_COST_PER_MILLION_TOKENS=
 AI_OUTPUT_COST_PER_MILLION_TOKENS=
 LOG_LEVEL=INFO
@@ -277,6 +279,9 @@ Important:
 - `PASSWORD_RESET_REDIRECT_URL` must also be allowed in Supabase Auth settings.
 - `MAX_PDF_SCAN_PAGES`, `MAX_SCAN_IMAGE_PAGES`, and `MAX_SCAN_OUTPUT_TOKENS`
   control large scan limits and should be adjusted carefully.
+- `MAX_SCAN_IMAGE_LONG_EDGE` and `SCAN_IMAGE_JPEG_QUALITY` control the
+  photo/gallery scan optimizer. Receipt photos are cropped/enhanced, capped to
+  this long edge, and logged as `image_preprocess_v1` in token usage metadata.
 - `AI_INPUT_COST_PER_MILLION_TOKENS` and `AI_OUTPUT_COST_PER_MILLION_TOKENS`
   are optional; when set, the operations console estimates AI cost in USD.
 - `LOG_LEVEL` and `LOG_JSON` control backend log verbosity and whether Railway

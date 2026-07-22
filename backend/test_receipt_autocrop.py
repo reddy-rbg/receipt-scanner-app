@@ -16,7 +16,7 @@ supabase_module.Client = object
 supabase_module.create_client = lambda *args, **kwargs: None
 sys.modules["supabase"] = supabase_module
 
-from app.services.claude import auto_crop_receipt_region
+from app.services.claude import auto_crop_receipt_region, optimize_scan_image_for_claude
 
 
 def make_small_receipt_photo() -> bytes:
@@ -51,6 +51,21 @@ def test_auto_crop_receipt_region_enlarges_small_receipt():
     assert info["cropped_size"][1] < info["original_size"][1]
 
 
+def test_optimize_scan_image_reduces_estimated_vision_tokens():
+    image_bytes = make_small_receipt_photo()
+    optimized, media_type, info = optimize_scan_image_for_claude(image_bytes)
+
+    assert media_type == "image/jpeg"
+    assert optimized
+    assert info["auto_cropped_receipt"] is True
+    assert info["optimized_size"][0] <= 1800
+    assert info["optimized_size"][1] <= 1800
+    assert info["estimated_optimized_image_tokens"] < info["estimated_original_image_tokens"]
+    assert info["estimated_image_tokens_saved"] > 0
+    assert info["optimized_bytes"] == len(optimized)
+
+
 if __name__ == "__main__":
     test_auto_crop_receipt_region_enlarges_small_receipt()
+    test_optimize_scan_image_reduces_estimated_vision_tokens()
     print("Receipt auto-crop regression test passed.")
