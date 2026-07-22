@@ -147,6 +147,61 @@ def _infer_price_list_vendor(text: str, filename: str) -> str:
     return stem or "Vendor Price List"
 
 
+def _classify_receipt_summary_line(description: str) -> str | None:
+    """Return the receipt money field represented by a non-item summary line.
+
+    Digital PDFs often expose footer rows as plain text like `TAX 2.35` or
+    `TOTAL 157.03`. Without this guard those rows look like item names because
+    they also end in a price. Classifying them before item extraction keeps
+    receipt totals accurate and prevents fake memory items named TAX/TOTAL.
+    """
+    normalized = re.sub(r"[^A-Z0-9]+", " ", str(description or "").upper()).strip()
+    compact = normalized.replace(" ", "")
+    if not normalized:
+        return None
+    subtotal_labels = {
+        "SUBTOTAL",
+        "SUBTOTALAMOUNT",
+        "MERCHANDISETOTAL",
+        "ITEMTOTAL",
+        "ITEMSTOTAL",
+    }
+    total_labels = {
+        "TOTAL",
+        "GRANDTOTAL",
+        "TOTALDUE",
+        "AMOUNTDUE",
+        "BALANCEDUE",
+        "INVOICETOTAL",
+        "RECEIPTTOTAL",
+    }
+    tax_labels = {
+        "TAX",
+        "SALESTAX",
+        "TOTALTAX",
+    }
+    discount_prefixes = (
+        "DISCOUNT",
+        "COUPON",
+        "PROMO",
+        "PROMOTION",
+        "SAVINGS",
+        "TOTAL SAVINGS",
+        "REWARD",
+        "REBATE",
+        "MARKDOWN",
+    )
+    if compact in subtotal_labels:
+        return "subtotal"
+    if compact in total_labels:
+        return "total"
+    if compact in tax_labels or re.fullmatch(r"(SALES|STATE|LOCAL|CITY)?\s*TAX", normalized):
+        return "tax"
+    if normalized.startswith(discount_prefixes):
+        return "discount"
+    return None
+
+
 def _parser_safe_float(value, default=0.0) -> float:
     try:
         if value is None or value == "":
@@ -212,10 +267,18 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
         print(f"[pdf_price_list] pdfplumber unavailable; falling back to Claude scan: {error}")
         return None
 
-    price_line = re.compile(r"^\s*(?P<description>.+?)\s+(?P<price>\d+\.\d{2})\s*$")
+    price_line = re.compile(r"^\s*(?P<description>.+?)\s+(?P<price>-?\$?\d[\d,]*\.\d{2})\s*$")
     page_counts: list[int] = []
     items: list[dict] = []
     all_text: list[str] = []
+    receipt_totals = {
+        "subtotal": None,
+        "discount": 0.0,
+        "tax": 0.0,
+        "total": None,
+        "total_savings": 0.0,
+    }
+    summary_lines: list[dict] = []
 
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -230,9 +293,23 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
                     description = _clean_price_list_description(match.group("description"))
                     if not description or description.upper() in {"DESCRIPTION", "PRICE", "QTY"}:
                         continue
-                    try:
-                        price = float(match.group("price"))
-                    except Exception:
+                    price = _parser_safe_float(match.group("price"), None)
+                    if price is None:
+                        continue
+                    summary_field = _classify_receipt_summary_line(description)
+                    if summary_field:
+                        amount = abs(price) if summary_field == "discount" else price
+                        if summary_field == "discount":
+                            receipt_totals["discount"] = round((receipt_totals["discount"] or 0.0) + amount, 2)
+                            receipt_totals["total_savings"] = round((receipt_totals["total_savings"] or 0.0) + amount, 2)
+                        else:
+                            receipt_totals[summary_field] = amount
+                        summary_lines.append({
+                            "label": description,
+                            "field": summary_field,
+                            "amount": amount,
+                            "page": page_number,
+                        })
                         continue
                     if price <= 0:
                         continue
@@ -290,6 +367,7 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
         "page_item_counts": page_counts,
         "marker_count": marker_count,
         "rows_extracted": len(items),
+        "summary_lines": summary_lines,
         "fallback_policy": "fallback_to_claude_when_confidence_below_0_86_or_warnings_present",
     }
 
@@ -302,6 +380,11 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
     ]
     if effective_match:
         notes.append(f"Effective From: {start_date} - {end_date}")
+    if summary_lines:
+        notes.append(
+            "Captured receipt summary lines separately from item rows: "
+            + ", ".join(f"{line['label']} -> {line['field']}" for line in summary_lines[:8])
+        )
 
     parsed = {
         "store": store,
@@ -313,11 +396,11 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
         "receipt_number": None,
         "invoice_number": None,
         "order_number": None,
-        "subtotal": 0.0,
-        "discount": 0.0,
-        "tax": 0.0,
-        "total": None,
-        "total_savings": 0.0,
+        "subtotal": receipt_totals["subtotal"] or 0.0,
+        "discount": receipt_totals["discount"] or 0.0,
+        "tax": receipt_totals["tax"] or 0.0,
+        "total": receipt_totals["total"],
+        "total_savings": receipt_totals["total_savings"] or 0.0,
         "items": items,
         "handwritten_items": [],
         "returned_items": [],
