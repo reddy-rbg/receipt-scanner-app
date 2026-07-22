@@ -126,6 +126,7 @@ def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
     output_tokens = sum(int(row.get("output_tokens") or 0) for row in rows)
     total_tokens = sum(int(row.get("total_tokens") or 0) for row in rows) or input_tokens + output_tokens
     cached_tokens = sum(int(row.get("cached_input_tokens") or 0) for row in rows)
+    estimated_image_tokens_saved = sum(_estimated_image_tokens_saved(row) for row in rows)
     estimated_costs = [row.get("estimated_cost_usd") for row in rows if row.get("estimated_cost_usd") is not None]
     return {
         "events": len(rows),
@@ -133,8 +134,26 @@ def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
         "output_tokens": output_tokens,
         "cached_input_tokens": cached_tokens,
         "total_tokens": total_tokens,
+        "estimated_image_tokens_saved": estimated_image_tokens_saved,
         "estimated_cost_usd": round(sum(float(value or 0) for value in estimated_costs), 6) if estimated_costs else None,
     }
+
+
+def _estimated_image_tokens_saved(row: dict) -> int:
+    metadata = row.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            import json
+
+            metadata = json.loads(metadata)
+        except Exception:
+            metadata = {}
+    if not isinstance(metadata, dict):
+        return 0
+    try:
+        return int(metadata.get("estimated_image_tokens_saved") or 0)
+    except Exception:
+        return 0
 
 
 @router.get("/me")
@@ -565,7 +584,7 @@ def token_usage_summary(
         customer_id = rbac.primary_customer_id(context)
         rbac.require_permission(context, "analytics.read_customer", customer_id)
         if not context.customer_ids:
-            return {"available": True, "period": period, "summary": _sum_token_rows([]), "series": [], "by_operation": [], "by_model": [], "by_file_type": [], "recent": []}
+            return {"available": True, "period": period, "summary": _sum_token_rows([]), "series": [], "by_operation": [], "by_model": [], "by_file_type": [], "by_optimization": [], "recent": []}
 
     since = datetime.now(timezone.utc) - timedelta(days=TOKEN_PERIOD_DAYS[period])
     query = supabase.table("ai_token_usage").select("*").gte("created_at", since.isoformat()).order("created_at", desc=True).limit(limit)
@@ -585,6 +604,7 @@ def token_usage_summary(
             "by_operation": [],
             "by_model": [],
             "by_file_type": [],
+            "by_optimization": [],
             "recent": [],
         }
 
@@ -592,12 +612,15 @@ def token_usage_summary(
     by_operation: dict[str, list[dict]] = {}
     by_model: dict[str, list[dict]] = {}
     by_file_type: dict[str, list[dict]] = {}
+    by_optimization: dict[str, list[dict]] = {}
     for row in rows:
         created = _parse_utc(row.get("created_at")) or datetime.now(timezone.utc)
         buckets.setdefault(_token_bucket(created, period), []).append(row)
         by_operation.setdefault(str(row.get("operation") or "unknown"), []).append(row)
         by_model.setdefault(str(row.get("model") or "unknown"), []).append(row)
         by_file_type.setdefault(str(row.get("file_type") or "unknown"), []).append(row)
+        optimization = str(row.get("optimization") or ("optimized" if row.get("optimized") else "not_optimized"))
+        by_optimization.setdefault(optimization, []).append(row)
 
     def ranked(mapping: dict[str, list[dict]]) -> list[dict[str, Any]]:
         return sorted(
@@ -617,6 +640,7 @@ def token_usage_summary(
         "by_operation": ranked(by_operation),
         "by_model": ranked(by_model),
         "by_file_type": ranked(by_file_type),
+        "by_optimization": ranked(by_optimization),
         "recent": rows[:25],
     }
 
