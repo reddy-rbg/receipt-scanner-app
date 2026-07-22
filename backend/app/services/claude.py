@@ -442,6 +442,143 @@ def detect_image_media_type(image_bytes: bytes) -> str:
     return "image/jpeg"
 
 
+def auto_crop_receipt_region(image_bytes: bytes) -> tuple[bytes, dict]:
+    """Crop/enhance a photographed receipt when it is small inside the photo.
+
+    Mobile users often capture the full counter/table with the receipt far away.
+    The AI then receives a compressed image where receipt text is tiny. This
+    best-effort preprocessor finds the largest bright paper-like region, crops
+    with padding, lightly enhances contrast, and falls back to the original image
+    whenever confidence is low.
+    """
+    try:
+        from PIL import Image, ImageFilter, ImageOps
+        import io
+
+        original = ImageOps.exif_transpose(Image.open(io.BytesIO(image_bytes))).convert("RGB")
+        width, height = original.size
+        if width < 500 or height < 500:
+            return image_bytes, {"auto_cropped_receipt": False, "reason": "image_too_small"}
+
+        max_side = 720
+        scale = min(max_side / max(width, height), 1.0)
+        small = original.resize((max(1, int(width * scale)), max(1, int(height * scale)))) if scale < 1 else original.copy()
+        pixels = small.load()
+        sw, sh = small.size
+
+        def bright_paper_mask(threshold: int) -> bytearray:
+            mask = bytearray(sw * sh)
+            for y in range(sh):
+                row = y * sw
+                for x in range(sw):
+                    red, green, blue = pixels[x, y]
+                    brightness = (red + green + blue) / 3
+                    spread = max(red, green, blue) - min(red, green, blue)
+                    # White/off-white receipt paper under warm store lights.
+                    if brightness >= threshold and (spread <= 70 or brightness >= threshold + 32):
+                        mask[row + x] = 1
+            return mask
+
+        best_bbox = None
+        best_area = 0
+        for threshold in (205, 185, 165, 145):
+            mask = bright_paper_mask(threshold)
+            visited = bytearray(sw * sh)
+            for start, value in enumerate(mask):
+                if not value or visited[start]:
+                    continue
+                stack = [start]
+                visited[start] = 1
+                min_x = max_x = start % sw
+                min_y = max_y = start // sw
+                area = 0
+                while stack:
+                    index = stack.pop()
+                    area += 1
+                    x = index % sw
+                    y = index // sw
+                    if x < min_x:
+                        min_x = x
+                    elif x > max_x:
+                        max_x = x
+                    if y < min_y:
+                        min_y = y
+                    elif y > max_y:
+                        max_y = y
+                    for neighbor in (index - 1, index + 1, index - sw, index + sw):
+                        if neighbor < 0 or neighbor >= len(mask) or visited[neighbor] or not mask[neighbor]:
+                            continue
+                        nx = neighbor % sw
+                        if abs(nx - x) > 1:
+                            continue
+                        visited[neighbor] = 1
+                        stack.append(neighbor)
+                if area > best_area:
+                    best_area = area
+                    best_bbox = (min_x, min_y, max_x + 1, max_y + 1, threshold)
+            if best_bbox and best_area / max(1, sw * sh) >= 0.018:
+                break
+
+        if not best_bbox:
+            return image_bytes, {"auto_cropped_receipt": False, "reason": "no_bright_region"}
+
+        min_x, min_y, max_x, max_y, threshold = best_bbox
+        bbox_w = max_x - min_x
+        bbox_h = max_y - min_y
+        bbox_area_ratio = (bbox_w * bbox_h) / max(1, sw * sh)
+        component_area_ratio = best_area / max(1, sw * sh)
+        if bbox_area_ratio > 0.88 or component_area_ratio < 0.012 or bbox_w < 70 or bbox_h < 90:
+            return image_bytes, {
+                "auto_cropped_receipt": False,
+                "reason": "low_confidence_region",
+                "component_area_ratio": round(component_area_ratio, 4),
+                "bbox_area_ratio": round(bbox_area_ratio, 4),
+            }
+
+        inv_scale = 1 / scale
+        pad_x = max(24, int((bbox_w * inv_scale) * 0.10))
+        pad_y = max(30, int((bbox_h * inv_scale) * 0.10))
+        left = max(0, int(min_x * inv_scale) - pad_x)
+        top = max(0, int(min_y * inv_scale) - pad_y)
+        right = min(width, int(max_x * inv_scale) + pad_x)
+        bottom = min(height, int(max_y * inv_scale) + pad_y)
+
+        crop_width = right - left
+        crop_height = bottom - top
+        crop_ratio = (crop_width * crop_height) / max(1, width * height)
+        if crop_ratio > 0.92:
+            return image_bytes, {
+                "auto_cropped_receipt": False,
+                "reason": "crop_not_helpful",
+                "crop_ratio": round(crop_ratio, 4),
+            }
+
+        cropped = original.crop((left, top, right, bottom))
+        upscaled_size = None
+        min_readable_width = 900
+        if cropped.width < min_readable_width:
+            upscale = min(3.2, min_readable_width / max(1, cropped.width))
+            upscaled_size = (int(cropped.width * upscale), int(cropped.height * upscale))
+            cropped = cropped.resize(upscaled_size, Image.Resampling.LANCZOS)
+        cropped = ImageOps.autocontrast(cropped, cutoff=1)
+        cropped = cropped.filter(ImageFilter.SHARPEN)
+        output = io.BytesIO()
+        cropped.save(output, format="JPEG", quality=88, optimize=True)
+        return output.getvalue(), {
+            "auto_cropped_receipt": True,
+            "original_size": [width, height],
+            "cropped_size": [crop_width, crop_height],
+            "crop_box": [left, top, right, bottom],
+            "upscaled_size": list(upscaled_size) if upscaled_size else None,
+            "threshold": threshold,
+            "component_area_ratio": round(component_area_ratio, 4),
+            "crop_ratio": round(crop_ratio, 4),
+        }
+    except Exception as error:
+        print(f"[scan] Receipt auto-crop skipped: {error}")
+        return image_bytes, {"auto_cropped_receipt": False, "reason": "preprocess_error"}
+
+
 def compress_image_for_claude(image_bytes: bytes) -> tuple[bytes, str]:
     """Keep raw image bytes below Claude's base64 image limit."""
     if len(image_bytes) <= MAX_CLAUDE_IMAGE_BYTES:
@@ -970,6 +1107,15 @@ def scan_receipt_image(
 
     image_blocks = []
     for page_index, page_bytes in enumerate(page_images, 1):
+        if extension != "pdf":
+            cropped_bytes, crop_info = auto_crop_receipt_region(page_bytes)
+            if crop_info.get("auto_cropped_receipt"):
+                print(
+                    "[scan] Auto-cropped receipt image "
+                    f"page={page_index} original={crop_info.get('original_size')} "
+                    f"cropped={crop_info.get('cropped_size')}"
+                )
+                page_bytes = cropped_bytes
         page_bytes, page_media_type = compress_image_for_claude(page_bytes)
         image_data = base64.standard_b64encode(page_bytes).decode("utf-8")
         image_blocks.append({
