@@ -598,7 +598,7 @@ def token_usage_summary(
         return {
             "available": False,
             "period": period,
-            "message": "Token logging table is not configured yet. Run backend/supabase_token_usage.sql in Supabase SQL editor.",
+            "message": "Token usage tracking is not configured yet.",
             "summary": _sum_token_rows([]),
             "series": [],
             "by_operation": [],
@@ -697,7 +697,7 @@ def error_events(
         print(f"[error_events] Summary unavailable: {error}")
         return {
             "available": False,
-            "message": "Error event table is not configured yet. Run backend/supabase_error_events.sql in Supabase SQL editor.",
+            "message": "Issue tracking is not configured yet.",
             "summary": _issue_summary([]),
             "events": [],
         }
