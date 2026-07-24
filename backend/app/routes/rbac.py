@@ -8,14 +8,13 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.config import supabase
-from app.services import database, rbac
+from app.services import database, rbac, token_usage as token_usage_service
 from app.services.app_logger import get_logger
 
 
 router = APIRouter(prefix="/rbac", tags=["access-control"])
 logger = get_logger(__name__)
 CUSTOMER_REQUIRED_ROLES = {"customer_owner", "customer_user", "auditor", "service_account"}
-TOKEN_PERIOD_DAYS = {"day": 1, "week": 7, "month": 31, "year": 366}
 
 
 class CustomerCreate(BaseModel):
@@ -113,14 +112,81 @@ def _parse_utc(value: Any) -> datetime | None:
         return None
 
 
-def _token_bucket(created_at: datetime, period: str) -> str:
-    if period == "day":
-        return created_at.strftime("%H:00")
-    if period == "week":
-        return created_at.strftime("%a")
-    if period == "year":
-        return created_at.strftime("%b")
-    return created_at.strftime("%b %d")
+def _parse_report_date(value: str, field_name: str) -> datetime:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field_name} must use YYYY-MM-DD")
+
+
+def _resolve_reporting_range(
+    period: str,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Resolve calendar presets or an inclusive custom UTC date range."""
+    current = now or datetime.now(timezone.utc)
+    current = current if current.tzinfo else current.replace(tzinfo=timezone.utc)
+    if bool(from_date) != bool(to_date):
+        raise HTTPException(status_code=400, detail="from_date and to_date must be provided together")
+
+    if from_date and to_date:
+        start = _parse_report_date(from_date, "from_date")
+        inclusive_end = _parse_report_date(to_date, "to_date")
+        if inclusive_end < start:
+            raise HTTPException(status_code=400, detail="to_date must be on or after from_date")
+        if (inclusive_end - start).days > 3660:
+            raise HTTPException(status_code=400, detail="Date range cannot exceed 10 years")
+        end = inclusive_end + timedelta(days=1)
+        days = (inclusive_end - start).days + 1
+        label = "custom"
+    else:
+        midnight = current.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = current
+        if period == "day":
+            start = midnight
+        elif period == "week":
+            start = midnight - timedelta(days=midnight.weekday())
+        elif period == "year":
+            start = midnight.replace(month=1, day=1)
+        else:
+            start = midnight.replace(day=1)
+        days = max(1, (end.date() - start.date()).days + 1)
+        label = period
+
+    if label == "day" or days <= 2:
+        granularity = "hour"
+    elif label == "year" or days > 62:
+        granularity = "month" if days <= 730 else "year"
+    else:
+        granularity = "day"
+
+    return {
+        "start": start,
+        "end": end,
+        "from_date": start.date().isoformat(),
+        "to_date": (end - timedelta(microseconds=1)).date().isoformat(),
+        "label": label,
+        "granularity": granularity,
+        "days": days,
+    }
+
+
+def _token_bucket(
+    created_at: datetime,
+    granularity: str,
+    include_year: bool = False,
+    include_date: bool = False,
+) -> str:
+    if granularity == "hour":
+        return created_at.strftime("%b %d %H:00" if include_date else "%H:00")
+    if granularity == "year":
+        return created_at.strftime("%Y")
+    if granularity == "month":
+        return created_at.strftime("%b %Y")
+    return created_at.strftime("%b %d, %Y" if include_year else "%b %d")
 
 
 def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
@@ -130,6 +196,19 @@ def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
     cached_tokens = sum(int(row.get("cached_input_tokens") or 0) for row in rows)
     estimated_image_tokens_saved = sum(_estimated_image_tokens_saved(row) for row in rows)
     estimated_costs = [row.get("estimated_cost_usd") for row in rows if row.get("estimated_cost_usd") is not None]
+    configured_rates = (
+        token_usage_service.MODEL_INPUT_COST_PER_MILLION > 0
+        or token_usage_service.MODEL_OUTPUT_COST_PER_MILLION > 0
+    )
+    if configured_rates:
+        estimated_cost = token_usage_service.estimate_cost(input_tokens, output_tokens)
+        cost_status = "configured"
+    elif estimated_costs:
+        estimated_cost = round(sum(float(value or 0) for value in estimated_costs), 6)
+        cost_status = "historical"
+    else:
+        estimated_cost = None
+        cost_status = "not_configured"
     return {
         "events": len(rows),
         "input_tokens": input_tokens,
@@ -137,7 +216,11 @@ def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
         "cached_input_tokens": cached_tokens,
         "total_tokens": total_tokens,
         "estimated_image_tokens_saved": estimated_image_tokens_saved,
-        "estimated_cost_usd": round(sum(float(value or 0) for value in estimated_costs), 6) if estimated_costs else None,
+        "estimated_cost_usd": estimated_cost,
+        "cost_status": cost_status,
+        "cost_coverage_events": len(rows) if configured_rates else len(estimated_costs),
+        "input_rate_per_million": token_usage_service.MODEL_INPUT_COST_PER_MILLION if configured_rates else None,
+        "output_rate_per_million": token_usage_service.MODEL_OUTPUT_COST_PER_MILLION if configured_rates else None,
     }
 
 
@@ -571,6 +654,11 @@ def operations_overview(request: Request):
 def token_usage_summary(
     request: Request,
     period: str = Query(default="month", pattern="^(day|week|month|year)$"),
+    from_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    to_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    operation: str | None = Query(default=None, min_length=1, max_length=120),
+    model: str | None = Query(default=None, min_length=1, max_length=160),
+    file_type: str | None = Query(default=None, min_length=1, max_length=80),
     limit: int = Query(default=5000, ge=1, le=10000),
 ):
     """Operations dashboard AI usage summary.
@@ -579,6 +667,12 @@ def token_usage_summary(
     operator has global data access. Missing table is reported cleanly so the
     scanner continues working before the migration is installed.
     """
+    reporting_range = _resolve_reporting_range(period, from_date, to_date)
+    selected_filters = {
+        "operation": operation,
+        "model": model,
+        "file_type": file_type,
+    }
     context = rbac.get_access_context(request)
     if context.is_global:
         rbac.require_permission(context, "analytics.read_global")
@@ -586,12 +680,37 @@ def token_usage_summary(
         customer_id = rbac.primary_customer_id(context)
         rbac.require_permission(context, "analytics.read_customer", customer_id)
         if not context.customer_ids:
-            return {"available": True, "period": period, "summary": _sum_token_rows([]), "series": [], "by_operation": [], "by_model": [], "by_file_type": [], "by_optimization": [], "recent": []}
+            return {
+                "available": True,
+                "period": reporting_range["label"],
+                "range": {key: reporting_range[key] for key in ("from_date", "to_date", "granularity", "days")},
+                "filters": selected_filters,
+                "result_limit": limit,
+                "truncated": False,
+                "summary": _sum_token_rows([]),
+                "series": [],
+                "by_operation": [],
+                "by_model": [],
+                "by_file_type": [],
+                "by_optimization": [],
+                "recent": [],
+            }
 
-    since = datetime.now(timezone.utc) - timedelta(days=TOKEN_PERIOD_DAYS[period])
-    query = supabase.table("ai_token_usage").select("*").gte("created_at", since.isoformat()).order("created_at", desc=True).limit(limit)
+    query = (
+        supabase.table("ai_token_usage")
+        .select("*")
+        .gte("created_at", reporting_range["start"].isoformat())
+        .lt("created_at", reporting_range["end"].isoformat())
+    )
     if not context.is_global:
         query = query.in_("customer_id", sorted(context.customer_ids))
+    if operation:
+        query = query.eq("operation", operation)
+    if model:
+        query = query.eq("model", model)
+    if file_type:
+        query = query.eq("file_type", file_type)
+    query = query.order("created_at", desc=True).limit(limit)
 
     try:
         rows = query.execute().data or []
@@ -599,7 +718,11 @@ def token_usage_summary(
         logger.exception("Token usage summary unavailable")
         return {
             "available": False,
-            "period": period,
+            "period": reporting_range["label"],
+            "range": {key: reporting_range[key] for key in ("from_date", "to_date", "granularity", "days")},
+            "filters": selected_filters,
+            "result_limit": limit,
+            "truncated": False,
             "message": "Token usage tracking is not configured yet.",
             "summary": _sum_token_rows([]),
             "series": [],
@@ -615,9 +738,14 @@ def token_usage_summary(
     by_model: dict[str, list[dict]] = {}
     by_file_type: dict[str, list[dict]] = {}
     by_optimization: dict[str, list[dict]] = {}
+    include_year = reporting_range["from_date"][:4] != reporting_range["to_date"][:4]
+    include_date = reporting_range["days"] > 1
     for row in rows:
         created = _parse_utc(row.get("created_at")) or datetime.now(timezone.utc)
-        buckets.setdefault(_token_bucket(created, period), []).append(row)
+        buckets.setdefault(
+            _token_bucket(created, reporting_range["granularity"], include_year, include_date),
+            [],
+        ).append(row)
         by_operation.setdefault(str(row.get("operation") or "unknown"), []).append(row)
         by_model.setdefault(str(row.get("model") or "unknown"), []).append(row)
         by_file_type.setdefault(str(row.get("file_type") or "unknown"), []).append(row)
@@ -635,8 +763,11 @@ def token_usage_summary(
     optimized_events = [row for row in rows if row.get("optimized")]
     return {
         "available": True,
-        "period": period,
-        "since": since.isoformat(),
+        "period": reporting_range["label"],
+        "range": {key: reporting_range[key] for key in ("from_date", "to_date", "granularity", "days")},
+        "filters": selected_filters,
+        "result_limit": limit,
+        "truncated": len(rows) >= limit,
         "summary": {**summary, "optimized_events": len(optimized_events)},
         "series": [{"label": key, **_sum_token_rows(values)} for key, values in reversed(list(buckets.items()))],
         "by_operation": ranked(by_operation),
@@ -670,12 +801,25 @@ def _issue_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
 def error_events(
     request: Request,
     limit: int = Query(default=200, ge=1, le=500),
+    period: str = Query(default="month", pattern="^(day|week|month|year)$"),
+    from_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    to_date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     severity: str | None = Query(default=None),
+    source: str | None = Query(default=None, pattern=r"^[A-Za-z0-9_.:-]{1,120}$"),
+    error_type: str | None = Query(default=None, pattern=r"^[A-Za-z0-9_.:-]{1,160}$"),
+    request_id: str | None = Query(default=None, pattern=r"^[A-Za-z0-9_-]{1,120}$"),
 ):
     """Return recent backend issues for the operations dashboard."""
     normalized_severity = severity.lower() if severity else None
     if normalized_severity and normalized_severity not in {"error", "warning", "info"}:
         raise HTTPException(status_code=400, detail="severity must be one of: error, warning, info")
+    reporting_range = _resolve_reporting_range(period, from_date, to_date)
+    selected_filters = {
+        "severity": normalized_severity,
+        "source": source,
+        "error_type": error_type,
+        "request_id": request_id,
+    }
     context = rbac.get_access_context(request)
     if context.is_global:
         rbac.require_permission(context, "audit.read")
@@ -684,14 +828,32 @@ def error_events(
         customer_id = rbac.primary_customer_id(context)
         rbac.require_permission(context, "audit.read", customer_id)
         if not context.customer_ids:
-            return {"available": True, "summary": _issue_summary([]), "events": []}
+            return {
+                "available": True,
+                "range": {key: reporting_range[key] for key in ("from_date", "to_date", "days")},
+                "filters": selected_filters,
+                "summary": _issue_summary([]),
+                "events": [],
+            }
         query = supabase.table("app_error_events").select("*").in_("customer_id", sorted(context.customer_ids))
+    query = (
+        query.gte("created_at", reporting_range["start"].isoformat())
+        .lt("created_at", reporting_range["end"].isoformat())
+    )
     if normalized_severity:
         query = query.eq("severity", normalized_severity)
+    if source:
+        query = query.eq("source", source)
+    if error_type:
+        query = query.eq("error_type", error_type)
+    if request_id:
+        query = query.eq("request_id", request_id)
     try:
         events = query.order("created_at", desc=True).limit(limit).execute().data or []
         return {
             "available": True,
+            "range": {key: reporting_range[key] for key in ("from_date", "to_date", "days")},
+            "filters": selected_filters,
             "summary": _issue_summary(events),
             "events": events,
         }
@@ -700,6 +862,8 @@ def error_events(
         return {
             "available": False,
             "message": "Issue tracking is not configured yet.",
+            "range": {key: reporting_range[key] for key in ("from_date", "to_date", "days")},
+            "filters": selected_filters,
             "summary": _issue_summary([]),
             "events": [],
         }

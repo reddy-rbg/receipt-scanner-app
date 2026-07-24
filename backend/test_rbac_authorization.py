@@ -17,6 +17,8 @@ supabase_module.create_client = lambda *args, **kwargs: None
 sys.modules.setdefault("supabase", supabase_module)
 
 from app.services.rbac import AccessContext, RoleAssignment, can_access_receipt, require_permission
+from app.routes.rbac import _resolve_reporting_range, _token_bucket
+from fastapi import HTTPException
 
 
 RECEIPT_A = {"id": 10, "user_id": "alice", "customer_id": "customer-a"}
@@ -120,3 +122,41 @@ def test_customer_scoped_auditor_has_read_only_audit_permission():
     auditor = context("audit", "auditor", "customer-a")
     require_permission(auditor, "audit.read", "customer-a")
     assert not can_access_receipt(auditor, RECEIPT_A, "receipts.update")
+
+
+def test_reporting_presets_use_calendar_boundaries():
+    now = datetime(2026, 7, 23, 15, 30, tzinfo=timezone.utc)
+    assert _resolve_reporting_range("day", now=now)["from_date"] == "2026-07-23"
+    assert _resolve_reporting_range("week", now=now)["from_date"] == "2026-07-20"
+    assert _resolve_reporting_range("month", now=now)["from_date"] == "2026-07-01"
+    year = _resolve_reporting_range("year", now=now)
+    assert year["from_date"] == "2026-01-01"
+    assert year["granularity"] == "month"
+
+
+def test_reporting_custom_range_is_inclusive_and_can_cross_years():
+    report = _resolve_reporting_range(
+        "month",
+        "2024-11-15",
+        "2026-02-10",
+        now=datetime(2026, 7, 23, tzinfo=timezone.utc),
+    )
+    assert report["label"] == "custom"
+    assert report["from_date"] == "2024-11-15"
+    assert report["to_date"] == "2026-02-10"
+    assert report["granularity"] == "month"
+
+
+def test_hourly_reporting_labels_include_the_date_for_multi_day_ranges():
+    created = datetime(2026, 1, 1, 9, 15, tzinfo=timezone.utc)
+    assert _token_bucket(created, "hour") == "09:00"
+    assert _token_bucket(created, "hour", include_date=True) == "Jan 01 09:00"
+
+
+def test_reporting_range_rejects_incomplete_or_reversed_dates():
+    for start, end in (("2026-01-01", None), ("2026-02-01", "2026-01-01")):
+        try:
+            _resolve_reporting_range("month", start, end)
+            raise AssertionError("accepted an invalid reporting range")
+        except HTTPException as error:
+            assert error.status_code == 400

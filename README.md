@@ -52,7 +52,8 @@ No receipt evidence -> no purchase claim.
 | General advice | Food, shopping, and savings advice is supported without pretending it came from receipts |
 | Secure operations | Backend-enforced roles, customer scopes, receipt assignments, support grants, and audit logs |
 | Operations console | Separate role-aware web dashboard for administrators, support staff, auditors, receipt editors, and token monitoring |
-| Token usage dashboard | Day/week/month/year AI token utilization by model, operation, file type, and recent scan events |
+| Token usage dashboard | Calendar presets and custom date ranges for AI usage by model, operation, file type, and recent events |
+| Issues dashboard | Filter backend errors and warnings by date, severity, source, error type, request ID, or text |
 | Account recovery | Hosted password-reset flow that returns users safely to the deployed application |
 | Mobile first | Built for Expo Go, local LAN testing, and future app-store builds |
 
@@ -193,8 +194,10 @@ Authorized users can:
 - Assign one receipt, selected receipts, a date range, month, year, or all
   authorized receipts to a Receipt Editor.
 - Create and revoke time-limited support access.
-- Monitor AI token usage by day, week, month, year, model, operation, file type,
-  and recent scan events.
+- Monitor AI token usage with calendar presets or a custom cross-year range,
+  filtered by model, operation, file type, and recent scan events.
+- Investigate backend issues by date, severity, source, error type, exact
+  request ID, or text within the loaded results.
 - Review security-sensitive activity in the audit log.
 
 See [`docs/RBAC.md`](docs/RBAC.md) for the complete role matrix, deployment
@@ -283,7 +286,9 @@ Important:
   photo/gallery scan optimizer. Receipt photos are cropped/enhanced, capped to
   this long edge, and logged as `image_preprocess_v1` in token usage metadata.
 - `AI_INPUT_COST_PER_MILLION_TOKENS` and `AI_OUTPUT_COST_PER_MILLION_TOKENS`
-  are optional; when set, the operations console estimates AI cost in USD.
+  are optional blended rates. When set, the operations console estimates AI
+  cost in USD; the estimate is reporting only and does not block or schedule AI
+  work.
 - `LOG_LEVEL` and `LOG_JSON` control backend log verbosity and whether Railway
   logs are human-readable or JSON formatted.
 - `SLOW_REQUEST_MS` controls when a backend request becomes a warning in the
@@ -334,8 +339,8 @@ These create:
 | `POST` | `/rbac/users` | Create an operator account and initial role |
 | `POST` | `/rbac/receipt-assignments/bulk` | Assign filtered receipt work to a Receipt Editor |
 | `GET` | `/rbac/audit` | Read authorized security audit events |
-| `GET` | `/rbac/token-usage` | Read authorized AI token utilization dashboard data |
-| `GET` | `/rbac/error-events` | Read authorized backend Issues dashboard data |
+| `GET` | `/rbac/token-usage` | Read authorized AI usage by preset/custom date range and optional operation, model, or file-type filters |
+| `GET` | `/rbac/error-events` | Read authorized issues by preset/custom date range and optional severity, source, type, or request-ID filters |
 
 ## Deployment
 
@@ -372,7 +377,11 @@ account and verify:
 - receipt scanning still saves normal receipts;
 - digital table PDFs show optimized parser usage in Token usage;
 - low-confidence PDFs fall back to Claude instead of silently saving weak data;
-- `/rbac/token-usage?period=month` returns dashboard data after the SQL migration.
+- Token usage accepts a cross-year custom date range and optional operation,
+  model, and file-type filters;
+- Issues accepts date, severity, source, error-type, and request-ID filters;
+- the estimated-cost card clearly shows `Not configured` when optional blended
+  rates are absent.
 
 ### Expo App
 

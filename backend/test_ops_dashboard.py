@@ -72,3 +72,17 @@ def test_bulk_assignment_supports_multiple_and_calendar_scopes():
     assert 'range(0, len(payloads), 250)' in RBAC_ROUTES
     for label in ("Selected receipts", "Date range", "One month", "One year", "All accessible receipts"):
         assert label in APP
+
+
+def test_token_and_issue_dashboards_have_calendar_and_diagnostic_filters():
+    for field in ("from_date", "to_date", "operation", "model", "file_type"):
+        assert field in RBAC_ROUTES
+        assert field in APP
+    for field in ("severity", "source", "error_type", "request_id"):
+        assert field in RBAC_ROUTES
+        assert field in APP
+    for label in ("Today", "This week", "This month", "This year", "Apply filters", "Reset"):
+        assert label in APP
+    assert "AI_INPUT_COST_PER_MILLION_TOKENS" in APP
+    assert "does not block or schedule AI work" in APP
+    assert "Result limit reached" in APP

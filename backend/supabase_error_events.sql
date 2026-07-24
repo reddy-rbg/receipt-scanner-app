@@ -25,6 +25,16 @@ create index if not exists app_error_events_source_created_idx
 create index if not exists app_error_events_customer_created_idx
   on public.app_error_events(customer_id, created_at desc);
 
+create index if not exists app_error_events_severity_created_idx
+  on public.app_error_events(severity, created_at desc);
+
+create index if not exists app_error_events_error_type_created_idx
+  on public.app_error_events(error_type, created_at desc);
+
+create index if not exists app_error_events_request_id_idx
+  on public.app_error_events(request_id)
+  where request_id is not null;
+
 alter table public.app_error_events enable row level security;
 
 revoke all on table public.app_error_events from anon;

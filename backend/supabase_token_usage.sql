@@ -36,6 +36,15 @@ create index if not exists ai_token_usage_user_created_idx
 create index if not exists ai_token_usage_receipt_idx
   on public.ai_token_usage(receipt_id);
 
+create index if not exists ai_token_usage_operation_created_idx
+  on public.ai_token_usage(operation, created_at desc);
+
+create index if not exists ai_token_usage_model_created_idx
+  on public.ai_token_usage(model, created_at desc);
+
+create index if not exists ai_token_usage_file_type_created_idx
+  on public.ai_token_usage(file_type, created_at desc);
+
 alter table public.ai_token_usage enable row level security;
 
 revoke all on table public.ai_token_usage from anon;

@@ -49,7 +49,7 @@ async function start(){
 }
 function renderNav(){
   $('nav').innerHTML=pages.filter(p=>p[3]()).map(([key,label,icon])=>`<button class="nav-button ${state.page===key?'active':''}" data-page="${key}"><span class="nav-icon">${icon}</span>${label}</button>`).join('');
-  $('nav').querySelectorAll('button').forEach(button=>button.onclick=()=>navigate(button.dataset.page));
+  $('nav').querySelectorAll('button').forEach(button=>button.onclick=()=>{document.querySelector('.sidebar').classList.remove('open');navigate(button.dataset.page)});
   const primary=state.profile.roles?.[0]?.role_key?.replaceAll('_',' ')||'operator';
   $('operatorCard').innerHTML=`<strong>${esc(state.profile.email||'Operator')}</strong><span>${esc(primary)}</span>`;
 }
@@ -98,33 +98,106 @@ function tokenBarRows(rows,label='key'){
 function recentTokenTable(rows){
   if(!rows?.length)return empty('No recent token events.');
   const saved=row=>Number(row.metadata?.estimated_image_tokens_saved||0);
-  return `<div class="table-wrap"><table><thead><tr><th>Time</th><th>Operation</th><th>Model</th><th>File</th><th>Tokens</th><th>Optimizer</th><th>Est. image saved</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${dateTime(row.created_at)}</td><td><span class="pill purple">${esc(row.operation||'unknown')}</span></td><td>${esc(row.model||'unknown')}</td><td>${esc(row.filename||row.file_type||'--')}</td><td>${number(row.total_tokens)}</td><td>${row.optimized?`<span class="pill green">${esc(row.optimization||'yes')}</span>`:'--'}</td><td>${saved(row)?`${number(saved(row))} est.`:'--'}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>Time</th><th>Operation</th><th>Model</th><th>File</th><th>Tokens</th><th>Est. cost</th><th>Optimizer</th><th>Est. image saved</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${dateTime(row.created_at)}</td><td><span class="pill purple">${esc(row.operation||'unknown')}</span></td><td>${esc(row.model||'unknown')}</td><td>${esc(row.filename||row.file_type||'--')}</td><td>${number(row.total_tokens)}</td><td>${row.estimated_cost_usd==null?'--':money(row.estimated_cost_usd)}</td><td>${row.optimized?`<span class="pill green">${esc(row.optimization||'yes')}</span>`:'--'}</td><td>${saved(row)?`${number(saved(row))} est.`:'--'}</td></tr>`).join('')}</tbody></table></div>`;
 }
-async function renderTokens(period='month'){
-  const data=await api(`/rbac/token-usage?period=${encodeURIComponent(period)}`);
+function selectOptions(rows,current,allLabel){
+  const values=[...new Set((rows||[]).map(row=>String(row.key||'')).filter(Boolean))];
+  if(current&&!values.includes(current))values.unshift(current);
+  return `<option value="">${esc(allLabel)}</option>${values.map(value=>`<option value="${esc(value)}" ${value===current?'selected':''}>${esc(value)}</option>`).join('')}`;
+}
+function rangeText(range){
+  return range?.from_date&&range?.to_date?`${range.from_date} to ${range.to_date} UTC`:'Selected period';
+}
+function presetButtons(kind,active){
+  const labels={day:'Today',week:'This week',month:'This month',year:'This year'};
+  return Object.entries(labels).map(([key,label])=>`<button type="button" class="${active===key?'primary':'secondary'}" onclick="apply${kind}Preset('${key}')">${label}</button>`).join('');
+}
+window.applyTokenPreset=period=>{state.tokenFilters={period};renderTokens()};
+window.clearTokenFilters=()=>{state.tokenFilters={period:'month'};renderTokens()};
+async function renderTokens(){
+  const filters=state.tokenFilters||{period:'month'};
+  const params=new URLSearchParams({period:filters.period||'month'});
+  if(filters.from_date&&filters.to_date){params.set('from_date',filters.from_date);params.set('to_date',filters.to_date)}
+  for(const key of ['operation','model','file_type'])if(filters[key])params.set(key,filters[key]);
+  const data=await api(`/rbac/token-usage?${params}`);
   const summary=data.summary||{};
-  const periodButtons=['day','week','month','year'].map(key=>`<button class="${key===data.period?'primary':'secondary'}" onclick="renderTokens('${key}')">${key[0].toUpperCase()+key.slice(1)}</button>`).join('');
-  const cost=summary.estimated_cost_usd==null?'Set env rates':money(summary.estimated_cost_usd);
-  $('content').innerHTML=pageHead('Token utilization','Monitor AI token usage by day, week, month, year, file type and operation.',`<div class="actions">${periodButtons}</div>`)+
+  const range=data.range||{};
+  const activePreset=filters.from_date?'':(filters.period||'month');
+  const cost=summary.estimated_cost_usd==null?'Not configured':money(summary.estimated_cost_usd);
+  const costDetail=summary.cost_status==='configured'
+    ?`Current estimate at $${Number(summary.input_rate_per_million||0).toFixed(2)} input / $${Number(summary.output_rate_per_million||0).toFixed(2)} output per 1M tokens`
+    :summary.cost_status==='historical'
+      ?`Stored estimates available for ${number(summary.cost_coverage_events)} events`
+      :'Optional estimate; no pricing rates are configured';
+  $('content').innerHTML=pageHead('Token utilization','Read-only reporting for AI scans and agent calls. It does not run jobs or enforce a spending limit.')+
+  `<section class="filter-panel">
+    <div class="filter-heading"><div><strong>Usage period</strong><span>Choose a preset or any calendar range, including previous years.</span></div><div class="preset-row">${presetButtons('Token',activePreset)}</div></div>
+    <form id="tokenFilterForm" class="filter-grid">
+      <label>From (UTC)<input name="from_date" type="date" value="${esc(range.from_date||'')}" required /></label>
+      <label>To (UTC)<input name="to_date" type="date" value="${esc(range.to_date||'')}" required /></label>
+      <label>Operation<select name="operation">${selectOptions(data.by_operation,filters.operation,'All operations')}</select></label>
+      <label>Model<select name="model">${selectOptions(data.by_model,filters.model,'All models')}</select></label>
+      <label>File type<select name="file_type">${selectOptions(data.by_file_type,filters.file_type,'All file types')}</select></label>
+      <div class="filter-actions"><button class="primary">Apply filters</button><button type="button" class="ghost" onclick="clearTokenFilters()">Reset</button></div>
+    </form>
+    <div class="filter-context">Showing ${esc(rangeText(range))}${filters.operation?` · ${esc(filters.operation)}`:''}${filters.model?` · ${esc(filters.model)}`:''}${filters.file_type?` · ${esc(filters.file_type)}`:''}${data.truncated?` · Result limit reached (${number(data.result_limit)}); narrow the range for complete totals`:''}</div>
+  </section>`+
   (!data.available?`<section class="panel setup-panel"><div class="panel-body"><h4>Setup needed</h4><p class="muted">${esc(data.message)}</p></div></section>`:'')+
-  `<div class="stats"><div class="stat"><span>Total tokens</span><strong>${number(summary.total_tokens)}</strong><em>${number(summary.events)} events</em></div><div class="stat"><span>Input tokens</span><strong>${number(summary.input_tokens)}</strong><em>prompt + files</em></div><div class="stat"><span>Output tokens</span><strong>${number(summary.output_tokens)}</strong><em>model response</em></div><div class="stat"><span>Image tokens saved</span><strong>${number(summary.estimated_image_tokens_saved)}</strong><em>${number(summary.optimized_events)} optimized</em></div><div class="stat"><span>Estimated cost</span><strong>${esc(cost)}</strong><em>uses configured rates</em></div></div>`+
-  `<div class="grid-2"><section class="panel"><div class="panel-head"><h4>Usage trend</h4><span class="pill">${esc(data.period)}</span></div><div class="panel-body">${tokenBarRows(data.series,'label')}</div></section><section class="panel"><div class="panel-head"><h4>By operation</h4></div><div class="panel-body">${tokenBarRows(data.by_operation)}</div></section></div>`+
+  `<div class="stats token-stats"><div class="stat"><span>Total tokens</span><strong>${number(summary.total_tokens)}</strong><em>${number(summary.events)} events</em></div><div class="stat"><span>Input tokens</span><strong>${number(summary.input_tokens)}</strong><em>prompt + uploaded files</em></div><div class="stat"><span>Output tokens</span><strong>${number(summary.output_tokens)}</strong><em>model responses</em></div><div class="stat"><span>Image tokens saved</span><strong>${number(summary.estimated_image_tokens_saved)}</strong><em>${number(summary.optimized_events)} optimized events</em></div><div class="stat"><span>Estimated API cost</span><strong>${esc(cost)}</strong><em>${esc(costDetail)}</em></div></div>`+
+  `<div class="info-note"><strong>About estimated cost</strong><span>${summary.cost_status==='not_configured'?'This is optional. Set AI_INPUT_COST_PER_MILLION_TOKENS and AI_OUTPUT_COST_PER_MILLION_TOKENS in Railway to estimate spend.':'The estimate uses your configured blended rates and may differ from the provider invoice by model, caching, or pricing changes.'} This page reports usage only; it does not block or schedule AI work.</span></div>`+
+  `<div class="grid-2"><section class="panel"><div class="panel-head"><h4>Usage trend</h4><span class="pill">${esc(range.granularity||data.period)}</span></div><div class="panel-body">${tokenBarRows(data.series,'label')}</div></section><section class="panel"><div class="panel-head"><h4>By operation</h4></div><div class="panel-body">${tokenBarRows(data.by_operation)}</div></section></div>`+
   `<div class="grid-2" style="margin-top:18px"><section class="panel"><div class="panel-head"><h4>By model</h4></div><div class="panel-body">${tokenBarRows(data.by_model)}</div></section><section class="panel"><div class="panel-head"><h4>By file type</h4></div><div class="panel-body">${tokenBarRows(data.by_file_type)}</div></section></div>`+
-  `<section class="panel" style="margin-top:18px"><div class="panel-head"><h4>By optimization</h4><span class="muted">image_preprocess_v1 = photo/gallery optimizer</span></div><div class="panel-body">${tokenBarRows(data.by_optimization)}</div></section>`+
-  `<section class="panel" style="margin-top:18px"><div class="panel-head"><h4>Recent file/API events</h4><span class="muted">Latest 25</span></div>${recentTokenTable(data.recent)}</section>`;
+  `<section class="panel" style="margin-top:18px"><div class="panel-head"><h4>Image optimization</h4><span class="muted">Estimated tokens avoided by resizing and cropping receipt images</span></div><div class="panel-body">${tokenBarRows(data.by_optimization)}</div></section>`+
+  `<section class="panel" style="margin-top:18px"><div class="panel-head"><h4>Matching usage events</h4><span class="muted">Latest ${number(data.recent?.length||0)} in this filter</span></div>${recentTokenTable(data.recent)}</section>`;
+  $('tokenFilterForm').onsubmit=event=>{event.preventDefault();const form=Object.fromEntries(new FormData(event.target));state.tokenFilters={period:'month',...form};renderTokens()};
 }
 window.renderTokens=renderTokens;
 
-async function renderErrors(severity='all'){
-  const query=severity==='all'?'':'&severity='+encodeURIComponent(severity);
-  const data=await api('/rbac/error-events?limit=200'+query);
-  const rows=data.events||[];
-  const summary=data.summary||{};
-  const filterButton=(key,label)=>`<button class="${severity===key?'primary':'secondary'}" onclick="renderErrors('${key}')">${label}</button>`;
-  $('content').innerHTML=pageHead('Issue tracker','Track backend errors, warnings, slow requests, request ids, and stack context.',`<div class="actions">${filterButton('all','All')}${filterButton('error','Errors')}${filterButton('warning','Warnings')}${filterButton('info','Info')}</div>`)+
+function issueSummary(rows){
+  const values={total:rows.length,errors:0,warnings:0,info:0,sources:new Set(),latest:rows[0]?.created_at};
+  for(const row of rows){const severity=String(row.severity||'info').toLowerCase();if(severity==='error')values.errors++;else if(severity==='warning')values.warnings++;else values.info++;if(row.source)values.sources.add(row.source)}
+  return {...values,sources:values.sources.size};
+}
+function issueTable(rows){
+  if(!rows.length)return empty('No issues match these filters.');
+  return `<div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Request ID</th><th>Message</th><th>Error type</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${dateTime(row.created_at)}</td><td><span class="pill ${row.severity==='error'?'red':row.severity==='warning'?'warn':'purple'}">${esc(row.severity||'event')}</span></td><td>${esc(row.source||'unknown')}</td><td>${esc(row.request_id||'--')}</td><td>${esc(row.message||'--')}</td><td>${esc(row.error_type||'--')}</td></tr>`).join('')}</tbody></table></div>`;
+}
+window.applyIssuePreset=period=>{state.issueFilters={period,severity:'all'};renderErrors()};
+window.clearIssueFilters=()=>{state.issueFilters={period:'month',severity:'all'};renderErrors()};
+async function renderErrors(){
+  const filters=state.issueFilters||{period:'month',severity:'all'};
+  const params=new URLSearchParams({limit:'500',period:filters.period||'month'});
+  if(filters.from_date&&filters.to_date){params.set('from_date',filters.from_date);params.set('to_date',filters.to_date)}
+  for(const key of ['source','error_type','request_id'])if(filters[key])params.set(key,filters[key]);
+  if(filters.severity&&filters.severity!=='all')params.set('severity',filters.severity);
+  const data=await api(`/rbac/error-events?${params}`);
+  const allRows=data.events||[];
+  const search=String(filters.search||'').trim().toLowerCase();
+  const rows=search?allRows.filter(row=>`${row.message||''} ${row.request_id||''} ${row.source||''} ${row.error_type||''}`.toLowerCase().includes(search)):allRows;
+  const summary=issueSummary(rows);
+  const range=data.range||{};
+  const activePreset=filters.from_date?'':(filters.period||'month');
+  const sourceValues=allRows.map(row=>({key:row.source})).filter(row=>row.key);
+  const typeValues=allRows.map(row=>({key:row.error_type})).filter(row=>row.key);
+  $('content').innerHTML=pageHead('Issue tracker','Filter errors, warnings, slow requests, and backend events by calendar range and diagnostic fields.')+
+  `<section class="filter-panel">
+    <div class="filter-heading"><div><strong>Issue period</strong><span>Use a preset or investigate any historical date range.</span></div><div class="preset-row">${presetButtons('Issue',activePreset)}</div></div>
+    <form id="issueFilterForm" class="filter-grid issue-filter-grid">
+      <label>From (UTC)<input name="from_date" type="date" value="${esc(range.from_date||'')}" required /></label>
+      <label>To (UTC)<input name="to_date" type="date" value="${esc(range.to_date||'')}" required /></label>
+      <label>Severity<select name="severity"><option value="all">All severities</option>${['error','warning','info'].map(value=>`<option value="${value}" ${filters.severity===value?'selected':''}>${value[0].toUpperCase()+value.slice(1)}</option>`).join('')}</select></label>
+      <label>Source<select name="source">${selectOptions(sourceValues,filters.source,'All sources')}</select></label>
+      <label>Error type<select name="error_type">${selectOptions(typeValues,filters.error_type,'All error types')}</select></label>
+      <label>Request ID<input name="request_id" value="${esc(filters.request_id||'')}" placeholder="Exact request ID" /></label>
+      <label class="filter-search">Search loaded results<input name="search" value="${esc(filters.search||'')}" placeholder="Message, source, request ID..." /></label>
+      <div class="filter-actions"><button class="primary">Apply filters</button><button type="button" class="ghost" onclick="clearIssueFilters()">Reset</button></div>
+    </form>
+    <div class="filter-context">Showing ${number(rows.length)} matching issue${rows.length===1?'':'s'} · ${esc(rangeText(range))} · up to 500 records</div>
+  </section>`+
   (!data.available?`<section class="panel setup-panel"><div class="panel-body"><h4>Setup needed</h4><p class="muted">${esc(data.message)}</p></div></section>`:'')+
   `<div class="stats"><div class="stat"><span>Total issues</span><strong>${number(summary.total)}</strong><em>${summary.latest?`Latest ${dateTime(summary.latest)}`:'No recent events'}</em></div><div class="stat"><span>Errors</span><strong>${number(summary.errors)}</strong><em>crashes + server failures</em></div><div class="stat"><span>Warnings</span><strong>${number(summary.warnings)}</strong><em>slow or recoverable issues</em></div><div class="stat"><span>Sources</span><strong>${number(summary.sources)}</strong><em>unique backend areas</em></div></div>`+
-  `<section class="panel"><div class="panel-head"><h4>Recent issues</h4><span class="muted">Latest ${number(rows.length)}</span></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Request ID</th><th>Message</th><th>Error type</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${dateTime(row.created_at)}</td><td><span class="pill ${row.severity==='error'?'red':row.severity==='warning'?'warn':'purple'}">${esc(row.severity||'event')}</span></td><td>${esc(row.source||'unknown')}</td><td>${esc(row.request_id||'--')}</td><td>${esc(row.message||'--')}</td><td>${esc(row.error_type||'--')}</td></tr>`).join('')}</tbody></table></div>`:empty('No issues found in this scope.')}</section>`;
+  `<section class="panel"><div class="panel-head"><h4>Matching issues</h4><span class="muted">${number(rows.length)} shown</span></div>${issueTable(rows)}</section>`;
+  $('issueFilterForm').onsubmit=event=>{event.preventDefault();const form=Object.fromEntries(new FormData(event.target));state.issueFilters={period:'month',...form};renderErrors()};
 }
 window.renderErrors=renderErrors;
 
