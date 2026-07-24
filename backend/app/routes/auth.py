@@ -16,8 +16,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.services import database
 from app.config import create_auth_client
+from app.services.app_logger import get_logger
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = get_logger(__name__)
 
 
 class AuthRequest(BaseModel):
@@ -110,7 +112,7 @@ def signup(req: AuthRequest):
                 })
                 session = login_response.session
             except Exception as sign_in_error:
-                print(f"[signup] Created user but immediate sign-in failed: {sign_in_error}")
+                logger.warning("Account created but immediate sign-in failed: %s", sign_in_error)
 
         return {
             "success": True,
@@ -217,7 +219,7 @@ def refresh_session(req: RefreshSessionRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[auth_refresh] Session refresh failed: {e}")
+        logger.warning("Session refresh failed: %s", e)
         raise HTTPException(status_code=401, detail="Session expired. Please sign in again.")
 
 
@@ -284,7 +286,7 @@ def reset_password(req: ResetPasswordRequest):
     except HTTPException:
         raise
     except Exception as error:
-        print(f"[password_reset] Recovery failed: {error}")
+        logger.warning("Password recovery token verification failed: %s", error)
         raise HTTPException(status_code=401, detail="This recovery link is invalid or expired.")
 
 
@@ -328,7 +330,7 @@ def delete_account(req: AuthRequest):
         )
         supabase_url = os.environ.get("SUPABASE_URL", "")
         if not service_key or not supabase_url:
-            print("[delete_account] Supabase service-role configuration is missing")
+            logger.error("Account deletion unavailable because service-role configuration is missing")
             raise HTTPException(status_code=503, detail="Account deletion is temporarily unavailable.")
 
         # Remove owner-scoped learning and conversation data as part of the
@@ -341,7 +343,7 @@ def delete_account(req: AuthRequest):
                 message = str(table_error).lower()
                 if "pgrst205" in message or "could not find the table" in message or "does not exist" in message:
                     continue
-                print(f"[delete_account] Could not delete {table_name}: {table_error}")
+                logger.exception("Could not delete account data from %s", table_name)
                 raise HTTPException(status_code=503, detail="Account data could not be fully deleted. Please try again.")
 
         # ── Step 2: Delete all receipts for this user ──
@@ -350,9 +352,9 @@ def delete_account(req: AuthRequest):
                 .delete()\
                 .eq("user_id", user_id)\
                 .execute()
-            print(f"[delete_account] Deleted all receipts for user {user_id}")
+            logger.info("Deleted receipts during account deletion", extra={"user_id": user_id})
         except Exception as e:
-            print(f"[delete_account] Could not delete receipts: {e}")
+            logger.exception("Could not delete receipts during account deletion", extra={"user_id": user_id})
             raise HTTPException(status_code=503, detail="Account data could not be fully deleted. Please try again.")
             # Continue anyway — try to delete the account
 
@@ -372,9 +374,12 @@ def delete_account(req: AuthRequest):
                 }
             )
             with urllib.request.urlopen(delete_req, timeout=10) as r:
-                print(f"[delete_account] User {user_id} deleted from Auth. Status: {r.status}")
+                logger.info(
+                    "Deleted authentication account",
+                    extra={"user_id": user_id, "status_code": r.status},
+                )
         else:
-            print("[delete_account] No service key — skipping Auth deletion")
+            logger.error("Account deletion reached an invalid missing-service-key state")
 
         return {
             "success": True,
@@ -384,5 +389,5 @@ def delete_account(req: AuthRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[delete_account] Unexpected failure: {e}")
+        logger.exception("Unexpected account deletion failure")
         raise HTTPException(status_code=500, detail="Account deletion failed. Please try again.")

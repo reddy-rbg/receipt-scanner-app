@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.config import supabase
+from app.services.app_logger import get_logger
 
+logger = get_logger(__name__)
 
 MODEL_INPUT_COST_PER_MILLION = float(os.getenv("AI_INPUT_COST_PER_MILLION_TOKENS", "0") or 0)
 MODEL_OUTPUT_COST_PER_MILLION = float(os.getenv("AI_OUTPUT_COST_PER_MILLION_TOKENS", "0") or 0)
@@ -86,5 +88,4 @@ def record_token_usage(
     try:
         supabase.table("ai_token_usage").insert(payload).execute()
     except Exception as error:
-        print(f"[token_usage] Logging unavailable: {error}")
-
+        logger.warning("Token usage logging unavailable: %s", error)

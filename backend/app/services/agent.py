@@ -29,7 +29,9 @@ from app.services.agent_contracts import AgentIntent, IntentPlan, intent_plan_fr
 from app.services import receipt_intelligence
 from app.services import agent_general
 from app.services import agent_analytics
+from app.services.app_logger import get_logger
 
+logger = get_logger(__name__)
 MODEL = os.getenv("CLAUDE_AGENT_MODEL", "claude-opus-4-5-20251101")
 SONNET_MODEL = os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
 PLANNER_MODEL = os.getenv("CLAUDE_PLANNER_MODEL", "claude-haiku-4-5-20251001")
@@ -182,7 +184,7 @@ def fetch_embedding_rank_boosts(
             "p_guest_session_id": guest_session_id,
         }).execute().data or []
     except Exception as e:
-        print(f"[embeddings] Vector retrieval unavailable: {e}")
+        logger.warning("Vector retrieval unavailable: %s", e)
         return {}
 
     boosts: dict[tuple[str, str, str], float] = {}
@@ -892,7 +894,7 @@ def fetch_owner_alias_families(user_id: str | None = None, guest_session_id: str
             return []
         rows = q.limit(500).execute().data or []
     except Exception as e:
-        print(f"[item_aliases] Alias table not available: {e}")
+        logger.warning("Item alias table unavailable: %s", e)
         rows = []
 
     families: list[set[str]] = []
@@ -934,7 +936,7 @@ def save_owner_alias_families(
         supabase.table("receipt_item_aliases").insert(rows).execute()
         _ALIAS_CACHE.pop(owner_alias_cache_key(user_id, guest_session_id), None)
     except Exception as e:
-        print(f"[item_aliases] Could not save learned aliases: {e}")
+        logger.warning("Could not save learned item aliases: %s", e)
 
 
 def owner_feedback_cache_key(user_id: str | None = None, guest_session_id: str | None = None) -> tuple[str, str]:
@@ -983,7 +985,7 @@ def fetch_owner_feedback_examples(user_id: str | None = None, guest_session_id: 
             return []
         rows = q.order("created_at", desc=True).limit(200).execute().data or []
     except Exception as e:
-        print(f"[agent_feedback] Feedback table not available for ranking: {e}")
+        logger.warning("Agent feedback table unavailable for ranking: %s", e)
         rows = []
 
     _FEEDBACK_CACHE[cache_key] = rows
@@ -1137,7 +1139,7 @@ def google_meaning_snippets(query: str) -> str:
         with urlopen(url, timeout=3) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as e:
-        print(f"[google_meaning] Search unavailable: {e}")
+        logger.warning("Public product-meaning search unavailable: %s", e)
         return ""
 
     snippets = []
@@ -1208,7 +1210,7 @@ Optional search context:
             aliases = [canonical] if canonical else []
             aliases.extend(clean_item_query_for_display(str(a)) for a in data.get("aliases") or [])
     except Exception as e:
-        print(f"[google_meaning] Alias extraction unavailable: {e}")
+        logger.warning("Public product alias extraction unavailable: %s", e)
         aliases = []
 
     family = {
@@ -2083,7 +2085,7 @@ def fetch_owner_receipts(user_id: str | None = None, guest_session_id: str | Non
         result = q.order("created_at", desc=True).limit(limit).execute()
         receipts = result.data or []
     except Exception as e:
-        print(f"[receipts] Could not fetch owner receipts: {e}")
+        logger.warning("Could not fetch owner receipts: %s", e)
         receipts = []
 
     _ttl_cache_set(_RECEIPT_CACHE, cache_key, receipts)
@@ -2160,12 +2162,12 @@ def fetch_owner_item_events(user_id: str | None = None, guest_session_id: str | 
         try:
             events = normalized_future.result()
         except Exception as e:
-            print(f"[receipt_items] Falling back to receipt JSON: {e}")
+            logger.warning("Falling back to receipt JSON items: %s", e)
             events = []
         try:
             receipts_for_merge = receipts_future.result()
         except Exception as e:
-            print(f"[receipts] Could not load JSON fallback concurrently: {e}")
+            logger.warning("Could not load receipt JSON fallback concurrently: %s", e)
             receipts_for_merge = []
 
     # The receipt_items table is the fast path, but older scans may only have
@@ -2186,7 +2188,7 @@ def fetch_owner_item_events(user_id: str | None = None, guest_session_id: str | 
             else:
                 events[existing_index] = merge_purchase_event_records(events[existing_index], event)
     except Exception as e:
-        print(f"[receipt_items] Could not merge receipt JSON items: {e}")
+        logger.warning("Could not merge receipt JSON items: %s", e)
 
     events = dedupe_item_events(events)[:limit]
     _ttl_cache_set(_ITEM_EVENT_CACHE, cache_key, events)
@@ -2756,7 +2758,7 @@ def semantic_extract_items(message: str, conversation_history: list[dict] | None
         text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
         data = parse_json_object(text)
     except Exception as e:
-        print(f"[semantic_item_extraction] unavailable: {e}")
+        logger.warning("Semantic item extraction unavailable: %s", e)
         return {}
 
     return normalize_semantic_item_payload(data, message)
@@ -3150,7 +3152,7 @@ def understand_user_query(message: str, conversation_history: list[dict] | None 
         text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
         data = parse_json_object(text)
     except Exception as e:
-        print(f"[query_understanding] unavailable: {e}")
+        logger.warning("Agent query understanding unavailable: %s", e)
         return {}
 
     understood = normalize_understanding_payload(data)
@@ -5380,7 +5382,7 @@ Receipt memory JSON:
             if answer:
                 return answer
         except Exception as e:
-            print(f"[memory_assistant] unavailable: {e}")
+            logger.warning("Memory assistant unavailable: %s", e)
 
     return ""
 
@@ -6854,7 +6856,7 @@ def run_agent(
                 return finalize_agent_result(deterministic_v2, original_message)
         except Exception as e:
             v2_lookup_error = True
-            print(f"[receipt_intelligence_v2] fallback to canonical agent: {e}")
+            logger.warning("Receipt intelligence v2 fell back to canonical agent: %s", e)
 
     if v2_should_answer and v2_lookup_error:
         return finalize_agent_result({
@@ -7300,7 +7302,7 @@ Never invent prices, stores, or purchase counts — only use evidence from the t
             tool_messages.append({"role": "user", "content": tool_results})
 
     except Exception as e:
-        print(f"[agent] Claude tool loop error: {e}")
+        logger.exception("Claude agent tool loop failed")
         if not response_text:
             response_text = "I had trouble answering that. Please try again."
 

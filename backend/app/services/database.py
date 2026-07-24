@@ -24,7 +24,9 @@ from datetime import datetime
 from typing import Any
 
 from app.config import supabase
+from app.services.app_logger import get_logger
 
+logger = get_logger(__name__)
 
 PRODUCT_SIZE_RE = re.compile(
     r"\b(\d+(?:\.\d+)?)\s*-?\s*(GAL|GALLON|GALLONS|OZ|FL\s*OZ|LB|LBS|QT|QTS|PT|PTS|CT|EA|ML|L|LTR|LITER|LITERS)\b",
@@ -47,7 +49,7 @@ def insert_receipt_with_optional_identifiers(payload: dict):
         if not any(field in payload for field in OPTIONAL_RECEIPT_IDENTIFIER_FIELDS):
             raise
         legacy_payload = {key: value for key, value in payload.items() if key not in OPTIONAL_RECEIPT_IDENTIFIER_FIELDS}
-        print(f"[receipts] Identifier columns unavailable; using legacy schema: {first_error}")
+        logger.warning("Receipt identifier columns unavailable; using legacy schema: %s", first_error)
         return supabase.table("receipts").insert(legacy_payload).execute()
 
 
@@ -183,7 +185,7 @@ def save_receipt_item_embeddings(rows: list[dict], receipt_id: int | str) -> Non
         supabase.table("receipt_item_embeddings").delete().eq("receipt_id", receipt_id).execute()
         supabase.table("receipt_item_embeddings").insert(embedding_rows).execute()
     except Exception as e:
-        print(f"[receipt_item_embeddings] Skipped vector save: {e}")
+        logger.warning("Skipped receipt item vector save: %s", e)
 
 
 def save_receipt_items(
@@ -265,11 +267,11 @@ def save_receipt_items(
                 supabase.table("receipt_items").delete().eq("receipt_id", receipt_id).execute()
                 supabase.table("receipt_items").insert(legacy_rows).execute()
                 save_receipt_item_embeddings(legacy_rows, receipt_id)
-                print(f"[receipt_items] customer_id unavailable; used legacy schema: {e}")
+                logger.warning("Receipt-item customer_id unavailable; used legacy schema: %s", e)
                 return {"success": True, "receipt_id": receipt_id, "items": len(legacy_rows), "legacy_schema": True}
             except Exception as legacy_error:
                 e = legacy_error
-        print(f"[receipt_items] Skipped normalized item save: {e}")
+        logger.warning("Skipped normalized receipt-item save: %s", e)
         return {"success": False, "receipt_id": receipt_id, "items": 0, "error": str(e)}
 
 
@@ -516,7 +518,7 @@ def delete_receipt(
             .eq("receipt_id", receipt_id)\
             .execute()
     except Exception as e:
-        print(f"[receipt_items] Could not delete item rows for receipt {receipt_id}: {e}")
+        logger.warning("Could not delete receipt-item rows", extra={"receipt_id": receipt_id})
 
     delete_query = supabase.table("receipts").delete().eq("id", receipt_id)
     if user_id:
@@ -544,7 +546,7 @@ def delete_receipt_after_authorization(receipt: dict) -> dict:
     try:
         supabase.table("receipt_items").delete().eq("receipt_id", receipt_id).execute()
     except Exception as error:
-        print(f"[receipt_items] Could not delete item rows for receipt {receipt_id}: {error}")
+        logger.warning("Could not delete receipt-item rows", extra={"receipt_id": receipt_id})
     response = supabase.table("receipts").delete().eq("id", receipt_id).execute()
     deleted = response.data[0] if response.data else {}
     if deleted:
@@ -586,7 +588,7 @@ def get_price_history(item_name: str) -> list:
                 "receipt_id": row.get("receipt_id"),
             } for row in rows]
     except Exception as e:
-        print(f"[receipt_items] Price history fallback: {e}")
+        logger.warning("Receipt-item price history fallback: %s", e)
 
     # Get every receipt from the database
     response = supabase.table("receipts").select("*").execute()

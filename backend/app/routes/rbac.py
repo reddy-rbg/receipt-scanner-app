@@ -9,9 +9,11 @@ from pydantic import BaseModel, Field
 
 from app.config import supabase
 from app.services import database, rbac
+from app.services.app_logger import get_logger
 
 
 router = APIRouter(prefix="/rbac", tags=["access-control"])
+logger = get_logger(__name__)
 CUSTOMER_REQUIRED_ROLES = {"customer_owner", "customer_user", "auditor", "service_account"}
 TOKEN_PERIOD_DAYS = {"day": 1, "week": 7, "month": 31, "year": 366}
 
@@ -227,7 +229,7 @@ def list_users(request: Request):
     try:
         users = [_user_dict(user) for user in supabase.auth.admin.list_users(page=1, per_page=1000)]
     except Exception as error:
-        print(f"[rbac] Could not list auth users: {error}")
+        logger.exception("Could not list authentication users")
         raise HTTPException(status_code=503, detail="User directory is temporarily unavailable.")
     if not context.is_global:
         users = [user for user in users if user["id"] in visible_ids]
@@ -594,7 +596,7 @@ def token_usage_summary(
     try:
         rows = query.execute().data or []
     except Exception as error:
-        print(f"[token_usage] Summary unavailable: {error}")
+        logger.exception("Token usage summary unavailable")
         return {
             "available": False,
             "period": period,
@@ -694,7 +696,7 @@ def error_events(
             "events": events,
         }
     except Exception as error:
-        print(f"[error_events] Summary unavailable: {error}")
+        logger.exception("Error-event summary unavailable")
         return {
             "available": False,
             "message": "Issue tracking is not configured yet.",

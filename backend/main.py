@@ -15,6 +15,7 @@ from app.routes import receipts, auth, agent_route, rbac
 from app.services import agent as agent_service
 from app.services import agent_workflow
 from app.services.app_logger import configure_logging, get_logger, record_error_event, request_id
+from app.production_config import require_production_config, validate_production_config
 
 
 configure_logging()
@@ -46,34 +47,38 @@ async def cleanup_guest_receipts_task():
 
             deleted_count = len(result.data) if result.data else 0
             if deleted_count > 0:
-                print(f"[cleanup] ✓ Deleted {deleted_count} expired guest receipts")
+                logger.info("Deleted %s expired guest receipts", deleted_count)
             else:
-                print(f"[cleanup] No expired guest receipts found")
+                logger.info("No expired guest receipts found")
 
         except Exception as e:
-            print(f"[cleanup] Error: {e}")
+            logger.exception("Guest receipt cleanup failed")
 
 
 # ── App lifespan ──
 # Starts background tasks when app starts
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    report = require_production_config()
+    for warning in report.warnings:
+        logger.warning("Production configuration warning: %s", warning)
+
     # Start guest cleanup task in background
-    print("[startup] Starting guest receipt cleanup task...")
+    logger.info("Starting guest receipt cleanup task")
     cleanup_task = asyncio.create_task(cleanup_guest_receipts_task())
 
-    yield  # App runs here
-
-    # Cleanup when app shuts down
-    cleanup_task.cancel()
-    print("[shutdown] Cleanup task stopped.")
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        logger.info("Guest receipt cleanup task stopped")
 
 
 # ── Create the app ──
 app = FastAPI(
     title="Receipt Scanner API",
     description="Scan receipts with Claude AI and track prices",
-    version="1.0.0",
+    version="1.0.3",
     lifespan=lifespan,
 )
 
@@ -95,7 +100,13 @@ app.add_middleware(
 @app.middleware("http")
 async def operations_security_headers(request, call_next):
     response = await call_next(request)
-    if request.url.path == "/ops" or request.url.path.startswith("/ops/") or request.url.path.startswith("/reset-password"):
+    if (
+        request.url.path == "/ops"
+        or request.url.path.startswith("/ops/")
+        or request.url.path.startswith("/reset-password")
+        or request.url.path.startswith("/privacy")
+        or request.url.path.startswith("/support")
+    ):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -194,14 +205,41 @@ app.mount(
     StaticFiles(directory=str(Path(__file__).parent / "reset_password"), html=True),
     name="password-reset",
 )
+app.mount(
+    "/privacy",
+    StaticFiles(directory=str(Path(__file__).parent / "privacy"), html=True),
+    name="privacy-policy",
+)
+app.mount(
+    "/support",
+    StaticFiles(directory=str(Path(__file__).parent / "support"), html=True),
+    name="support",
+)
 
 # ── Health check ──
 @app.get("/")
 def home():
     return {
         "message": "Receipt Scanner API is running!",
-        "version": "1.0.0",
+        "version": app.version,
         "features": ["receipt scanning", "AI Q&A", "price tracking", "guest trial mode"]
+    }
+
+
+@app.get("/health/live", include_in_schema=False)
+def health_live():
+    return {"status": "ok", "version": app.version}
+
+
+@app.get("/health/ready", include_in_schema=False)
+def health_ready():
+    report = validate_production_config()
+    return {
+        "status": "ready" if report.ready else "not_ready",
+        "version": app.version,
+        "environment": report.environment,
+        "production": report.production,
+        "warnings": list(report.warnings),
     }
 
 

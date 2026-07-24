@@ -8,7 +8,9 @@ history unless receipt facts are explicitly passed in by a caller.
 from __future__ import annotations
 
 import re
+from app.services.app_logger import get_logger
 
+logger = get_logger(__name__)
 
 GENERAL_ADVICE_TERMS = {
     "temperature", "heat", "heated", "cook", "cooking", "boil", "boiled",
@@ -257,7 +259,7 @@ def general_advice_answer(
             if text:
                 return text
         except Exception as e:
-            print(f"[general_advice] unavailable: {e}")
+            logger.warning("General advice generation unavailable: %s", e)
 
     return fallback_general_answer(
         message,

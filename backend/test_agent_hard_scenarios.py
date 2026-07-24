@@ -121,6 +121,14 @@ EXTRA_EVENTS = [
     },
 ]
 
+_ORIGINAL_AGENT_FUNCTIONS = {
+    "fetch_owner_item_events": agent.fetch_owner_item_events,
+    "fetch_owner_receipts": agent.fetch_owner_receipts,
+    "fetch_owner_alias_families": agent.fetch_owner_alias_families,
+    "save_owner_alias_families": agent.save_owner_alias_families,
+    "public_meaning_alias_families": agent.public_meaning_alias_families,
+}
+
 
 def setup_module():
     events = base.EVENTS + EXTRA_EVENTS
@@ -157,6 +165,13 @@ def setup_module():
     agent.fetch_owner_alias_families = lambda user_id=None, guest_session_id=None: []
     agent.save_owner_alias_families = lambda families, user_id=None, guest_session_id=None: None
     agent.public_meaning_alias_families = lambda query: []
+
+
+def teardown_module():
+    for name, value in _ORIGINAL_AGENT_FUNCTIONS.items():
+        setattr(agent, name, value)
+    getattr(agent, "_RECEIPT_CACHE", {}).clear()
+    getattr(agent, "_ITEM_EVENT_CACHE", {}).clear()
 
 
 def event_names(query):

@@ -24,6 +24,7 @@ from pydantic import BaseModel
 # database.py — all Supabase database logic
 from app.services import claude, database, rbac, token_usage
 from app.services import agent as agent_service
+from app.services.app_logger import get_logger
 
 # Import supported file types from config
 # MEDIA_TYPES     — image extensions and their mime types
@@ -33,6 +34,7 @@ from app.config import MEDIA_TYPES, SUPPORTED_EXTENSIONS
 # Create the router
 # This gets connected to the main FastAPI app in main.py
 router = APIRouter()
+logger = get_logger(__name__)
 _SCAN_RATE_BUCKETS: dict[str, list[float]] = {}
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
@@ -159,7 +161,7 @@ def find_already_scanned_receipt(receipt_data: dict, user_id: str | None = None,
             if agent_service.looks_like_same_receipt(receipt_data, existing):
                 return existing
     except Exception as e:
-        print(f"[duplicate] semantic receipt check skipped: {e}")
+        logger.warning("Semantic duplicate receipt check skipped: %s", e)
     return None
 
 
@@ -179,7 +181,7 @@ def get_user_id_from_request(request: Request) -> str | None:
         if user_response and user_response.user:
             return str(user_response.user.id)
     except Exception as e:
-        print(f"[auth] Token error: {e}")
+        logger.warning("Receipt token validation failed: %s", e)
     return None
 
 
@@ -262,9 +264,9 @@ async def scan_receipt(request: Request, file: UploadFile = File(...)):
             user_response = database.supabase.auth.get_user(token)
             if user_response and user_response.user:
                 user_id = str(user_response.user.id)
-                print(f"[scan] Authenticated user: {user_id}")
+                logger.info("Authenticated receipt scan", extra={"user_id": user_id})
         except Exception as e:
-            print(f"[scan] Could not get user from token: {e}")
+            logger.warning("Could not resolve receipt-scan user token: %s", e)
             # Continue without user_id — will save as guest/anonymous
     
     if not user_id:
@@ -569,7 +571,7 @@ def cleanup_guest_receipts():
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         result = database.supabase.table("receipts")            .delete()            .eq("is_guest", True)            .lt("expires_at", cutoff)            .execute()
         deleted_count = len(result.data) if result.data else 0
-        print(f"[cleanup] Deleted {deleted_count} expired guest receipts")
+        logger.info("Deleted %s expired guest receipts", deleted_count)
         return {"success": True, "deleted": deleted_count, "message": f"Deleted {deleted_count} expired guest receipts."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cleanup error: {str(e)}")
@@ -767,7 +769,7 @@ def get_guest_receipts(session_id: str):
             .execute()
         rows = result.data or []
     except Exception as e:
-        print(f"[guest_receipts] Database error: {e}")
+        logger.exception("Guest receipt listing failed")
         raise HTTPException(status_code=503, detail="Receipt data is temporarily unavailable.")
     return {"total_receipts": len(rows), "receipts": rows}
 
@@ -792,7 +794,7 @@ def get_summary(request: Request, session_id: str | None = None):
             "unique_stores":  unique_stores,
         }
     except Exception as e:
-        print(f"[summary] Error: {e}")
+        logger.exception("Receipt summary failed")
         raise HTTPException(status_code=503, detail="Summary is temporarily unavailable.")
 
 # ── ENDPOINT 5: Delete a receipt ──

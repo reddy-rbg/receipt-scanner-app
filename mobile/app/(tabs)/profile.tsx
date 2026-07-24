@@ -128,6 +128,7 @@ export default function ProfileScreen() {
     Alert.alert('Help & Support', 'How can we help?', [
       { text:'Cancel', style:'cancel' },
       { text:' Email Support', onPress:() => Linking.openURL('mailto:support@receiptai.app') },
+      { text:'Support Website', onPress:() => Linking.openURL(`${API}/support/`) },
     ]);
   }
 
@@ -431,7 +432,7 @@ export default function ProfileScreen() {
             </View>
 
             <Text style={[s.settingSection,{ marginTop:24 }]}>Your Data</Text>
-            <TouchableOpacity style={s.privacyLink} onPress={()=>Alert.alert('Privacy Policy','All your receipts are private and only accessible by you. We never share or sell your personal data.')}>
+            <TouchableOpacity style={s.privacyLink} onPress={()=>Linking.openURL(`${API}/privacy/`)}>
               <Text style={s.privacyLinkText}>Data Privacy Policy</Text>
               <Text style={s.menuArrow}></Text>
             </TouchableOpacity>

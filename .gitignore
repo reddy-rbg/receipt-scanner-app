@@ -21,3 +21,7 @@ backend/.pytest_cache/
 mobile/node_modules/
 mobile/dist/
 mobile/.expo/
+mobile/builds/
+mobile/temp-assets/
+mobile/app-example/
+tmp/

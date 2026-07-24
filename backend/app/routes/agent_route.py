@@ -13,8 +13,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.services import agent as agent_service
 from app.services import agent_workflow
+from app.services.app_logger import get_logger
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+logger = get_logger(__name__)
 conversation_store: dict[str, list[dict[str, str]]] = {}
 _PERSISTENT_HISTORY_AVAILABLE: bool | None = None
 _PERSISTENT_HISTORY_RETRY_AT = 0.0
@@ -74,7 +76,7 @@ def load_persistent_history(
         ]
     except Exception as e:
         if _PERSISTENT_HISTORY_AVAILABLE is not False:
-            print(f"[agent_history] Persistent history unavailable: {e}")
+            logger.warning("Persistent agent history unavailable: %s", e)
         _PERSISTENT_HISTORY_AVAILABLE = False
         _PERSISTENT_HISTORY_RETRY_AT = time.monotonic() + 60
         return []
@@ -105,7 +107,7 @@ def save_persistent_turn(
         _PERSISTENT_HISTORY_RETRY_AT = 0.0
     except Exception as e:
         if _PERSISTENT_HISTORY_AVAILABLE is not False:
-            print(f"[agent_history] Could not persist turn: {e}")
+            logger.warning("Could not persist agent conversation turn: %s", e)
         _PERSISTENT_HISTORY_AVAILABLE = False
         _PERSISTENT_HISTORY_RETRY_AT = time.monotonic() + 60
 
@@ -119,7 +121,7 @@ def clear_persistent_history(session_id: str, user_id: str | None, guest_session
         query = query.eq("user_id", user_id) if user_id else query.eq("guest_session_id", guest_session_id)
         query.execute()
     except Exception as e:
-        print(f"[agent_history] Could not clear persistent history: {e}")
+        logger.warning("Could not clear persistent agent history: %s", e)
 
 
 class AgentMessage(BaseModel):
@@ -164,7 +166,7 @@ def get_user_id(request: Request) -> str | None:
             _TOKEN_USER_CACHE[cache_key] = (time.monotonic() + TOKEN_USER_CACHE_SECONDS, user_id)
             return user_id
     except Exception as e:
-        print(f"[agent] Token error: {e}")
+        logger.warning("Agent token validation failed: %s", e)
     return None
 
 
@@ -228,7 +230,7 @@ async def handle_agent_request(request: Request, body: AgentMessage):
         raise
     except Exception as e:
         request_id = uuid.uuid4().hex[:12]
-        print(f"[agent] request_id={request_id} error={e}")
+        logger.exception("Agent request failed", extra={"request_id": request_id})
         raise HTTPException(status_code=500, detail=f"Agent request failed. Reference: {request_id}")
 
 
@@ -305,7 +307,7 @@ async def agent_feedback(request: Request, body: AgentFeedback):
             "status": "new",
         }).execute()
     except Exception as e:
-        print(f"[agent_feedback] Feedback table not available: {e}")
+        logger.warning("Agent feedback table unavailable: %s", e)
 
     agent_service.clear_owner_learning_caches(user_id=user_id, guest_session_id=guest_session_id)
 

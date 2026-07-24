@@ -26,4 +26,8 @@ Access and refresh tokens are stored using the operating system's secure credent
 
 ## Contact
 
-Before publishing, replace this paragraph with the public support email and business mailing address used in App Store Connect and Google Play Console.
+Privacy and support requests can be sent to `support@receiptai.app`.
+
+Public policy URL: `https://web-production-3605f4.up.railway.app/privacy/`
+
+Public support URL: `https://web-production-3605f4.up.railway.app/support/`

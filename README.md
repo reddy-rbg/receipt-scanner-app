@@ -357,8 +357,14 @@ Root Directory: /backend
 Health check:
 
 ```text
-https://web-production-3605f4.up.railway.app/agent-health
+https://web-production-3605f4.up.railway.app/health/ready
 ```
+
+The production process fails startup when required secrets are missing, public
+URLs are not HTTPS, wildcard CORS is enabled, or the Supabase service key is
+not distinct from the anonymous key. See
+[`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md) for the complete
+deployment, migration verification, device smoke-test, and store-release gate.
 
 After deploying backend changes, open `/ops/` with an authorized operator
 account and verify:

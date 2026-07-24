@@ -11,7 +11,9 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from app.config import supabase
+from app.services.app_logger import get_logger
 
+logger = get_logger(__name__)
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "platform_admin": {"*"},
@@ -104,7 +106,7 @@ def _token_user(request: Request) -> tuple[str, str]:
         if response and response.user:
             return str(response.user.id), str(response.user.email or "")
     except Exception as error:
-        print(f"[rbac] Token validation failed: {error}")
+        logger.warning("RBAC token validation failed: %s", error)
     raise HTTPException(status_code=401, detail="Invalid or expired session.")
 
 
@@ -140,7 +142,7 @@ def _load_context(user_id: str, email: str = "") -> AccessContext:
     except Exception as error:
         # Safe rolling-deploy behavior: before the migration, preserve only the
         # existing user's own-data permissions. Never grant cross-user access.
-        print(f"[rbac] Scoped tables unavailable; using owner-only fallback: {error}")
+        logger.warning("RBAC scoped tables unavailable; using owner-only fallback: %s", error)
         roles = [RoleAssignment("customer_user", None)]
         available = False
 
@@ -234,7 +236,7 @@ def get_receipt_for_access(context: AccessContext, receipt_id: int, permission: 
     try:
         rows = supabase.table("receipts").select("*").eq("id", receipt_id).limit(1).execute().data or []
     except Exception as error:
-        print(f"[rbac] Receipt lookup failed: {error}")
+        logger.warning("RBAC receipt lookup failed: %s", error)
         raise HTTPException(status_code=503, detail="Receipt data is temporarily unavailable.")
     if not rows or not can_access_receipt(context, rows[0], permission):
         # Do not reveal whether another customer's receipt exists.
@@ -277,7 +279,7 @@ def list_accessible_receipts(context: AccessContext, permission: str = "receipts
                 seen.add(receipt_id)
                 rows.append(receipt)
     except Exception as error:
-        print(f"[rbac] Accessible receipt query failed: {error}")
+        logger.warning("RBAC accessible receipt query failed: %s", error)
         raise HTTPException(status_code=503, detail="Receipt data is temporarily unavailable.")
     rows.sort(key=lambda row: str(row.get("created_at") or row.get("date") or ""), reverse=True)
     return rows[:limit]
@@ -295,4 +297,4 @@ def audit(context: AccessContext, action: str, resource_type: str, resource_id: 
             "metadata": metadata or {},
         }).execute()
     except Exception as error:
-        print(f"[rbac_audit] Audit write unavailable: {error}")
+        logger.warning("RBAC audit write unavailable: %s", error)

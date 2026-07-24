@@ -20,7 +20,9 @@ import os
 import re
 from app.config import claude_client, CLAUDE_MODEL, MEDIA_TYPES, supabase
 from app.services import token_usage
+from app.services.app_logger import get_logger
 
+logger = get_logger(__name__)
 MODEL_SONNET = "claude-sonnet-4-5-20250929"
 MODEL_HAIKU = "claude-haiku-4-5-20251001"
 SCAN_MODEL = os.getenv("CLAUDE_SCAN_MODEL", MODEL_SONNET)
@@ -68,7 +70,7 @@ def convert_pdf_to_images(pdf_bytes: bytes, max_pages: int = MAX_PDF_SCAN_PAGES)
             img_byte_arr.seek(0)
             pages.append(img_byte_arr.read())
 
-        print(f"[pdf] Successfully converted {len(pages)} PDF page(s) to PNG images")
+        logger.info("Converted %s PDF pages to PNG images", len(pages))
         return pages
 
     except ImportError:
@@ -266,7 +268,7 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
         import io
         import pdfplumber
     except Exception as error:
-        print(f"[pdf_price_list] pdfplumber unavailable; falling back to Claude scan: {error}")
+        logger.warning("PDF text parser unavailable; falling back to Claude scan: %s", error)
         return None
 
     price_line = re.compile(r"^\s*(?P<description>.+?)\s+(?P<price>-?\$?\d[\d,]*\.\d{2})\s*$")
@@ -337,7 +339,7 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
                     page_count += 1
                 page_counts.append(page_count)
     except Exception as error:
-        print(f"[pdf_price_list] Could not parse digital PDF text; falling back to Claude scan: {error}")
+        logger.warning("Could not parse digital PDF text; falling back to Claude scan: %s", error)
         return None
 
     joined_text = "\n".join(all_text)
@@ -427,7 +429,11 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
     if warnings:
         parsed["validation_notes"].extend(f"Deterministic parser warning: {warning}" for warning in warnings)
     if not accepted:
-        print(f"[pdf_price_list] Deterministic parse confidence {confidence} too low; falling back to Claude: {warnings}")
+        logger.warning(
+            "Deterministic PDF confidence %.3f too low; falling back to Claude: %s",
+            confidence,
+            warnings,
+        )
         return None
     return parsed
 
@@ -577,7 +583,7 @@ def auto_crop_receipt_region(image_bytes: bytes) -> tuple[bytes, dict]:
             "crop_ratio": round(crop_ratio, 4),
         }
     except Exception as error:
-        print(f"[scan] Receipt auto-crop skipped: {error}")
+        logger.warning("Receipt auto-crop skipped: %s", error)
         return image_bytes, {"auto_cropped_receipt": False, "reason": "preprocess_error"}
 
 
@@ -666,7 +672,7 @@ def optimize_scan_image_for_claude(image_bytes: bytes, *, page_index: int = 1) -
         }
         return optimized_bytes, media_type, metadata
     except Exception as error:
-        print(f"[scan] Image optimization skipped: {error}")
+        logger.warning("Receipt image optimization skipped: %s", error)
         page_bytes, media_type = compress_image_for_claude(image_bytes)
         width, height = _image_dimensions(page_bytes)
         return page_bytes, media_type, {
@@ -713,7 +719,11 @@ def compress_image_for_claude(image_bytes: bytes) -> tuple[bytes, str]:
             candidate = output.getvalue()
             best = candidate
             if len(candidate) <= MAX_CLAUDE_IMAGE_BYTES:
-                print(f"[scan] Compressed image for Claude: {len(image_bytes)} -> {len(candidate)} bytes")
+                logger.info(
+                    "Compressed receipt image for Claude from %s to %s bytes",
+                    len(image_bytes),
+                    len(candidate),
+                )
                 return candidate, "image/jpeg"
 
         if len(best) > MAX_CLAUDE_IMAGE_BYTES:
@@ -725,7 +735,7 @@ def compress_image_for_claude(image_bytes: bytes) -> tuple[bytes, str]:
     except ValueError:
         raise
     except Exception as e:
-        print(f"[scan] Image compression skipped: {e}")
+        logger.warning("Receipt image compression skipped: %s", e)
         return image_bytes, detect_image_media_type(image_bytes)
 
 
@@ -825,7 +835,7 @@ Malformed JSON:
             )
             return "".join(block.text for block in response.content if hasattr(block, "text")).strip()
         except Exception as e:
-            print(f"[scan] JSON repair failed: {e}")
+            logger.warning("Receipt scan JSON repair failed: %s", e)
             return ""
 
     raw = raw.strip()
@@ -838,8 +848,8 @@ Malformed JSON:
             try:
                 return json.loads(repaired)
             except json.JSONDecodeError as second_error:
-                print(f"[scan] JSON parse failed after repair: {second_error}")
-        print(f"[scan] JSON parse failed: {first_error}")
+                logger.warning("Receipt scan JSON parse failed after repair: %s", second_error)
+        logger.warning("Receipt scan JSON parse failed: %s", first_error)
         raise ValueError(
             "I could not read this receipt or invoice cleanly. Please retake it closer, make sure the full document is visible, and avoid shadows or blur."
         )
@@ -1164,9 +1174,9 @@ def scan_receipt_image(
     if extension == "pdf" and page_images_override is None:
         parsed_price_list = try_parse_digital_price_list_pdf(image_bytes, filename)
         if parsed_price_list:
-            print(
-                "[scan] Digital price-list PDF parsed deterministically: "
-                f"{len(parsed_price_list.get('items') or [])} item row(s)"
+            logger.info(
+                "Digital price-list PDF parsed deterministically with %s item rows",
+                len(parsed_price_list.get("items") or []),
             )
             data = normalize_receipt_data(parsed_price_list)
             validate_scan_quality(data)
@@ -1196,7 +1206,7 @@ def scan_receipt_image(
     if page_images_override is not None:
         page_images = page_images_override
     elif extension == "pdf":
-        print(f"[scan] PDF detected — converting to image: {filename}")
+        logger.info("PDF receipt detected; converting pages to images")
         # convert_pdf_to_image raises ValueError if conversion fails
         page_images = convert_pdf_to_images(image_bytes)
     else:
@@ -1212,11 +1222,12 @@ def scan_receipt_image(
             page_bytes, page_media_type, optimization_info = optimize_scan_image_for_claude(page_bytes, page_index=page_index)
             scan_optimization_events.append(optimization_info)
             if optimization_info.get("auto_cropped_receipt"):
-                print(
-                    "[scan] Auto-cropped receipt image "
-                    f"page={page_index} original={optimization_info.get('original_size')} "
-                    f"optimized={optimization_info.get('optimized_size')} "
-                    f"estimated_tokens_saved={optimization_info.get('estimated_image_tokens_saved')}"
+                logger.info(
+                    "Auto-cropped receipt image page=%s original=%s optimized=%s estimated_tokens_saved=%s",
+                    page_index,
+                    optimization_info.get("original_size"),
+                    optimization_info.get("optimized_size"),
+                    optimization_info.get("estimated_image_tokens_saved"),
                 )
         else:
             page_bytes, page_media_type = compress_image_for_claude(page_bytes)
@@ -1552,80 +1563,12 @@ def scan_receipt_image_pages(
 
 def answer_question(question: str, receipts: list) -> str:
     """
-    Answer a natural language question about the user's receipts.
+    Answer from an already owner-scoped receipt list.
 
-    Uses Supabase MCP globally — works on Railway, mobile, anywhere.
-    MCP URL: https://mcp.supabase.com/mcp?project_ref=okzsqmoxdzrbhhdrsazy
-
-    Claude queries the database directly using MCP tools.
-    Falls back to text mode if MCP is unavailable.
-
-    Returns Claude's answer as a markdown string.
+    This legacy helper deliberately has no database or service-role access.
+    Callers must authorize and scope receipts before invoking it.
     """
-    import os
-
-    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
-
-    # ── Global Supabase MCP ──
-    # Works everywhere — Railway, mobile, any environment
-    # Claude uses MCP tools to query the database directly
-    if supabase_key:
-        try:
-            message = claude_client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=4096,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"""You are a helpful personal shopping assistant with direct access to the user's receipt database via Supabase MCP.
-
-DATABASE TABLE: receipts
-COLUMNS: id, store, address, date, time, payment_method, total, subtotal, discount, tax, total_savings, items (JSONB array), created_at
-
-ITEMS JSONB ARRAY contains objects with: code, name, quantity, unit, unit_price, price
-
-INSTRUCTIONS:
-- Use the Supabase MCP tools to query the receipts table directly
-- Query smartly — only fetch what you need to answer the question
-- For price comparisons always use unit_price not total price
-- For weighted items (lb, oz, kg, g) always show the unit
-- Answer with exact numbers from the database — never make up data
-- Use markdown tables for comparisons and ranked lists
-- Use **bold** for store names and key numbers
-- If data is not available, say so clearly
-
-USER QUESTION: {question}
-
-Use MCP tools to query the database and answer precisely:"""
-                    }
-                ],
-                mcp_servers=[
-                    {
-                        "type": "url",
-                        "url": "https://mcp.supabase.com/mcp?project_ref=okzsqmoxdzrbhhdrsazy",
-                        "name": "supabase",
-                        "authorization_token": supabase_key,
-                    }
-                ],
-            )
-
-            # Extract answer from response blocks
-            # MCP responses may include tool_use blocks — we want the text
-            answer = ""
-            for block in message.content:
-                if hasattr(block, "text") and block.text:
-                    answer += block.text
-
-            if answer.strip():
-                print("[ask] ✓ Answered via Supabase MCP globally")
-                return answer.strip()
-
-        except Exception as e:
-            print(f"[ask] MCP failed, using fallback: {e}")
-
-    # ── Fallback: pass receipts as text ──
-    # Used when SUPABASE_SERVICE_KEY is not set or MCP fails
-    print("[ask] Answering via text fallback")
+    logger.info("Answering receipt question from owner-scoped receipt context")
     receipts_text = json.dumps(receipts, indent=2)
 
     message = claude_client.messages.create(
@@ -1772,7 +1715,7 @@ Rules:
     try:
         return json.loads(raw)
     except Exception as e:
-        print(f"[optimize_shopping_list] Parse error: {e}")
+        logger.warning("Shopping-list optimization response parse failed: %s", e)
         return {"error": "Could not optimize shopping list. Please try again."}
 
 
@@ -1826,11 +1769,11 @@ def get_realtime_price(item_name: str) -> dict:
                     all_search_text += block.text + " "
 
         except Exception as e:
-            print(f"[realtime_price] Search failed for '{query}': {e}")
+            logger.warning("Real-time public price search failed: %s", e)
             continue
 
     all_search_text = all_search_text.strip()
-    print(f"[realtime_price] Combined search text: {all_search_text[:300]}")
+    logger.info("Collected %s characters of public price-search context", len(all_search_text))
 
     if not all_search_text:
         return {"error": f"No price data found for '{item_name}'"}
@@ -1910,7 +1853,7 @@ Rules:
         return data
 
     except Exception as e:
-        print(f"[realtime_price] Parse error: {e}")
+        logger.warning("Real-time price response parse failed: %s", e)
         return {"error": f"Could not parse price data for '{item_name}'"}
 
 
