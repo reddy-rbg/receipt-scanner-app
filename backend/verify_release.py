@@ -144,9 +144,16 @@ def check_repository(checks: ReleaseChecks) -> None:
     checks.check(
         deploy.get("healthcheckPath") == "/health/ready"
         and deploy.get("restartPolicyType") in {"ON_FAILURE", "ALWAYS"}
-        and int(deploy.get("restartPolicyMaxRetries") or 0) > 0,
+        and isinstance(deploy.get("restartPolicyMaxRetries"), int)
+        and deploy["restartPolicyMaxRetries"] > 0
+        and isinstance(deploy.get("healthcheckTimeout"), int)
+        and deploy["healthcheckTimeout"] > 0
+        and isinstance(deploy.get("overlapSeconds"), int)
+        and deploy["overlapSeconds"] >= 0
+        and isinstance(deploy.get("drainingSeconds"), int)
+        and deploy["drainingSeconds"] >= 0,
         "Railway health and restart policies are source-controlled",
-        "Railway must use /health/ready and a bounded restart policy",
+        "Railway must use /health/ready and numeric deploy/restart settings",
     )
 
     env_example = (BACKEND / ".env.example").read_text(encoding="utf-8")
