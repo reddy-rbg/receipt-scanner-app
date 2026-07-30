@@ -1,439 +1,330 @@
 <div align="center">
 
-<img src="./assets/readme/receiptai-flow.svg" alt="ReceiptAI animated product flow" width="100%" />
+<img src="./assets/readme/receiptai-flow.svg" alt="ReceiptAI product flow: scan, store, retrieve, and answer with evidence" width="100%" />
 
 # ReceiptAI
 
-### A receipt scanner and shopping intelligence agent that answers from real purchase evidence.
+### Turn every receipt into searchable purchase memory.
+
+ReceiptAI scans receipt images and PDFs, remembers what was purchased, and answers shopping questions with traceable evidence instead of guesses.
 
 <p>
   <img alt="Expo" src="https://img.shields.io/badge/Mobile-Expo-7C6AFF?style=for-the-badge&logo=expo&logoColor=white" />
   <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
-  <img alt="Supabase" src="https://img.shields.io/badge/Data-Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" />
+  <img alt="Supabase" src="https://img.shields.io/badge/Memory-Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" />
+  <img alt="Claude" src="https://img.shields.io/badge/Intelligence-Claude-8C7CFF?style=for-the-badge" />
   <img alt="Railway" src="https://img.shields.io/badge/Deploy-Railway-111827?style=for-the-badge&logo=railway&logoColor=white" />
-  <img alt="Hybrid AI" src="https://img.shields.io/badge/AI-Hybrid%20Parser%20%2B%20Claude-8C7CFF?style=for-the-badge" />
-  <img alt="RBAC" src="https://img.shields.io/badge/Security-RBAC%20Scoped-62E6C8?style=for-the-badge" />
 </p>
 
 <p>
-  <b>Scan receipts</b> -> <b>optimize extraction cost</b> -> <b>save purchase memory</b> -> <b>ask the AI Agent</b> -> <b>get evidence-backed answers</b>
+  <a href="#-the-receipt-intelligence-loop"><b>Architecture</b></a>
+  ·
+  <a href="#-quick-start"><b>Quick start</b></a>
+  ·
+  <a href="#-operations-console"><b>Operations</b></a>
+  ·
+  <a href="./docs/RELEASE_RUNBOOK.md"><b>Release runbook</b></a>
 </p>
 
 </div>
 
 ---
 
-## Why ReceiptAI Exists
+> [!IMPORTANT]
+> **ReceiptAI's evidence promise:** no receipt evidence means no purchase claim.<br>
+> General shopping advice is allowed, but purchase history, prices, stores, dates, and totals must be supported by saved receipt data.
 
-ReceiptAI turns messy receipts into a personal shopping memory. It helps answer practical questions like:
+## ✦ The product in one glance
 
-- What did I buy from Walmart?
-- Which store gives me the best price for rice, milk, or vegetables?
-- How much did I spend this month?
-- Did I actually buy this item before?
-- What should I buy next based on my receipt history?
+| Capture | Understand | Remember |
+| :--- | :--- | :--- |
+| Scan photos, gallery images, digital PDFs, and multi-page receipts. | Route digital tables through a zero-token parser and use Claude Vision when confidence is low. | Store receipts, items, prices, discounts, dates, stores, and purchase occasions. |
+| **Ask** | **Operate** | **Protect** |
+| Ask natural questions about spending, prices, stores, repeat purchases, and shopping plans. | Monitor token usage, estimated cost, warnings, errors, request IDs, assignments, and audit activity. | Enforce backend RBAC, customer scopes, support grants, receipt assignments, and evidence gates. |
 
-The important rule is simple:
+### From paper to proof
 
 ```text
-No receipt evidence -> no purchase claim.
+CAPTURE  →  EXTRACT  →  VALIDATE  →  REMEMBER  →  RETRIEVE  →  ANSWER
+   receipt image       confidence      purchase        matching       cited
+   or digital PDF      + page audit    memory          evidence       result
 ```
 
-## Product Highlights
+The result is more than OCR. ReceiptAI builds a private, queryable record of real-world purchases and makes that record useful through a conversational Agent.
 
-| Capability | What it means |
+## ✦ The Receipt Intelligence Loop
+
+<img src="./assets/readme/receiptai-architecture.svg" alt="ReceiptAI intelligence-loop architecture showing scan, ask, and operations paths around a shared trust core" width="100%" />
+
+The architecture is designed as three connected journeys around one shared trust core:
+
+| Journey | Path | Design goal |
+| --- | --- | --- |
+| **Scan** | Mobile → scan router → parser or vision → confidence gate → purchase memory | Use the least expensive reliable extraction path |
+| **Ask** | Question → typed intent plan → retrieval → evidence gate → answer | Keep every purchase claim grounded in stored receipts |
+| **Operate** | Ops console → RBAC guard → usage, issues, assignments, and audit | Make production behavior visible without bypassing data scopes |
+
+At the center, FastAPI owns authentication checks, authorization, orchestration, validation, and API contracts. Supabase is the durable purchase-memory and access-control store. Claude is an extraction and reasoning dependency—not the source of truth.
+
+<details>
+<summary><b>Scan journey: cost-aware extraction</b></summary>
+
+ReceiptAI does not send every document directly to a model.
+
+1. Detect the uploaded document type.
+2. Parse digital text/table PDFs deterministically.
+3. Audit pages, rows, prices, totals, vendor signals, and warnings.
+4. Accept only a strong parse.
+5. Fall back to Claude Vision for receipt photos or weak PDF parses.
+6. Normalize and save the receipt, line items, discounts, and scan telemetry.
+7. Return an existing receipt for duplicate file hashes without another model call.
+
+| Input | Primary path | Safety net |
+| --- | --- | --- |
+| Digital table or price-list PDF | Deterministic parser | Claude Vision when page or row confidence is low |
+| Photographed receipt | Image optimization + Claude Vision | Readability and output validation |
+| Multi-page receipt | Combined page scan | Page limits and duplicate checks |
+| Duplicate upload | Existing receipt lookup | No additional model call |
+
+</details>
+
+<details>
+<summary><b>Ask journey: one intent, retrieved evidence</b></summary>
+
+Each Agent turn creates one typed `IntentPlan`. Planning, retrieval, and answer generation share that plan so the user's question is not repeatedly reinterpreted.
+
+```text
+question
+  └─ intent plan
+      └─ scoped receipt retrieval
+          └─ deterministic purchase intelligence
+              └─ evidence gate
+                  └─ answer + trace
+```
+
+The workflow counts unique purchase occasions, aligns headline counts with listed evidence, invalidates short-lived caches after mutations, and moves blocking model/database work off the FastAPI event loop.
+
+</details>
+
+<details>
+<summary><b>Operate journey: visibility with boundaries</b></summary>
+
+The operations console is served by the backend, but every privileged action remains protected by backend authorization.
+
+- Platform and customer-scoped operator management
+- Receipt correction and filtered receipt-editor assignments
+- Time-limited support access
+- Token usage by calendar range, model, operation, and file type
+- Issue tracking by date, severity, source, type, request ID, and text
+- Security-sensitive audit history
+
+</details>
+
+## ✦ Trust by construction
+
+| Boundary | Enforcement |
 | --- | --- |
-| Receipt scanning | Upload receipt images or PDFs and extract structured purchase data |
-| Hybrid PDF extraction | Digital table PDFs are parsed deterministically first; weak parses fall back to Claude Vision |
-| Purchase memory | Store receipts, line items, totals, stores, dates, quantities, and guest sessions |
-| Discounts and savings | Discounts are preserved as receipt evidence and surfaced in receipts, memory, and reports |
-| AI Agent | Ask about prices, stores, item history, spending, comparisons, and shopping plans |
-| Evidence gate | Receipt facts must come from saved receipt evidence, not model guesses |
-| General advice | Food, shopping, and savings advice is supported without pretending it came from receipts |
-| Secure operations | Backend-enforced roles, customer scopes, receipt assignments, support grants, and audit logs |
-| Operations console | Separate role-aware web dashboard for administrators, support staff, auditors, receipt editors, and token monitoring |
-| Token usage dashboard | Calendar presets and custom date ranges for AI usage by model, operation, file type, and recent events |
-| Issues dashboard | Filter backend errors and warnings by date, severity, source, error type, request ID, or text |
-| Account recovery | Hosted password-reset flow that returns users safely to the deployed application |
-| Mobile first | Built for Expo Go, local LAN testing, and future app-store builds |
+| Purchase truth | Receipt facts require matching stored evidence |
+| Tenant isolation | Customer, user, support-grant, or receipt-assignment scope |
+| Unknown receipts | Unauthorized and nonexistent resources return the same not-found behavior |
+| Privileged actions | FastAPI permission checks; the UI is never the security boundary |
+| Weak extraction | Confidence validation before persistence |
+| AI cost | Parser-first routing, image optimization, duplicate detection, and token telemetry |
+| Production diagnosis | Structured logs, request IDs, slow-request warnings, issues, and health routes |
 
-## Architecture At A Glance
+### Production roles
 
-<img src="./assets/readme/receiptai-architecture.svg" alt="ReceiptAI production architecture diagram" width="100%" />
+| Role | Scope |
+| --- | --- |
+| `platform_admin` | Full platform, customer, role, setting, and audit administration |
+| `master_user` | Cross-customer receipts, reports, analytics, support approval, and audit |
+| `customer_owner` | Members, receipts, corrections, analytics, and support approval for one customer |
+| `customer_user` | The user's own receipts and purchase history |
+| `support_agent` | Approved, time-limited access only; no customer data by default |
+| `receipt_editor` | Assigned correction work without deletion or user administration |
+| `auditor` | Read-only assigned receipt and audit scopes |
+| `service_account` | Explicit scan or reprocessing permissions for trusted jobs |
 
-The architecture is split into four clean layers:
+The complete permission matrix and support workflow live in [`docs/RBAC.md`](docs/RBAC.md).
 
-1. **Surfaces** — Expo mobile app for customers and the operations console for admins/support.
-2. **Secure backend** — FastAPI handles auth, RBAC, scan routing, and the Agent.
-3. **Extraction intelligence** — deterministic PDF/table parsing first, Claude fallback only when needed.
-4. **Purchase memory** — Supabase stores receipts, item rows, RBAC state, and AI token usage.
-
-## Repository Layout
+## ✦ Repository map
 
 ```text
 ReceiptScanner/
-  mobile/                 Expo / React Native app
-  backend/                FastAPI backend
-    app/
-      routes/             Auth, receipt, query, and agent routes
-      services/           Scanning, storage, retrieval, and agent logic
-    ops_dashboard/        Role-aware operations web console
-    reset_password/       Hosted password-recovery page
-    main.py               FastAPI entrypoint
-    requirements.txt      Python dependencies
-    Procfile              Railway start command
-    nixpacks.toml         Railway build config
-    supabase_*.sql        Supabase migrations
-  docs/RBAC.md            Access-control roles, scopes, and deployment guide
-  assets/readme/          README visuals
+├─ mobile/                         Expo + React Native customer app
+│  ├─ app/                         routes and screens
+│  ├─ components/                  reusable product UI
+│  └─ config/api.ts                backend URL resolution
+│
+├─ backend/                        FastAPI service + hosted web surfaces
+│  ├─ app/
+│  │  ├─ routes/                   auth, receipts, queries, Agent, RBAC
+│  │  └─ services/                 extraction, memory, Agent, logging, access
+│  ├─ ops_dashboard/               role-aware operations console
+│  ├─ reset_password/              hosted account-recovery flow
+│  ├─ supabase_*.sql               idempotent database migrations
+│  ├─ railway.json                 deployment and health policy
+│  ├─ nixpacks.toml                Python + Poppler build configuration
+│  └─ main.py                      application entrypoint
+│
+├─ docs/                           security, privacy, readiness, and release
+└─ assets/readme/                  project and architecture artwork
 ```
 
-## Hybrid Scanning and Token Optimization
-
-ReceiptAI now uses a production-safe hybrid extraction strategy:
-
-```text
-Upload PDF/image
-  -> detect file type
-  -> try deterministic extraction for digital text/table PDFs
-  -> validate rows, prices, pages, vendor, and confidence
-  -> save directly only when the parse is strong
-  -> fall back to Claude Vision when the parse looks incomplete
-  -> store receipt evidence, structured rows, savings/discounts, and token metrics
-```
-
-This keeps costs low without silently trusting weak table extraction.
-
-| Document type | First path | Fallback path |
-| --- | --- | --- |
-| Digital price list / table PDF | Backend text/table parser | Claude Vision if page or row confidence is low |
-| Normal photographed receipt | Claude Vision scan | Validation error if unreadable |
-| Multi-page receipt photos | Combined page scan | Validation and duplicate checks |
-| Duplicate upload | Existing receipt by hash | No extra model call |
-
-The parser records a `parse_audit` with page count, rows per page, marker count,
-warnings, confidence, and whether the document was accepted without AI. Token
-usage events are logged separately so the operations console can show which
-files and models are driving cost.
-
-## Agent Brain
-
-The Agent is structured so it can feel conversational while staying grounded.
-
-Each chat turn now creates one typed `IntentPlan` from the raw question. The
-same plan is passed through retrieval and answer generation, so execution does
-not reinterpret or rewrite the user's intent. Receipt data uses short TTL
-caches with mutation invalidation, and blocking model/database work runs off
-the FastAPI event loop. The returned `rag_trace.workflow` includes stage
-timings and the exact intent plan used for the answer.
+### Core backend modules
 
 | Module | Responsibility |
 | --- | --- |
-| `backend/app/services/agent.py` | Main orchestrator |
-| `backend/app/services/agent_contracts.py` | Typed intent plan shared by planning and execution |
-| `backend/app/services/agent_architecture.py` | Evidence gate, answer contract, trace metadata |
-| `backend/app/services/agent_general.py` | General shopping and food advice mode |
-| `backend/app/services/agent_analytics.py` | Spending, summary, and trend routing |
-| `backend/app/services/receipt_intelligence.py` | Deterministic receipt Q&A and item matching |
+| `app/services/claude.py` | Receipt extraction and model interaction |
+| `app/services/receipt_intelligence.py` | Deterministic item matching and receipt Q&A |
+| `app/services/agent.py` | Agent orchestration |
+| `app/services/agent_contracts.py` | Shared typed intent contract |
+| `app/services/agent_architecture.py` | Evidence gate, answer contract, and trace |
+| `app/services/rbac.py` | Roles, scopes, support grants, and authorization |
+| `app/services/token_usage.py` | Usage and estimated-cost telemetry |
+| `app/services/app_logger.py` | Structured production logging and issue events |
 
-Receipt fact answers are allowed only when matching receipt evidence is found.
+## ✦ Quick start
 
-Production retrieval counts unique purchase occasions rather than duplicated
-evidence rows. Purchase-history answers therefore align their headline count,
-listed events, and receipt evidence. The current single-pass orchestration also
-avoids repeated interpretation and unnecessary response waits.
+### Prerequisites
 
-## Memory and Savings Intelligence
+- Python 3.11+
+- Node.js 20+
+- Expo Go or an Android/iOS simulator
+- A Supabase project
+- An Anthropic API key
 
-The Memory tab is designed to be useful even without asking the Agent. It tracks:
-
-- item-level price memory and repeat purchase history;
-- spending, category, and monthly trends;
-- discounts and `total_savings` captured from receipts;
-- store-wise savings in the Spending view;
-- shopping opportunities based on observed lowest/usual/good-deal prices.
-
-Discount lines stay grounded in the receipt evidence. If a receipt has a coupon,
-markdown, reward, or negative line item, the backend preserves that discount and
-the mobile app can surface it in receipt detail and monthly memory.
-
-## Production Access Control
-
-ReceiptAI uses backend-enforced role-based access control (RBAC). The mobile app
-and operations console may hide unavailable controls, but the FastAPI backend is
-always the security boundary.
-
-| Role | Production access |
-| --- | --- |
-| `platform_admin` | Full platform administration, customer data, roles, settings, and audit |
-| `master_user` | Cross-customer receipts, reports, analytics, support approval, and audit |
-| `customer_owner` | Members, receipts, analytics, corrections, and support approval for one customer |
-| `customer_user` | Only receipts and purchase history owned by that user |
-| `support_agent` | No customer data by default; approved, scoped, time-limited access only |
-| `receipt_editor` | Correct assigned customers or receipts; cannot delete receipts or manage users |
-| `auditor` | Read-only access to assigned receipt and audit scopes |
-| `service_account` | Explicitly scoped scan/reprocessing access for trusted backend jobs |
-
-Cross-user receipt access requires a global role, customer role, active support
-grant, or active receipt assignment. Unknown and unauthorized receipts return the
-same not-found response so the API does not reveal another customer's data.
-
-### Operations Console
-
-The deployed backend serves the separate operations console at:
-
-```text
-https://web-production-3605f4.up.railway.app/ops/
-```
-
-Authorized users can:
-
-- Create and activate/deactivate operator accounts.
-- Assign customer-scoped roles and inspect effective permissions.
-- Search authorized receipts and correct receipt headers or line items.
-- Assign one receipt, selected receipts, a date range, month, year, or all
-  authorized receipts to a Receipt Editor.
-- Create and revoke time-limited support access.
-- Monitor AI token usage with calendar presets or a custom cross-year range,
-  filtered by model, operation, file type, and recent scan events.
-- Investigate backend issues by date, severity, source, error type, exact
-  request ID, or text within the loaded results.
-- Review security-sensitive activity in the audit log.
-
-See [`docs/RBAC.md`](docs/RBAC.md) for the complete role matrix, deployment
-steps, support workflow, and launch verification checklist.
-
-### Password Recovery
-
-Password recovery is hosted by the production backend at:
-
-```text
-https://web-production-3605f4.up.railway.app/reset-password/
-```
-
-Set `PASSWORD_RESET_REDIRECT_URL` to this deployed route and add the same URL to
-the Supabase Auth redirect allowlist.
-
-## Run Locally
-
-### Mobile App
-
-```powershell
-cd mobile
-npm install
-npx expo start --lan -c
-```
-
-Use `--lan` when testing with Expo Go on a phone connected to the same Wi-Fi network.
-
-### Backend
+### 1. Start the backend
 
 ```powershell
 cd backend
+Copy-Item .env.example .env
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Local API:
-
-```text
-http://127.0.0.1:8000
-```
-
-FastAPI docs:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-## Environment Variables
-
-Backend-only secrets belong in Railway or `backend/.env`. Never put service keys in `mobile/`.
+Configure the required values in `backend/.env`:
 
 ```env
+ANTHROPIC_API_KEY=
 SUPABASE_URL=
 SUPABASE_KEY=
 SUPABASE_SERVICE_KEY=
-ANTHROPIC_API_KEY=
-GOOGLE_SEARCH_API_KEY=
-GOOGLE_SEARCH_ENGINE_ID=
-RBAC_BOOTSTRAP_ADMIN_USER_IDS=
-PASSWORD_RESET_REDIRECT_URL=https://web-production-3605f4.up.railway.app/reset-password/
-MAX_PDF_SCAN_PAGES=16
-MAX_SCAN_IMAGE_PAGES=8
-MAX_SCAN_OUTPUT_TOKENS=16000
-MAX_SCAN_IMAGE_LONG_EDGE=1800
-SCAN_IMAGE_JPEG_QUALITY=82
-AI_INPUT_COST_PER_MILLION_TOKENS=
-AI_OUTPUT_COST_PER_MILLION_TOKENS=
-LOG_LEVEL=INFO
-LOG_JSON=false
-SLOW_REQUEST_MS=3000
-LOG_CLIENT_ERROR_EVENTS=false
+APP_ENV=development
+PUBLIC_BASE_URL=http://127.0.0.1:8000
+CORS_ALLOWED_ORIGINS=http://localhost:8081
 ```
 
-Important:
+Local API: `http://127.0.0.1:8000`<br>
+OpenAPI docs: `http://127.0.0.1:8000/docs`
 
-- `SUPABASE_SERVICE_KEY` is backend-only.
-- `RBAC_BOOTSTRAP_ADMIN_USER_IDS` is an optional comma-separated list of
-  Supabase user UUIDs used only to bootstrap the first platform administrator.
-- `PASSWORD_RESET_REDIRECT_URL` must also be allowed in Supabase Auth settings.
-- `MAX_PDF_SCAN_PAGES`, `MAX_SCAN_IMAGE_PAGES`, and `MAX_SCAN_OUTPUT_TOKENS`
-  control large scan limits and should be adjusted carefully.
-- `MAX_SCAN_IMAGE_LONG_EDGE` and `SCAN_IMAGE_JPEG_QUALITY` control the
-  photo/gallery scan optimizer. Receipt photos are cropped/enhanced, capped to
-  this long edge, and logged as `image_preprocess_v1` in token usage metadata.
-- `AI_INPUT_COST_PER_MILLION_TOKENS` and `AI_OUTPUT_COST_PER_MILLION_TOKENS`
-  are optional blended rates. When set, the operations console estimates AI
-  cost in USD; the estimate is reporting only and does not block or schedule AI
-  work.
-- `LOG_LEVEL` and `LOG_JSON` control backend log verbosity and whether Railway
-  logs are human-readable or JSON formatted.
-- `SLOW_REQUEST_MS` controls when a backend request becomes a warning in the
-  operations Issues dashboard. `LOG_CLIENT_ERROR_EVENTS=true` also records 4xx
-  client/API responses as warnings when you need deeper debugging.
-- Mobile code should use only public/frontend-safe variables.
-- Do not commit `.env` files.
+### 2. Prepare Supabase
 
-## Supabase Setup
+Apply every `backend/supabase_*.sql` migration once in the Supabase SQL Editor. The scripts use idempotent creation patterns and establish receipt memory, Agent history, RBAC, token usage, issue tracking, indexes, and row-level security.
 
-Run these migrations once in the Supabase SQL Editor:
+See [`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md) for the production order and verification queries.
 
-```text
-backend/supabase_receipt_items.sql
-backend/supabase_item_aliases.sql
-backend/supabase_agent_conversations.sql
-backend/supabase_receipt_identifiers.sql
-backend/supabase_rbac.sql
-backend/supabase_token_usage.sql
-backend/supabase_error_events.sql
-```
-
-These create:
-
-- `receipt_items` for fast structured item retrieval.
-- `receipt_item_aliases` for taught meanings such as `goat = mutton`.
-- RBAC customers, role assignments, support grants, receipt assignments, and
-  audit events for scoped operations access.
-- `ai_token_usage` for the operations token dashboard.
-- `app_error_events` for the operations Issues dashboard, including backend
-  errors, warnings, slow requests, request IDs, source, metadata, and stack
-  context where available.
-
-## API Highlights
-
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `POST` | `/auth/signup` | Create account |
-| `POST` | `/auth/login` | Sign in |
-| `POST` | `/scan-receipt` | Scan authenticated receipt |
-| `POST` | `/guest/scan-receipt` | Scan guest receipt |
-| `GET` | `/receipts` | List receipts |
-| `GET` | `/summary` | Spending summary |
-| `POST` | `/agent` | Ask the AI Agent |
-| `POST` | `/agent/chat` | Chat-style Agent request |
-| `GET` | `/agent-health` | Verify deployed backend build and config |
-| `GET` | `/rbac/me` | Return the current operator's roles, scopes, and permissions |
-| `POST` | `/rbac/users` | Create an operator account and initial role |
-| `POST` | `/rbac/receipt-assignments/bulk` | Assign filtered receipt work to a Receipt Editor |
-| `GET` | `/rbac/audit` | Read authorized security audit events |
-| `GET` | `/rbac/token-usage` | Read authorized AI usage by preset/custom date range and optional operation, model, or file-type filters |
-| `GET` | `/rbac/error-events` | Read authorized issues by preset/custom date range and optional severity, source, type, or request-ID filters |
-
-## Deployment
-
-### Railway Backend
-
-Railway should point to this repository:
-
-```text
-reddy-rbg/receipt-scanner-app
-```
-
-Use these Railway source settings:
-
-```text
-Branch: main
-Root Directory: /backend
-```
-
-Health check:
-
-```text
-https://web-production-3605f4.up.railway.app/health/ready
-```
-
-The production process fails startup when required secrets are missing, public
-URLs are not HTTPS, wildcard CORS is enabled, or the Supabase service key is
-not distinct from the anonymous key. See
-[`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md) for the complete
-deployment, migration verification, device smoke-test, and store-release gate.
-
-After deploying backend changes, open `/ops/` with an authorized operator
-account and verify:
-
-- receipt scanning still saves normal receipts;
-- digital table PDFs show optimized parser usage in Token usage;
-- low-confidence PDFs fall back to Claude instead of silently saving weak data;
-- Token usage accepts a cross-year custom date range and optional operation,
-  model, and file-type filters;
-- Issues accepts date, severity, source, error-type, and request-ID filters;
-- the estimated-cost card clearly shows `Not configured` when optional blended
-  rates are absent.
-
-### Expo App
-
-Expo/EAS should build from:
-
-```text
-mobile/
-```
-
-## Quality Gates
-
-The backend includes hard-scenario tests for typo-heavy questions, missing punctuation, item matching, store matching, spending summaries, and evidence gating.
-
-```powershell
-cd backend
-python test_receipt_intelligence_v2.py
-python test_agent_hard_scenarios.py
-python test_agent_quality_gate.py
-python test_rbac_authorization.py
-python test_ops_dashboard.py
-python test_password_reset.py
-```
-
-Focused checks used for the current production documentation:
-
-```powershell
-cd backend
-python -m py_compile app/services/claude.py app/services/token_usage.py app/routes/receipts.py app/routes/rbac.py
-python test_receipt_intelligence_v2.py
-python test_ops_dashboard.py
-```
-
-Mobile type check:
+### 3. Start the mobile app
 
 ```powershell
 cd mobile
-npx tsc --noEmit
+npm install
+$env:EXPO_PUBLIC_API_URL="http://YOUR-LAN-IP:8000"
+npx expo start --lan -c
 ```
 
-## Git Workflow
+Use the computer's LAN IP when testing with Expo Go on a physical phone connected to the same network.
 
-Commit from the monorepo root using repository-relative paths:
+## ✦ Operations console
+
+Production console:
+
+**[`https://web-production-3605f4.up.railway.app/ops/`](https://web-production-3605f4.up.railway.app/ops/)**
+
+| Workspace | What operators can do |
+| --- | --- |
+| Users & access | Create operators, assign roles, inspect effective permissions |
+| Receipts | Search, inspect, correct, and assign authorized receipt work |
+| Token usage | Select presets or custom cross-year ranges; filter model, operation, and file type |
+| Issues | Track warnings/errors by range, source, type, request ID, and search text |
+| Audit | Review security-sensitive actions |
+
+Optional blended token rates:
+
+```env
+AI_INPUT_COST_PER_MILLION_TOKENS=
+AI_OUTPUT_COST_PER_MILLION_TOKENS=
+```
+
+These power reporting-only cost estimates. They do not block, schedule, or limit model work.
+
+## ✦ API map
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/auth/signup` | Create an account |
+| `POST` | `/auth/login` | Start a session |
+| `POST` | `/scan-receipt` | Scan and save an authenticated receipt |
+| `POST` | `/guest/scan-receipt` | Scan a guest receipt |
+| `GET` | `/receipts` | List scoped receipts |
+| `GET` | `/summary` | Return spending intelligence |
+| `POST` | `/agent` | Ask the evidence-grounded Agent |
+| `GET` | `/rbac/me` | Return effective roles, scopes, and permissions |
+| `GET` | `/rbac/token-usage` | Query filtered AI usage |
+| `GET` | `/rbac/error-events` | Query filtered production issues |
+| `GET` | `/health/live` | Process liveness |
+| `GET` | `/health/ready` | Runtime configuration readiness |
+
+Interactive route documentation is available at `/docs` while the backend is running.
+
+## ✦ Production and release
+
+### Railway backend
+
+```text
+Repository:      reddy-rbg/receipt-scanner-app
+Branch:          main
+Root directory:  /backend
+Health check:    /health/ready
+```
+
+Set `APP_ENV=production` in Railway. Production validation rejects missing secrets, non-HTTPS public URLs, wildcard CORS, and a service key that matches the anonymous Supabase key.
+
+The Nixpacks configuration preserves the auto-detected Python provider while adding Poppler for PDF extraction:
+
+```toml
+[phases.setup]
+nixPkgs = ["...", "poppler_utils"]
+```
+
+### Release gate
 
 ```powershell
-git status
-git add README.md assets/readme backend mobile
-git commit -m "Describe your change"
-git push
+cd backend
+python verify_release.py --offline
+python -m pytest -q
+
+cd ..\mobile
+npx tsc --noEmit
+npm audit --omit=dev --audit-level=critical
 ```
+
+Then follow the device, migration, deployment, and rollback checks in [`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md).
+
+## ✦ Project documentation
+
+| Document | Purpose |
+| --- | --- |
+| [`docs/LAUNCH_READINESS.md`](docs/LAUNCH_READINESS.md) | Launch status and remaining gates |
+| [`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md) | Deployment, migration, smoke-test, and rollback procedure |
+| [`docs/RBAC.md`](docs/RBAC.md) | Role matrix, scopes, support grants, and authorization |
+| [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) | Product privacy policy |
+| [`docs/SECURITY_EXCEPTIONS.md`](docs/SECURITY_EXCEPTIONS.md) | Time-bounded dependency exception tracking |
 
 ## License
 
-Copyright (c) 2026 Ajay Kumar Reddy Poreddy. All rights reserved.
+Copyright © 2026 Ajay Kumar Reddy Poreddy. All rights reserved.
 
-This repository and the ReceiptAI project are proprietary and confidential. No permission is granted to copy, clone, fork, distribute, modify, reuse, commercialize, or create derivative works from this codebase, design, architecture, workflows, or product concept without prior written permission from the owner. Patent and copyright protections may apply.
+This repository and the ReceiptAI project are proprietary and confidential. No permission is granted to copy, clone, fork, distribute, modify, reuse, commercialize, or create derivative works from this codebase, design, architecture, workflows, or product concept without prior written permission from the owner.
