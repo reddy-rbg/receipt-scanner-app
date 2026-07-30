@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import tomllib
 import urllib.error
 import urllib.request
 from datetime import date
@@ -154,6 +155,18 @@ def check_repository(checks: ReleaseChecks) -> None:
         and deploy["drainingSeconds"] >= 0,
         "Railway health and restart policies are source-controlled",
         "Railway must use /health/ready and numeric deploy/restart settings",
+    )
+
+    nixpacks = tomllib.loads(
+        (BACKEND / "nixpacks.toml").read_text(encoding="utf-8")
+    )
+    nix_packages = (
+        nixpacks.get("phases", {}).get("setup", {}).get("nixPkgs", [])
+    )
+    checks.check(
+        "..." in nix_packages and "poppler_utils" in nix_packages,
+        "Nixpacks preserves the Python provider while adding Poppler",
+        'Nixpacks setup packages must include "..." and "poppler_utils"',
     )
 
     env_example = (BACKEND / ".env.example").read_text(encoding="utf-8")
