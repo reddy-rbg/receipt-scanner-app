@@ -30,7 +30,8 @@ def test_shared_scan_source_uses_browser_blob_uploads():
     ).read_text(encoding="utf-8")
     assert "Platform.OS === 'web'" in source
     assert "await response.blob()" in source
-    assert "formData.append(field, blob, name)" in source
+    assert "formData.append(field, sourceBlob, fileNameForMime(name, effectiveType))" in source
+    assert "if (!/\\.[a-z0-9]{2,5}$/i.test(name)) return fallback" in source
     assert "Preserve ordinary browser file/blob URIs" in source
     assert "setScanError" in source
     assert "Request ID:" in source

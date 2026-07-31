@@ -60,7 +60,20 @@ function isHeicImage(uri: string) {
 }
 function uploadFileName(uri: string, fallback: string) {
   const name = uri.split('?')[0].split('/').pop() || fallback;
+  if (!/\.[a-z0-9]{2,5}$/i.test(name)) return fallback;
   return isHeicImage(name) ? name.replace(/\.(heic|heif)$/i, '.jpg') : name;
+}
+
+function fileNameForMime(name: string, mime: string) {
+  const extension = mime === 'image/png'
+    ? 'png'
+    : mime === 'image/webp'
+      ? 'webp'
+      : mime === 'application/pdf'
+        ? 'pdf'
+        : 'jpg';
+  const stem = name.replace(/\.[a-z0-9]{2,5}$/i, '') || 'receipt';
+  return `${stem}.${extension}`;
 }
 
 async function appendUploadFile(
@@ -74,10 +87,9 @@ async function appendUploadFile(
     const response = await fetch(uri);
     if (!response.ok) throw new Error('Could not read the selected receipt image.');
     const sourceBlob = await response.blob();
-    const blob = sourceBlob.type === type
-      ? sourceBlob
-      : sourceBlob.slice(0, sourceBlob.size, type);
-    formData.append(field, blob, name);
+    if (!sourceBlob.size) throw new Error('The selected receipt image is empty.');
+    const effectiveType = sourceBlob.type || type;
+    formData.append(field, sourceBlob, fileNameForMime(name, effectiveType));
     return;
   }
   formData.append(field, { uri, name, type } as any);
