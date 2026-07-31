@@ -83,6 +83,7 @@ def record_scan_token_usage(
         input_tokens=usage.get("input_tokens", 0),
         output_tokens=usage.get("output_tokens", 0),
         cached_input_tokens=usage.get("cached_input_tokens", 0),
+        cache_creation_input_tokens=usage.get("cache_creation_input_tokens", 0),
         optimized=bool(usage.get("optimized")),
         optimization=usage.get("optimization"),
         metadata=usage.get("metadata") or {},

@@ -192,8 +192,11 @@ def _token_bucket(
 def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
     input_tokens = sum(int(row.get("input_tokens") or 0) for row in rows)
     output_tokens = sum(int(row.get("output_tokens") or 0) for row in rows)
-    total_tokens = sum(int(row.get("total_tokens") or 0) for row in rows) or input_tokens + output_tokens
     cached_tokens = sum(int(row.get("cached_input_tokens") or 0) for row in rows)
+    cache_creation_tokens = sum(_cache_creation_tokens(row) for row in rows)
+    total_tokens = sum(int(row.get("total_tokens") or 0) for row in rows) or (
+        input_tokens + output_tokens + cached_tokens + cache_creation_tokens
+    )
     estimated_image_tokens_saved = sum(_estimated_image_tokens_saved(row) for row in rows)
     estimated_costs = [row.get("estimated_cost_usd") for row in rows if row.get("estimated_cost_usd") is not None]
     configured_rates = (
@@ -201,7 +204,12 @@ def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
         or token_usage_service.MODEL_OUTPUT_COST_PER_MILLION > 0
     )
     if configured_rates:
-        estimated_cost = token_usage_service.estimate_cost(input_tokens, output_tokens)
+        estimated_cost = token_usage_service.estimate_cost(
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            cache_creation_tokens,
+        )
         cost_status = "configured"
     elif estimated_costs:
         estimated_cost = round(sum(float(value or 0) for value in estimated_costs), 6)
@@ -214,6 +222,7 @@ def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "cached_input_tokens": cached_tokens,
+        "cache_creation_input_tokens": cache_creation_tokens,
         "total_tokens": total_tokens,
         "estimated_image_tokens_saved": estimated_image_tokens_saved,
         "estimated_cost_usd": estimated_cost,
@@ -221,7 +230,32 @@ def _sum_token_rows(rows: list[dict]) -> dict[str, Any]:
         "cost_coverage_events": len(rows) if configured_rates else len(estimated_costs),
         "input_rate_per_million": token_usage_service.MODEL_INPUT_COST_PER_MILLION if configured_rates else None,
         "output_rate_per_million": token_usage_service.MODEL_OUTPUT_COST_PER_MILLION if configured_rates else None,
+        "cache_read_rate_per_million": (
+            token_usage_service.MODEL_CACHE_READ_COST_PER_MILLION
+            or token_usage_service.MODEL_INPUT_COST_PER_MILLION * 0.1
+        ) if configured_rates else None,
+        "cache_write_rate_per_million": (
+            token_usage_service.MODEL_CACHE_WRITE_COST_PER_MILLION
+            or token_usage_service.MODEL_INPUT_COST_PER_MILLION * 1.25
+        ) if configured_rates else None,
     }
+
+
+def _cache_creation_tokens(row: dict) -> int:
+    metadata = row.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            import json
+
+            metadata = json.loads(metadata)
+        except Exception:
+            metadata = {}
+    if not isinstance(metadata, dict):
+        return 0
+    try:
+        return int(metadata.get("cache_creation_input_tokens") or 0)
+    except Exception:
+        return 0
 
 
 def _estimated_image_tokens_saved(row: dict) -> int:

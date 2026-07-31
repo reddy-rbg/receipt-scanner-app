@@ -3,6 +3,22 @@
 Use this runbook for every production release. A release is ready only when all
 automated checks pass and every external checkbox below has evidence.
 
+## 0. Pass the AI staging gate
+
+Create a separate Railway staging environment from
+`backend/staging.env.example`. It enables prompt caching, structured outputs,
+strict tools, and the Haiku-to-Sonnet scan cascade while retaining the existing
+Sonnet model as the fallback. Run:
+
+```powershell
+cd backend
+python evaluate_ai_staging.py --offline
+python evaluate_ai_staging.py
+```
+
+Do not promote the optimization flags to production unless both commands and
+the full quality gate pass. The live evaluation uses synthetic data only.
+
 ## 1. Configure Railway
 
 Set the backend root directory to `/backend`, then configure:

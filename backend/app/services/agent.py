@@ -29,6 +29,12 @@ from app.services.agent_contracts import AgentIntent, IntentPlan, intent_plan_fr
 from app.services import receipt_intelligence
 from app.services import agent_general
 from app.services import agent_analytics
+from app.services import token_usage
+from app.services.ai_optimization import (
+    cacheable_system,
+    compact_conversation_history,
+    optimized_tools,
+)
 from app.services.app_logger import get_logger
 
 logger = get_logger(__name__)
@@ -7218,22 +7224,32 @@ Never invent prices, stores, or purchase counts — only use evidence from the t
 """
     tool_messages: list[dict] = [{"role": "user", "content": message}]
     if conversation_history:
-        recent = conversation_history[-10:]
-        tool_messages = [{"role": m["role"], "content": m["content"]} for m in recent] + [{"role": "user", "content": message}]
+        recent = compact_conversation_history(conversation_history)
+        tool_messages = recent + [{"role": "user", "content": message}]
 
     response_text = ""
     answer_card: dict | None = None
     rag_evidence: list[dict] = []
+    agent_usage = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+    }
+    agent_tools = optimized_tools(AGENT_TOOLS)
 
     try:
         for _ in range(6):  # max tool-call rounds
             response = claude_client.messages.create(
                 model=MODEL,
                 max_tokens=1800,
-                system=system_prompt,
-                tools=AGENT_TOOLS,
+                system=cacheable_system(system_prompt),
+                tools=agent_tools,
                 messages=tool_messages,
             )
+            current_usage = token_usage.usage_from_message(response)
+            for key in agent_usage:
+                agent_usage[key] += int(current_usage.get(key) or 0)
 
             # Collect text blocks
             text_parts = [block.text for block in response.content if hasattr(block, "text") and block.text]
@@ -7308,6 +7324,27 @@ Never invent prices, stores, or purchase counts — only use evidence from the t
 
     if not response_text:
         response_text = "I could not find enough receipt data to answer that question."
+
+    if any(agent_usage.values()):
+        token_usage.record_token_usage(
+            feature="agent",
+            operation="agentic_tool_loop",
+            model=MODEL,
+            user_id=user_id,
+            guest_session_id=guest_session_id,
+            input_tokens=agent_usage["input_tokens"],
+            output_tokens=agent_usage["output_tokens"],
+            cached_input_tokens=agent_usage["cached_input_tokens"],
+            cache_creation_input_tokens=agent_usage["cache_creation_input_tokens"],
+            optimized=True,
+            optimization="prompt_cache_and_context_budget",
+            metadata={
+                "tool_rounds": len(
+                    [row for row in tool_messages if row.get("role") == "assistant"]
+                ),
+                "tools_used": list(dict.fromkeys(tools_used)),
+            },
+        )
 
     return finalize_agent_result({
         "response": response_text,

@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 
 PRODUCTION_NAMES = {"production", "prod"}
+SECURE_ENVIRONMENT_NAMES = PRODUCTION_NAMES | {"staging", "stage"}
 REQUIRED_PRODUCTION_VARIABLES = (
     "ANTHROPIC_API_KEY",
     "SUPABASE_URL",
@@ -54,7 +55,7 @@ def validate_production_config(
 ) -> ProductionConfigReport:
     env = dict(os.environ if environ is None else environ)
     environment = env.get("APP_ENV", "development").strip().lower()
-    production = force_production or environment in PRODUCTION_NAMES
+    production = force_production or environment in SECURE_ENVIRONMENT_NAMES
     errors: list[str] = []
     warnings: list[str] = []
 

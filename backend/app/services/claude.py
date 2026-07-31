@@ -20,6 +20,17 @@ import os
 import re
 from app.config import claude_client, CLAUDE_MODEL, MEDIA_TYPES, supabase
 from app.services import token_usage
+from app.services.ai_optimization import (
+    SCAN_CASCADE_ENABLED,
+    cacheable_text_block,
+    fit_image_to_vision_budget,
+    provider_image_dimensions,
+    provider_image_token_count,
+    structured_output_kwargs,
+    vision_limits,
+    visual_token_count,
+)
+from app.services.ai_schemas import RECEIPT_SCAN_OUTPUT_SCHEMA
 from app.services.app_logger import get_logger
 
 logger = get_logger(__name__)
@@ -31,7 +42,12 @@ MAX_PDF_SCAN_PAGES = int(os.getenv("MAX_PDF_SCAN_PAGES", "16"))
 MAX_SCAN_IMAGE_PAGES = int(os.getenv("MAX_SCAN_IMAGE_PAGES", "8"))
 MAX_SCAN_OUTPUT_TOKENS = int(os.getenv("MAX_SCAN_OUTPUT_TOKENS", "16000"))
 MAX_SCAN_IMAGE_LONG_EDGE = int(os.getenv("MAX_SCAN_IMAGE_LONG_EDGE", "1800"))
+MAX_SCAN_IMAGE_TOKENS = int(os.getenv("MAX_SCAN_IMAGE_TOKENS", "1568"))
 SCAN_IMAGE_JPEG_QUALITY = int(os.getenv("SCAN_IMAGE_JPEG_QUALITY", "82"))
+SCAN_FAST_MODEL = os.getenv("CLAUDE_SCAN_FAST_MODEL", MODEL_HAIKU)
+SCAN_CASCADE_MIN_CONFIDENCE = float(
+    os.getenv("CLAUDE_SCAN_CASCADE_MIN_CONFIDENCE", "0.82")
+)
 
 
 def convert_pdf_to_images(pdf_bytes: bytes, max_pages: int = MAX_PDF_SCAN_PAGES) -> list[bytes]:
@@ -598,16 +614,14 @@ def _image_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
         return None, None
 
 
-def _estimate_vision_image_tokens(width: int | None, height: int | None) -> int | None:
-    """Approximate image-token load for comparing optimization before/after.
-
-    Providers may change internal accounting, so this is dashboard guidance,
-    not billing truth. Actual billed tokens still come from Claude's response
-    usage object.
-    """
-    if not width or not height:
-        return None
-    return max(1, round((width * height) / 750))
+def _estimate_vision_image_tokens(
+    width: int | None,
+    height: int | None,
+    *,
+    model: str = SCAN_MODEL,
+) -> int | None:
+    """Estimate billed visual tokens after Claude's documented native resize."""
+    return provider_image_token_count(width, height, model=model)
 
 
 def optimize_scan_image_for_claude(image_bytes: bytes, *, page_index: int = 1) -> tuple[bytes, str, dict]:
@@ -628,10 +642,15 @@ def optimize_scan_image_for_claude(image_bytes: bytes, *, page_index: int = 1) -
 
         before_resize = image.size
         resized = False
-        max_edge = max(1, MAX_SCAN_IMAGE_LONG_EDGE)
-        if max(image.size) > max_edge:
-            ratio = max_edge / max(image.size)
-            image = image.resize((max(1, int(image.width * ratio)), max(1, int(image.height * ratio))), Image.Resampling.LANCZOS)
+        target_size = fit_image_to_vision_budget(
+            image.width,
+            image.height,
+            model=SCAN_MODEL,
+            max_edge=max(1, MAX_SCAN_IMAGE_LONG_EDGE),
+            max_tokens=max(1, MAX_SCAN_IMAGE_TOKENS),
+        )
+        if image.size != target_size:
+            image = image.resize(target_size, Image.Resampling.LANCZOS)
             resized = True
 
         output = io.BytesIO()
@@ -648,8 +667,35 @@ def optimize_scan_image_for_claude(image_bytes: bytes, *, page_index: int = 1) -
             media_type = "image/jpeg"
 
         final_width, final_height = _image_dimensions(optimized_bytes)
-        original_tokens = _estimate_vision_image_tokens(original_width, original_height)
-        optimized_tokens = _estimate_vision_image_tokens(final_width, final_height)
+        original_seen_size = (
+            provider_image_dimensions(
+                original_width,
+                original_height,
+                model=SCAN_MODEL,
+            )
+            if original_width and original_height
+            else None
+        )
+        optimized_seen_size = (
+            provider_image_dimensions(
+                final_width,
+                final_height,
+                model=SCAN_MODEL,
+            )
+            if final_width and final_height
+            else None
+        )
+        original_tokens = _estimate_vision_image_tokens(
+            original_width,
+            original_height,
+            model=SCAN_MODEL,
+        )
+        optimized_tokens = (
+            visual_token_count(*optimized_seen_size)
+            if optimized_seen_size
+            else None
+        )
+        native_edge, native_tokens = vision_limits(SCAN_MODEL)
         saved_tokens = (
             max(0, original_tokens - optimized_tokens)
             if original_tokens is not None and optimized_tokens is not None
@@ -662,6 +708,12 @@ def optimize_scan_image_for_claude(image_bytes: bytes, *, page_index: int = 1) -
             "original_size": [original_width, original_height] if original_width and original_height else None,
             "pre_resize_size": list(before_resize),
             "optimized_size": [final_width, final_height] if final_width and final_height else None,
+            "model_seen_original_size": list(original_seen_size) if original_seen_size else None,
+            "model_seen_optimized_size": list(optimized_seen_size) if optimized_seen_size else None,
+            "vision_model": SCAN_MODEL,
+            "vision_native_max_edge": native_edge,
+            "vision_native_max_tokens": native_tokens,
+            "vision_token_budget": min(native_tokens, max(1, MAX_SCAN_IMAGE_TOKENS)),
             "resized": resized,
             "auto_cropped_receipt": bool(crop_info.get("auto_cropped_receipt")),
             "crop_info": crop_info,
@@ -1244,17 +1296,11 @@ def scan_receipt_image(
             image_blocks.append({"type": "text", "text": f"Page {page_index} of {len(page_images)}"})
 
     # ── Step 6: Send to Claude with detailed extraction instructions ──
-    message = claude_client.messages.create(
-        model=SCAN_MODEL,
-        max_tokens=MAX_SCAN_OUTPUT_TOKENS,
-        messages=[
-            {
-                "role": "user",
-                "content": image_blocks + [
-                    {
-                        # Detailed extraction instructions for Claude
-                        "type": "text",
-                        "text": """You are a receipt, invoice, and wholesale vendor price-list scanner. Carefully read this document image.
+    # Put the stable instructions before user-specific pixels. This allows
+    # prompt caching to reuse only the extraction contract across scans.
+    scan_content = [
+        cacheable_text_block(
+            """You are a receipt, invoice, and wholesale vendor price-list scanner. Carefully read this document image.
 
 FIRST — check if this is a readable receipt, invoice, or wholesale vendor price list:
 - Receipts and invoices are allowed when they show a merchant/vendor, item/service lines, and totals.
@@ -1450,11 +1496,19 @@ Return JSON only — no extra text, no markdown:
     "validation": {"is_receipt": true, "confidence": 0.0},
     "validation_notes": []
 }"""
-                    }
-                ],
-            }
-        ],
-    )
+        )
+    ] + image_blocks
+    scan_model_used = SCAN_FAST_MODEL if SCAN_CASCADE_ENABLED else SCAN_MODEL
+
+    def create_scan_message(model: str):
+        return claude_client.messages.create(
+            model=model,
+            max_tokens=MAX_SCAN_OUTPUT_TOKENS,
+            messages=[{"role": "user", "content": scan_content}],
+            **structured_output_kwargs(RECEIPT_SCAN_OUTPUT_SCHEMA),
+        )
+
+    message = create_scan_message(scan_model_used)
 
     # ── Step 8: Clean Claude's response ──
     usage = token_usage.usage_from_message(message)
@@ -1467,6 +1521,45 @@ Return JSON only — no extra text, no markdown:
 
     # ── Step 9: Parse JSON response ──
     data = parse_receipt_json(raw)
+
+    cascade_info = {
+        "enabled": SCAN_CASCADE_ENABLED,
+        "models_attempted": [scan_model_used],
+        "fallback_used": False,
+    }
+    if SCAN_CASCADE_ENABLED and scan_model_used != SCAN_MODEL:
+        fast_normalized = normalize_receipt_data(data) if "error" not in data else data
+        fast_validation = fast_normalized.get("validation") or {}
+        fast_confidence = float(fast_validation.get("confidence") or 0)
+        should_fallback = "error" in data or fast_confidence < SCAN_CASCADE_MIN_CONFIDENCE
+        cascade_info["fast_confidence"] = fast_confidence
+        cascade_info["fallback_reason"] = (
+            "fast_model_error"
+            if "error" in data
+            else "confidence_below_threshold"
+            if should_fallback
+            else None
+        )
+        if should_fallback:
+            fast_usage = usage
+            message = create_scan_message(SCAN_MODEL)
+            fallback_usage = token_usage.usage_from_message(message)
+            usage = {
+                key: int(fast_usage.get(key) or 0) + int(fallback_usage.get(key) or 0)
+                for key in {
+                    "input_tokens",
+                    "output_tokens",
+                    "cached_input_tokens",
+                    "cache_creation_input_tokens",
+                }
+            }
+            raw = message.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = "\n".join(raw.split("\n")[1:-1])
+            data = parse_receipt_json(raw)
+            scan_model_used = SCAN_MODEL
+            cascade_info["models_attempted"].append(SCAN_MODEL)
+            cascade_info["fallback_used"] = True
 
     # ── Step 10: Check if Claude returned an error ──
     # This happens when receipt is unreadable or not a receipt
@@ -1513,7 +1606,7 @@ Return JSON only — no extra text, no markdown:
     data["_token_usage"] = {
         "feature": "receipt_scan",
         "operation": "vision_scan",
-        "model": SCAN_MODEL,
+        "model": scan_model_used,
         **usage,
         "optimized": bool(scan_optimization_events),
         "optimization": "image_preprocess_v1" if scan_optimization_events else None,
@@ -1521,6 +1614,7 @@ Return JSON only — no extra text, no markdown:
             "page_count": len(page_images),
             "max_output_tokens": MAX_SCAN_OUTPUT_TOKENS,
             "image_optimization": scan_optimization_events,
+            "model_cascade": cascade_info,
             "estimated_image_tokens_saved": sum(
                 int(event.get("estimated_image_tokens_saved") or 0)
                 for event in scan_optimization_events

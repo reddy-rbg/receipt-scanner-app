@@ -187,6 +187,29 @@ def check_repository(checks: ReleaseChecks) -> None:
             f"{name} is missing from backend/.env.example",
         )
 
+    optimization_settings = (
+        "CLAUDE_PROMPT_CACHING_ENABLED",
+        "CLAUDE_STRUCTURED_OUTPUTS_ENABLED",
+        "CLAUDE_STRICT_TOOLS_ENABLED",
+        "CLAUDE_SCAN_CASCADE_ENABLED",
+        "CLAUDE_SCAN_FAST_MODEL",
+        "CLAUDE_SCAN_CASCADE_MIN_CONFIDENCE",
+        "MAX_SCAN_IMAGE_TOKENS",
+        "AGENT_HISTORY_MAX_MESSAGES",
+        "AGENT_HISTORY_MAX_CHARS",
+    )
+    missing_optimization_settings = [
+        name
+        for name in optimization_settings
+        if re.search(rf"^{re.escape(name)}=", env_example, re.MULTILINE) is None
+    ]
+    checks.check(
+        not missing_optimization_settings,
+        "AI optimization controls are documented and rollout-safe",
+        "AI optimization settings missing from backend/.env.example: "
+        + ", ".join(missing_optimization_settings),
+    )
+
     migration_source = "\n".join(
         path.read_text(encoding="utf-8")
         for path in BACKEND.glob("supabase_*.sql")

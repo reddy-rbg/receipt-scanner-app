@@ -27,6 +27,19 @@ def test_valid_production_environment_is_ready():
     assert not report.errors
 
 
+def test_staging_uses_the_same_fail_closed_checks_as_production():
+    env = valid_environment()
+    env["APP_ENV"] = "staging"
+    report = validate_production_config(env)
+    assert report.production
+    assert report.ready
+
+    env["ANTHROPIC_API_KEY"] = ""
+    report = validate_production_config(env)
+    assert not report.ready
+    assert "ANTHROPIC_API_KEY must be configured" in report.errors
+
+
 def test_missing_secrets_and_wildcard_cors_fail_closed():
     env = valid_environment()
     env["ANTHROPIC_API_KEY"] = ""
@@ -62,6 +75,7 @@ def test_legacy_receipt_qa_cannot_use_global_service_role_mcp():
 if __name__ == "__main__":
     tests = [
         test_valid_production_environment_is_ready,
+        test_staging_uses_the_same_fail_closed_checks_as_production,
         test_missing_secrets_and_wildcard_cors_fail_closed,
         test_http_urls_and_reused_service_key_are_rejected,
         test_legacy_receipt_qa_cannot_use_global_service_role_mcp,

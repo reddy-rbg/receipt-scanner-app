@@ -299,6 +299,13 @@ The Nixpacks configuration preserves the auto-detected Python provider while add
 nixPkgs = ["...", "poppler_utils"]
 ```
 
+AI optimization keeps the existing production models by default. Exact
+vision-token budgeting and prompt caching are enabled; structured output,
+strict tools, and Haiku-first scan cascading remain guarded until staging
+quality evaluation passes. See
+[`docs/AI_OPTIMIZATION.md`](docs/AI_OPTIMIZATION.md) for model impact, rollout
+flags, image-cost behavior, and verification.
+
 ### Release gate
 
 ```powershell
@@ -322,6 +329,7 @@ Then follow the device, migration, deployment, and rollback checks in [`docs/REL
 | [`docs/RBAC.md`](docs/RBAC.md) | Role matrix, scopes, support grants, and authorization |
 | [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) | Product privacy policy |
 | [`docs/SECURITY_EXCEPTIONS.md`](docs/SECURITY_EXCEPTIONS.md) | Time-bounded dependency exception tracking |
+| [`docs/AI_OPTIMIZATION.md`](docs/AI_OPTIMIZATION.md) | Token controls, model safety, prompt caching, and image strategy |
 
 ## License
 

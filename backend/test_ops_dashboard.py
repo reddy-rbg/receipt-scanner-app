@@ -84,5 +84,7 @@ def test_token_and_issue_dashboards_have_calendar_and_diagnostic_filters():
     for label in ("Today", "This week", "This month", "This year", "Apply filters", "Reset"):
         assert label in APP
     assert "AI_INPUT_COST_PER_MILLION_TOKENS" in APP
+    assert "Cached input" in APP
+    assert "cached_input_tokens" in APP
     assert "does not block or schedule AI work" in APP
     assert "Result limit reached" in APP

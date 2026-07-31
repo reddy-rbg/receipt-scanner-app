@@ -17,6 +17,12 @@ logger = get_logger(__name__)
 
 MODEL_INPUT_COST_PER_MILLION = float(os.getenv("AI_INPUT_COST_PER_MILLION_TOKENS", "0") or 0)
 MODEL_OUTPUT_COST_PER_MILLION = float(os.getenv("AI_OUTPUT_COST_PER_MILLION_TOKENS", "0") or 0)
+MODEL_CACHE_READ_COST_PER_MILLION = float(
+    os.getenv("AI_CACHE_READ_COST_PER_MILLION_TOKENS", "0") or 0
+)
+MODEL_CACHE_WRITE_COST_PER_MILLION = float(
+    os.getenv("AI_CACHE_WRITE_COST_PER_MILLION_TOKENS", "0") or 0
+)
 
 
 def _safe_int(value: Any) -> int:
@@ -26,13 +32,30 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
-def estimate_cost(input_tokens: int, output_tokens: int) -> float | None:
+def estimate_cost(
+    input_tokens: int,
+    output_tokens: int,
+    cached_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
+) -> float | None:
     """Return estimated USD only when env rates are configured."""
     if MODEL_INPUT_COST_PER_MILLION <= 0 and MODEL_OUTPUT_COST_PER_MILLION <= 0:
         return None
+    cache_read_rate = (
+        MODEL_CACHE_READ_COST_PER_MILLION
+        if MODEL_CACHE_READ_COST_PER_MILLION > 0
+        else MODEL_INPUT_COST_PER_MILLION * 0.1
+    )
+    cache_write_rate = (
+        MODEL_CACHE_WRITE_COST_PER_MILLION
+        if MODEL_CACHE_WRITE_COST_PER_MILLION > 0
+        else MODEL_INPUT_COST_PER_MILLION * 1.25
+    )
     return round(
         (input_tokens / 1_000_000) * MODEL_INPUT_COST_PER_MILLION
-        + (output_tokens / 1_000_000) * MODEL_OUTPUT_COST_PER_MILLION,
+        + (output_tokens / 1_000_000) * MODEL_OUTPUT_COST_PER_MILLION
+        + (cached_input_tokens / 1_000_000) * cache_read_rate
+        + (cache_creation_input_tokens / 1_000_000) * cache_write_rate,
         6,
     )
 
@@ -42,6 +65,12 @@ def usage_from_message(message: Any) -> dict[str, int]:
     return {
         "input_tokens": _safe_int(getattr(usage, "input_tokens", 0)),
         "output_tokens": _safe_int(getattr(usage, "output_tokens", 0)),
+        "cached_input_tokens": _safe_int(
+            getattr(usage, "cache_read_input_tokens", 0)
+        ),
+        "cache_creation_input_tokens": _safe_int(
+            getattr(usage, "cache_creation_input_tokens", 0)
+        ),
     }
 
 
@@ -60,6 +89,7 @@ def record_token_usage(
     input_tokens: int = 0,
     output_tokens: int = 0,
     cached_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
     optimized: bool = False,
     optimization: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -79,11 +109,24 @@ def record_token_usage(
         "input_tokens": _safe_int(input_tokens),
         "output_tokens": _safe_int(output_tokens),
         "cached_input_tokens": _safe_int(cached_input_tokens),
-        "total_tokens": _safe_int(input_tokens) + _safe_int(output_tokens),
-        "estimated_cost_usd": estimate_cost(_safe_int(input_tokens), _safe_int(output_tokens)),
+        "total_tokens": (
+            _safe_int(input_tokens)
+            + _safe_int(output_tokens)
+            + _safe_int(cached_input_tokens)
+            + _safe_int(cache_creation_input_tokens)
+        ),
+        "estimated_cost_usd": estimate_cost(
+            _safe_int(input_tokens),
+            _safe_int(output_tokens),
+            _safe_int(cached_input_tokens),
+            _safe_int(cache_creation_input_tokens),
+        ),
         "optimized": optimized,
         "optimization": optimization,
-        "metadata": metadata or {},
+        "metadata": {
+            **(metadata or {}),
+            "cache_creation_input_tokens": _safe_int(cache_creation_input_tokens),
+        },
     }
     try:
         supabase.table("ai_token_usage").insert(payload).execute()

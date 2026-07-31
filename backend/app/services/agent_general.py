@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from app.services.app_logger import get_logger
+from app.services.ai_optimization import cacheable_system
 
 logger = get_logger(__name__)
 
@@ -252,7 +253,7 @@ def general_advice_answer(
                 model=claude_model,
                 max_tokens=420,
                 temperature=0.2,
-                system=system,
+                system=cacheable_system(system),
                 messages=[{"role": "user", "content": user_content}],
             )
             text = "".join(block.text for block in response.content if hasattr(block, "text") and block.text).strip()
