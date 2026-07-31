@@ -11,6 +11,7 @@ type LogContext = {
 
 const enableClientLogs = (globalThis as any)?.process?.env?.EXPO_PUBLIC_ENABLE_CLIENT_LOGS === 'true';
 const enabled = __DEV__ || enableClientLogs;
+let reporting = false;
 
 function sanitize(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
@@ -43,6 +44,31 @@ function emit(level: LogLevel, message: string, context: LogContext = {}, error?
   if (level === 'error') console.error(line, payload);
   else if (level === 'warn') console.warn(line, payload);
   else console.log(line, payload);
+  if ((level === 'error' || level === 'warn') && !reporting) {
+    reporting = true;
+    const origin = String((globalThis as any)?.location?.origin || '').replace(/\/+$/, '');
+    const configured = String((globalThis as any)?.process?.env?.EXPO_PUBLIC_API_URL || '').replace(/\/+$/, '');
+    const endpoint = `${origin || configured || 'https://web-production-3605f4.up.railway.app'}/client-errors`;
+    const errorDetails = error instanceof Error
+      ? { error_type: error.name, stack: error.stack?.slice(0, 4000) }
+      : {};
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        severity: level === 'warn' ? 'warning' : 'error',
+        source: context.screen || 'app',
+        message,
+        request_id: context.requestId,
+        metadata: sanitize({
+          action: context.action,
+          receiptId: context.receiptId,
+          ...context.metadata,
+        }),
+        ...errorDetails,
+      }),
+    }).catch(() => {}).finally(() => { reporting = false; });
+  }
 }
 
 export const appLogger = {

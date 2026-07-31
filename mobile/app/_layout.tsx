@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Platform, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../stores/themeStore';
 import { appLogger } from '../utils/logger';
 
@@ -30,6 +30,25 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => voi
 
 export default function RootLayout() {
   const { isDark } = useTheme();
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof globalThis.addEventListener !== 'function') return;
+    const onError = (event: any) => appLogger.error(
+      'Unhandled website error',
+      event?.error || new Error(String(event?.message || 'Unknown website error')),
+      { screen: 'WebApp', action: 'window_error' },
+    );
+    const onRejection = (event: any) => appLogger.error(
+      'Unhandled website promise rejection',
+      event?.reason instanceof Error ? event.reason : new Error(String(event?.reason || 'Unknown promise rejection')),
+      { screen: 'WebApp', action: 'unhandled_rejection' },
+    );
+    globalThis.addEventListener('error', onError);
+    globalThis.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      globalThis.removeEventListener('error', onError);
+      globalThis.removeEventListener('unhandledrejection', onRejection);
+    };
+  }, []);
   return (
     <>
       <StatusBar style={isDark ? 'light' : 'dark'} />

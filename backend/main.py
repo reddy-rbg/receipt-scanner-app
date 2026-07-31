@@ -6,11 +6,13 @@
 import asyncio
 import os
 import time
+from collections import defaultdict, deque
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.routes import receipts, auth, agent_route, rbac
@@ -23,8 +25,10 @@ from app.production_config import require_production_config, validate_production
 configure_logging()
 logger = get_logger(__name__)
 SLOW_REQUEST_MS = int(os.getenv("SLOW_REQUEST_MS", "3000") or "3000")
-LOG_CLIENT_ERROR_EVENTS = os.getenv("LOG_CLIENT_ERROR_EVENTS", "false").lower() in {"1", "true", "yes", "on"}
+LOG_CLIENT_ERROR_EVENTS = os.getenv("LOG_CLIENT_ERROR_EVENTS", "true").lower() in {"1", "true", "yes", "on"}
 WEB_APP_DIRECTORY = Path(__file__).parent / "web_app"
+CLIENT_EVENT_LIMIT_PER_MINUTE = 30
+_client_event_times: dict[str, deque[float]] = defaultdict(deque)
 
 
 class SPAStaticFiles(StaticFiles):
@@ -37,6 +41,39 @@ class SPAStaticFiles(StaticFiles):
             if exc.status_code != 404:
                 raise
             return await super().get_response("index.html", scope)
+
+
+class ClientErrorEvent(BaseModel):
+    severity: str = Field(default="error", max_length=20)
+    source: str = Field(default="client", max_length=100)
+    message: str = Field(min_length=1, max_length=1000)
+    error_type: str | None = Field(default=None, max_length=200)
+    stack: str | None = Field(default=None, max_length=4000)
+    request_id: str | None = Field(default=None, max_length=100)
+    metadata: dict = Field(default_factory=dict)
+
+
+def _allow_client_event(client_key: str) -> bool:
+    now = time.monotonic()
+    recent = _client_event_times[client_key]
+    while recent and now - recent[0] >= 60:
+        recent.popleft()
+    if len(recent) >= CLIENT_EVENT_LIMIT_PER_MINUTE:
+        return False
+    recent.append(now)
+    return True
+
+
+def _safe_client_metadata(metadata: dict) -> dict:
+    safe: dict = {}
+    for key, value in list(metadata.items())[:30]:
+        name = str(key)[:80]
+        if any(secret in name.lower() for secret in ("password", "token", "secret", "authorization", "cookie")):
+            safe[name] = "[redacted]"
+            continue
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            safe[name] = value if not isinstance(value, str) else value[:500]
+    return safe
 
 
 # ── Auto-cleanup task ──
@@ -220,6 +257,30 @@ app.mount(
     StaticFiles(directory=str(Path(__file__).parent / "reset_password"), html=True),
     name="password-reset",
 )
+
+
+@app.post("/client-errors", status_code=202, include_in_schema=False)
+async def client_error_event(event: ClientErrorEvent, request: Request):
+    """Accept sanitized browser/mobile failures for the operations Issues tab."""
+    client_key = request.client.host if request.client else "unknown"
+    if not _allow_client_event(client_key):
+        return {"accepted": False, "reason": "rate_limited"}
+    severity = event.severity.lower()
+    if severity not in {"error", "warning", "info"}:
+        severity = "error"
+    metadata = _safe_client_metadata(event.metadata)
+    if event.error_type:
+        metadata["client_error_type"] = event.error_type
+    if event.stack:
+        metadata["client_stack"] = event.stack[:4000]
+    record_error_event(
+        source=f"client_{event.source}"[:100],
+        message=event.message,
+        severity=severity,
+        request_id_value=event.request_id,
+        metadata=metadata,
+    )
+    return {"accepted": True}
 app.mount(
     "/privacy",
     StaticFiles(directory=str(Path(__file__).parent / "privacy"), html=True),

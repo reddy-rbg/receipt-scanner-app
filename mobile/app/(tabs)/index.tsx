@@ -5,6 +5,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
 import { API } from '../../config/api';
+import { appLogger } from '../../utils/logger';
 import { useState, useEffect, useCallback } from 'react';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +18,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Platform,
 } from 'react-native';
 
 function getDisplayName(user: any) {
@@ -59,6 +61,26 @@ function isHeicImage(uri: string) {
 function uploadFileName(uri: string, fallback: string) {
   const name = uri.split('?')[0].split('/').pop() || fallback;
   return isHeicImage(name) ? name.replace(/\.(heic|heif)$/i, '.jpg') : name;
+}
+
+async function appendUploadFile(
+  formData: FormData,
+  field: string,
+  uri: string,
+  name: string,
+  type: string,
+) {
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    if (!response.ok) throw new Error('Could not read the selected receipt image.');
+    const sourceBlob = await response.blob();
+    const blob = sourceBlob.type === type
+      ? sourceBlob
+      : sourceBlob.slice(0, sourceBlob.size, type);
+    formData.append(field, blob, name);
+    return;
+  }
+  formData.append(field, { uri, name, type } as any);
 }
 const n=(v:any)=>parseFloat(v)||0;
 const money=(v:any)=>`$${n(v).toFixed(2)}`;
@@ -600,21 +622,14 @@ export default function ScanScreen(){
         if (preparedPages.some(page => page.compressed)) {
           setFileStatus(`${preparedPages.length} pages prepared for scanning.`);
         }
-        preparedPages.forEach((page, index) => {
+        for (let index = 0; index < preparedPages.length; index += 1) {
+          const page = preparedPages[index];
           const name = uploadFileName(page.uri, `receipt-page-${index + 1}.jpg`);
-          fd.append('files', {
-            uri: page.uri,
-            name,
-            type: getMime(page.uri, false),
-          } as any);
-        });
+          await appendUploadFile(fd, 'files', page.uri, name, getMime(page.uri, false));
+        }
       } else {
         const fname = uploadFileName(prepared.uri, isPDF ? 'receipt.pdf' : 'receipt.jpg');
-        fd.append('file', {
-          uri: prepared.uri,
-          name: fname,
-          type: getMime(prepared.uri, isPDF),
-        } as any);
+        await appendUploadFile(fd, 'file', prepared.uri, fname, getMime(prepared.uri, isPDF));
       }
 
       const res = await fetch(endpoint, {
@@ -627,6 +642,21 @@ export default function ScanScreen(){
 
       if(!res.ok){
         const rawMessage = String(data.detail || data.message || `Error ${res.status}`);
+        appLogger.error(
+          'Receipt scan request failed',
+          new Error(rawMessage),
+          {
+            screen: 'Scan',
+            action: 'scan_receipt',
+            requestId: res.headers.get('X-Request-ID'),
+            metadata: {
+              statusCode: res.status,
+              fileType: isPDF ? 'pdf' : 'image',
+              pageCount: isPDF ? 1 : Math.max(1, sourceImageUris.length),
+              guest: Boolean(user?.is_guest || user?.token === 'guest'),
+            },
+          },
+        );
         const lowerMessage = rawMessage.toLowerCase();
         const friendlyMessage = rawMessage.includes('image exceeds 5 MB')
           ? 'The receipt image is still too large for AI scanning. Please crop closer to the receipt or retake the photo from a shorter distance.'
@@ -660,6 +690,15 @@ export default function ScanScreen(){
         setPriceInsights([]);
       }
     }catch(e:any){
+      appLogger.error('Receipt scan failed before completion', e, {
+        screen: 'Scan',
+        action: 'scan_receipt',
+        metadata: {
+          fileType: isPDF ? 'pdf' : 'image',
+          pageCount: isPDF ? 1 : Math.max(1, imageUris.length),
+          guest: Boolean(user?.is_guest || user?.token === 'guest'),
+        },
+      });
       Alert.alert('Error', e.message || 'Could not connect. Try again.');
     }finally{
       setLoading(false);
