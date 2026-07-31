@@ -31,6 +31,9 @@ def test_shared_scan_source_uses_browser_blob_uploads():
     assert "Platform.OS === 'web'" in source
     assert "await response.blob()" in source
     assert "formData.append(field, blob, name)" in source
+    assert "Preserve ordinary browser file/blob URIs" in source
+    assert "setScanError" in source
+    assert "Request ID:" in source
 
 
 def test_web_root_and_client_routes_use_the_shared_app():

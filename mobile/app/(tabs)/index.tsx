@@ -108,6 +108,10 @@ function scanCategory(receipt:any) {
 
 async function fileSize(uri: string) {
   try {
+    if (Platform.OS === 'web') {
+      const response = await fetch(uri);
+      return response.ok ? (await response.blob()).size : 0;
+    }
     const info = await FileSystem.getInfoAsync(uri);
     return info.exists && typeof info.size === 'number' ? info.size : 0;
   } catch {
@@ -118,6 +122,12 @@ async function fileSize(uri: string) {
 async function compressReceiptImage(uri: string) {
   let currentUri = uri;
   let currentSize = await fileSize(currentUri);
+
+  // Preserve ordinary browser file/blob URIs. The backend performs the final
+  // Claude-specific crop, resize, compression, and visual-token optimization.
+  if (Platform.OS === 'web' && currentSize > 0 && currentSize <= MAX_UPLOAD_BYTES) {
+    return { uri: currentUri, compressed: false, size: currentSize };
+  }
 
   try {
     const manipulated = await ImageManipulator.manipulateAsync(
@@ -307,6 +317,7 @@ export default function ScanScreen(){
   const [priceInsights,setPriceInsights] = useState<any[]>([]);
   const [priceLoading,setPriceLoading] = useState(false);
   const [fileStatus,setFileStatus] = useState('');
+  const [scanError,setScanError] = useState('');
   const [duplicate,setDuplicate] = useState('');
   const [duplicateReceiptId,setDuplicateReceiptId] = useState<string | number | null>(null);
   const [stats,setStats]         = useState({receipts:0,spent:0,saved:0});
@@ -498,6 +509,7 @@ export default function ScanScreen(){
     });
     if(!r.canceled&&r.assets?.length){
       setFileStatus('');
+      setScanError('');
       const prepared = await Promise.all(r.assets.slice(0, MAX_SCAN_IMAGE_PAGES).map(asset => compressReceiptImage(asset.uri)));
       const preparedUris = prepared.map(item => item.uri);
       setUri(preparedUris[0]);
@@ -523,6 +535,7 @@ export default function ScanScreen(){
     const r=await ImagePicker.launchCameraAsync({quality:0.85});
     if(!r.canceled&&r.assets[0]){
       setFileStatus('');
+      setScanError('');
       const prepared = await compressReceiptImage(r.assets[0].uri);
       setUri(prepared.uri);
       const nextUris = [...imageUris, prepared.uri].slice(0, MAX_SCAN_IMAGE_PAGES);
@@ -545,6 +558,7 @@ export default function ScanScreen(){
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
+    setScanError('');
     setFileStatus(asset.size ? `PDF selected: ${(asset.size / (1024 * 1024)).toFixed(1)} MB. Multi-page invoices will be scanned together.` : 'PDF selected. Multi-page invoices will be scanned together.');
     setUri(asset.uri);
     setImageUris([]);
@@ -553,6 +567,7 @@ export default function ScanScreen(){
     setResultItemPage(0);
     setPriceInsights([]);
     setDuplicate('');
+    setScanError('');
     setDuplicateReceiptId(null);
   }
 
@@ -569,6 +584,7 @@ export default function ScanScreen(){
     setResultItemPage(0);
     setPriceInsights([]);
     setDuplicate('');
+    setScanError('');
 
     try{
       const token = await getUserToken();
@@ -584,7 +600,9 @@ export default function ScanScreen(){
         setFileStatus(`Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB for scanning.`);
       }
       if (prepared.size && prepared.size > MAX_UPLOAD_BYTES) {
-        Alert.alert('Image too large', 'Please crop the receipt closer and try again. The image is still above 5 MB after compression.');
+        const message = 'Please crop the receipt closer and try again. The image is still above 5 MB after compression.';
+        setScanError(message);
+        Alert.alert('Image too large', message);
         return;
       }
 
@@ -616,7 +634,9 @@ export default function ScanScreen(){
         const preparedPages = await Promise.all(sourceImageUris.map(pageUri => compressReceiptImage(pageUri)));
         const oversizedPage = preparedPages.find(page => page.size && page.size > MAX_UPLOAD_BYTES);
         if (oversizedPage) {
-          Alert.alert('Image too large', 'One receipt page is still above 5 MB after compression. Please crop it closer and try again.');
+          const message = 'One receipt page is still above 5 MB after compression. Please crop it closer and try again.';
+          setScanError(message);
+          Alert.alert('Image too large', message);
           return;
         }
         if (preparedPages.some(page => page.compressed)) {
@@ -663,6 +683,8 @@ export default function ScanScreen(){
           : lowerMessage.includes('cannot read receipt') || lowerMessage.includes('not readable') || lowerMessage.includes('not legible') || lowerMessage.includes('too small') || lowerMessage.includes('far away')
             ? 'Cannot read the receipt clearly. Retake the photo closer, keep the full receipt visible, and make sure the text is sharp.'
           : rawMessage;
+        const responseRequestId = res.headers.get('X-Request-ID');
+        setScanError(`${friendlyMessage}${responseRequestId ? ` Request ID: ${responseRequestId}` : ''}`);
         Alert.alert('Scan Failed', friendlyMessage);
         return;
       }
@@ -672,6 +694,9 @@ export default function ScanScreen(){
         setDuplicateReceiptId(data.saved_id || data.receipt?.id || null);
       }
 
+      if (!data.receipt) {
+        throw new Error('The scanner completed without returning receipt data. Please try again.');
+      }
       const normalizedReceipt = normalizeScannedReceipt(data.receipt);
       setResult(normalizedReceipt);
       setResultItemPage(0);
@@ -690,6 +715,8 @@ export default function ScanScreen(){
         setPriceInsights([]);
       }
     }catch(e:any){
+      const visibleMessage = e?.message || 'Could not connect. Try again.';
+      setScanError(visibleMessage);
       appLogger.error('Receipt scan failed before completion', e, {
         screen: 'Scan',
         action: 'scan_receipt',
@@ -699,7 +726,7 @@ export default function ScanScreen(){
           guest: Boolean(user?.is_guest || user?.token === 'guest'),
         },
       });
-      Alert.alert('Error', e.message || 'Could not connect. Try again.');
+      Alert.alert('Error', visibleMessage);
     }finally{
       setLoading(false);
     }
@@ -712,6 +739,7 @@ export default function ScanScreen(){
     setImageUris([]);
     setPriceInsights([]);
     setFileStatus('');
+    setScanError('');
     setDuplicate('');
     setDuplicateReceiptId(null);
     setIsPDF(false);
@@ -940,6 +968,12 @@ export default function ScanScreen(){
               <View style={s.fileNote}>
                 <Ionicons name="checkmark-circle-outline" size={15} color={C.accent3} />
                 <Text style={s.fileNoteText}>{fileStatus}</Text>
+              </View>
+            ) : null}
+            {scanError ? (
+              <View style={s.scanError}>
+                <Ionicons name="alert-circle-outline" size={17} color={C.red} />
+                <Text style={s.scanErrorText}>{scanError}</Text>
               </View>
             ) : null}
 
@@ -1350,6 +1384,8 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   pageThumbLabel:{color:C.text2,fontSize:10,fontWeight:'800',textAlign:'center',marginTop:5},
   fileNote:{marginTop:10,flexDirection:'row',alignItems:'center',gap:7,backgroundColor:'rgba(106,255,212,0.07)',borderWidth:1,borderColor:'rgba(106,255,212,0.18)',borderRadius:10,padding:10},
   fileNoteText:{color:C.text2,fontSize:11,flex:1},
+  scanError:{marginTop:10,flexDirection:'row',alignItems:'flex-start',gap:8,backgroundColor:'rgba(255,99,120,0.10)',borderWidth:1,borderColor:'rgba(255,99,120,0.35)',borderRadius:12,padding:12},
+  scanErrorText:{color:C.red,fontSize:12,flex:1,lineHeight:17,fontWeight:'700'},
   pdfPreview:{backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:16,marginTop:14,alignItems:'center'},
   pdfPreviewText:{color:C.accent,fontSize:13,fontWeight:'600'},
   pdfPreviewSub:{color:C.text3,fontSize:11,marginTop:4},
