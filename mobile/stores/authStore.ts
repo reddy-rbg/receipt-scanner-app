@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 
 import { API } from '../config/api';
+import { deleteSecureToken, getSecureToken, setSecureToken } from '../utils/secureTokenStorage';
 
 export interface User {
   id: string;
@@ -78,8 +78,8 @@ async function clearStoredAuth(userId?: string) {
   }
   await AsyncStorage.multiRemove(keys);
   await Promise.all([
-    SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY).catch(() => {}),
-    SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY).catch(() => {}),
+    deleteSecureToken(ACCESS_TOKEN_KEY).catch(() => {}),
+    deleteSecureToken(REFRESH_TOKEN_KEY).catch(() => {}),
   ]);
 }
 
@@ -88,8 +88,8 @@ async function persistUser(user: User) {
     await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(user));
     return;
   }
-  if (user.token) await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, user.token);
-  if (user.refresh_token) await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, user.refresh_token);
+  if (user.token) await setSecureToken(ACCESS_TOKEN_KEY, user.token);
+  if (user.refresh_token) await setSecureToken(REFRESH_TOKEN_KEY, user.refresh_token);
   const profile = { ...user, token: undefined, refresh_token: undefined };
   await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(profile));
 }
@@ -157,8 +157,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       } else {
         user = {
           ...user,
-          token: await SecureStore.getItemAsync(ACCESS_TOKEN_KEY) || user.token || undefined,
-          refresh_token: await SecureStore.getItemAsync(REFRESH_TOKEN_KEY) || user.refresh_token || undefined,
+          token: await getSecureToken(ACCESS_TOKEN_KEY) || user.token || undefined,
+          refresh_token: await getSecureToken(REFRESH_TOKEN_KEY) || user.refresh_token || undefined,
         };
         const refreshed = await refreshSavedUser(user);
         if (!refreshed) {

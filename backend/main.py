@@ -10,7 +10,9 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.routes import receipts, auth, agent_route, rbac
 from app.services import agent as agent_service
 from app.services import agent_workflow
@@ -22,6 +24,19 @@ configure_logging()
 logger = get_logger(__name__)
 SLOW_REQUEST_MS = int(os.getenv("SLOW_REQUEST_MS", "3000") or "3000")
 LOG_CLIENT_ERROR_EVENTS = os.getenv("LOG_CLIENT_ERROR_EVENTS", "false").lower() in {"1", "true", "yes", "on"}
+WEB_APP_DIRECTORY = Path(__file__).parent / "web_app"
+
+
+class SPAStaticFiles(StaticFiles):
+    """Serve the shared Expo web build and fall back to its client router."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return await super().get_response("index.html", scope)
 
 
 # ── Auto-cleanup task ──
@@ -218,7 +233,12 @@ app.mount(
 
 # ── Health check ──
 @app.get("/")
-def home():
+def web_app():
+    return RedirectResponse(url="/app/", status_code=307)
+
+
+@app.get("/api")
+def api_info():
     return {
         "message": "Receipt Scanner API is running!",
         "version": app.version,
@@ -278,3 +298,13 @@ def agent_health():
         "ai_provider": "claude",
         "supabase_key_mode": supabase_key_mode,
     }
+
+
+# Keep this catch-all mount last so API, health, operations, reset, privacy, and
+# support routes retain priority. The browser now runs the same Expo Router app
+# and shared screen code as iOS and Android.
+app.mount(
+    "/app",
+    SPAStaticFiles(directory=str(WEB_APP_DIRECTORY), html=True),
+    name="receiptai-web-app",
+)

@@ -299,6 +299,20 @@ The Nixpacks configuration preserves the auto-detected Python provider while add
 nixPkgs = ["...", "poppler_utils"]
 ```
 
+Railway also serves the same Expo Router application used by iOS and Android.
+The root redirects to `/app/`; API, operations, password-reset, privacy, and
+support routes retain priority. After changing mobile code, regenerate the
+checked-in web bundle:
+
+```powershell
+cd mobile
+npx expo export --platform web --output-dir ..\backend\web_app --clear
+```
+
+The browser build uses same-origin API requests, browser camera/file selection,
+and browser-safe session persistence. Native operating-system integrations keep
+their existing iOS and Android implementations.
+
 AI optimization keeps the existing production models by default. Exact
 vision-token budgeting and prompt caching are enabled; structured output,
 strict tools, and Haiku-first scan cascading remain guarded until staging
