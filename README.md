@@ -6,7 +6,7 @@
 
 ### Turn every receipt into searchable purchase memory.
 
-ReceiptAI scans receipt images and PDFs, remembers what was purchased, and answers shopping questions with traceable evidence instead of guesses.
+ReceiptAI scans receipt images and PDFs from mobile or the browser, remembers what was purchased, and answers shopping questions with traceable evidence instead of guesses.
 
 <p>
   <img alt="Expo" src="https://img.shields.io/badge/Mobile-Expo-7C6AFF?style=for-the-badge&logo=expo&logoColor=white" />
@@ -17,11 +17,11 @@ ReceiptAI scans receipt images and PDFs, remembers what was purchased, and answe
 </p>
 
 <p>
-  <a href="#-the-receipt-intelligence-loop"><b>Architecture</b></a>
+  <a href="#the-receipt-intelligence-loop"><b>Architecture</b></a>
   ·
-  <a href="#-quick-start"><b>Quick start</b></a>
+  <a href="#quick-start"><b>Quick start</b></a>
   ·
-  <a href="#-operations-console"><b>Operations</b></a>
+  <a href="#operations-console"><b>Operations</b></a>
   ·
   <a href="./docs/RELEASE_RUNBOOK.md"><b>Release runbook</b></a>
 </p>
@@ -34,11 +34,11 @@ ReceiptAI scans receipt images and PDFs, remembers what was purchased, and answe
 > **ReceiptAI's evidence promise:** no receipt evidence means no purchase claim.<br>
 > General shopping advice is allowed, but purchase history, prices, stores, dates, and totals must be supported by saved receipt data.
 
-## ✦ The product in one glance
+## The product in one glance
 
 | Capture | Understand | Remember |
 | :--- | :--- | :--- |
-| Scan photos, gallery images, digital PDFs, and multi-page receipts. | Route digital tables through a zero-token parser and use Claude Vision when confidence is low. | Store receipts, items, prices, discounts, dates, stores, and purchase occasions. |
+| Scan camera photos, gallery images, browser uploads, digital PDFs, and multi-page receipts. | Route digital tables through a zero-model-token parser and use Claude Vision when confidence is low. | Store receipts, items, prices, discounts, dates, stores, and purchase occasions. |
 | **Ask** | **Operate** | **Protect** |
 | Ask natural questions about spending, prices, stores, repeat purchases, and shopping plans. | Monitor token usage, estimated cost, warnings, errors, request IDs, assignments, and audit activity. | Enforce backend RBAC, customer scopes, support grants, receipt assignments, and evidence gates. |
 
@@ -52,7 +52,7 @@ CAPTURE  →  EXTRACT  →  VALIDATE  →  REMEMBER  →  RETRIEVE  →  ANSWER
 
 The result is more than OCR. ReceiptAI builds a private, queryable record of real-world purchases and makes that record useful through a conversational Agent.
 
-## ✦ The Receipt Intelligence Loop
+## The Receipt Intelligence Loop
 
 <img src="./assets/readme/receiptai-architecture.svg" alt="ReceiptAI intelligence-loop architecture showing scan, ask, and operations paths around a shared trust core" width="100%" />
 
@@ -60,7 +60,7 @@ The architecture is designed as three connected journeys around one shared trust
 
 | Journey | Path | Design goal |
 | --- | --- | --- |
-| **Scan** | Mobile → scan router → parser or vision → confidence gate → purchase memory | Use the least expensive reliable extraction path |
+| **Scan** | Mobile or web → scan router → parser or vision → confidence gate → purchase memory | Use the least expensive reliable extraction path |
 | **Ask** | Question → typed intent plan → retrieval → evidence gate → answer | Keep every purchase claim grounded in stored receipts |
 | **Operate** | Ops console → RBAC guard → usage, issues, assignments, and audit | Make production behavior visible without bypassing data scopes |
 
@@ -120,7 +120,7 @@ The operations console is served by the backend, but every privileged action rem
 
 </details>
 
-## ✦ Trust by construction
+## Trust by construction
 
 | Boundary | Enforcement |
 | --- | --- |
@@ -147,21 +147,24 @@ The operations console is served by the backend, but every privileged action rem
 
 The complete permission matrix and support workflow live in [`docs/RBAC.md`](docs/RBAC.md).
 
-## ✦ Repository map
+## Repository map
 
 ```text
 ReceiptScanner/
 ├─ mobile/                         Expo + React Native customer app
 │  ├─ app/                         routes and screens
 │  ├─ components/                  reusable product UI
-│  └─ config/api.ts                backend URL resolution
+│  ├─ config/api.ts                native and same-origin API resolution
+│  └─ app.json                     native builds + /app web base path
 │
 ├─ backend/                        FastAPI service + hosted web surfaces
 │  ├─ app/
 │  │  ├─ routes/                   auth, receipts, queries, Agent, RBAC
 │  │  └─ services/                 extraction, memory, Agent, logging, access
+│  ├─ web_app/                     checked-in Expo web production bundle
 │  ├─ ops_dashboard/               role-aware operations console
 │  ├─ reset_password/              hosted account-recovery flow
+│  ├─ evaluate_ai_staging.py       guarded optimization evaluation
 │  ├─ supabase_*.sql               idempotent database migrations
 │  ├─ railway.json                 deployment and health policy
 │  ├─ nixpacks.toml                Python + Poppler build configuration
@@ -180,16 +183,18 @@ ReceiptScanner/
 | `app/services/agent.py` | Agent orchestration |
 | `app/services/agent_contracts.py` | Shared typed intent contract |
 | `app/services/agent_architecture.py` | Evidence gate, answer contract, and trace |
+| `app/services/ai_optimization.py` | Vision budgets, prompt caching, guarded schemas, and history compaction |
+| `app/services/ai_schemas.py` | Structured receipt-output contracts used during staged rollout |
 | `app/services/rbac.py` | Roles, scopes, support grants, and authorization |
 | `app/services/token_usage.py` | Usage and estimated-cost telemetry |
 | `app/services/app_logger.py` | Structured production logging and issue events |
 
-## ✦ Quick start
+## Quick start
 
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 20+
+- Node.js 22 recommended (the version used in CI)
 - Expo Go or an Android/iOS simulator
 - A Supabase project
 - An Anthropic API key
@@ -237,7 +242,24 @@ npx expo start --lan -c
 
 Use the computer's LAN IP when testing with Expo Go on a physical phone connected to the same network.
 
-## ✦ Operations console
+### 4. Start the browser app
+
+The browser and native clients share the same Expo Router screens. During local
+development, start the Expo web target:
+
+```powershell
+cd mobile
+npm install
+$env:EXPO_PUBLIC_API_URL="http://127.0.0.1:8000"
+npm run web
+```
+
+The deployed backend serves the checked-in production bundle at
+[`/app/`](https://web-production-3605f4.up.railway.app/app/). Browser camera and
+file uploads use the same scan APIs as iOS and Android, and sanitized browser
+failures are recorded in the operations Issues workspace.
+
+## Operations console
 
 Production console:
 
@@ -256,21 +278,26 @@ Optional blended token rates:
 ```env
 AI_INPUT_COST_PER_MILLION_TOKENS=
 AI_OUTPUT_COST_PER_MILLION_TOKENS=
+AI_CACHE_READ_COST_PER_MILLION_TOKENS=
+AI_CACHE_WRITE_COST_PER_MILLION_TOKENS=
 ```
 
-These power reporting-only cost estimates. They do not block, schedule, or limit model work.
+These power reporting-only estimates for normal input/output and prompt-cache
+usage. They do not block, schedule, or limit model work.
 
-## ✦ API map
+## API map
 
 | Method | Route | Purpose |
 | --- | --- | --- |
 | `POST` | `/auth/signup` | Create an account |
 | `POST` | `/auth/login` | Start a session |
 | `POST` | `/scan-receipt` | Scan and save an authenticated receipt |
+| `POST` | `/scan-receipt-pages` | Scan and save a multi-page authenticated receipt |
 | `POST` | `/guest/scan-receipt` | Scan a guest receipt |
 | `GET` | `/receipts` | List scoped receipts |
 | `GET` | `/summary` | Return spending intelligence |
 | `POST` | `/agent` | Ask the evidence-grounded Agent |
+| `POST` | `/agent/chat` | Ask with conversation history and return the RAG trace |
 | `GET` | `/rbac/me` | Return effective roles, scopes, and permissions |
 | `GET` | `/rbac/token-usage` | Query filtered AI usage |
 | `GET` | `/rbac/error-events` | Query filtered production issues |
@@ -279,7 +306,7 @@ These power reporting-only cost estimates. They do not block, schedule, or limit
 
 Interactive route documentation is available at `/docs` while the backend is running.
 
-## ✦ Production and release
+## Production and release
 
 ### Railway backend
 
@@ -325,7 +352,7 @@ flags, image-cost behavior, and verification.
 ```powershell
 cd backend
 python verify_release.py --offline
-python -m pytest -q
+python -m pytest -q --ignore=test_claude.py --ignore=test_websearch.py
 
 cd ..\mobile
 npx tsc --noEmit
@@ -334,7 +361,7 @@ npm audit --omit=dev --audit-level=critical
 
 Then follow the device, migration, deployment, and rollback checks in [`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md).
 
-## ✦ Project documentation
+## Project documentation
 
 | Document | Purpose |
 | --- | --- |
