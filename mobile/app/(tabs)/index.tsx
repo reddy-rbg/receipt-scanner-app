@@ -931,10 +931,10 @@ export default function ScanScreen(){
             </Text>
             <TouchableOpacity
               style={[s.btn,s.btnPri]}
-              onPress={()=>Alert.alert('Sign In Required','Go to the Profile tab to sign in or start your free 24-hour trial.')}
+              onPress={()=>router.push('/profile')}
               activeOpacity={0.85}
             >
-              <Text style={s.btnPriTxt}>Go to Profile  Sign In</Text>
+              <Text style={s.btnPriTxt}>Open Profile</Text>
             </TouchableOpacity>
           </View>
         ) : (

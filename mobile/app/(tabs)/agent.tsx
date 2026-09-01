@@ -158,33 +158,11 @@ type AgentAnswerCard = {
   rows?: AgentAnswerRow[];
 };
 
-const QUICK_PROMPTS = [
-  { label: 'Spending summary', prompt: 'Give me a complete summary of my spending' },
-  { label: 'Best store', prompt: 'Which store gives me the best value for money?' },
-  { label: 'Price trends', prompt: 'Show me price trends for items I buy regularly' },
-  { label: 'Shopping plan', prompt: 'Help me plan my next grocery shopping trip to save money' },
-  { label: 'Save money', prompt: 'What are the top 3 ways I can save money based on my receipts?' },
-  { label: 'Monthly report', prompt: 'Give me a monthly spending report with store breakdown' },
-  { label: 'Spending graph', prompt: 'Show my monthly expenses spent analysis as a chart' },
-  { label: 'Buy this month', prompt: 'Give me this month items to purchase based on my receipts' },
-  { label: 'Compare prices', prompt: 'Compare my prices to current market prices and find where I overpaid' },
-  { label: 'Price memory', prompt: 'Show my price memory and avoid-above prices' },
-  { label: 'Good price?', prompt: 'Is this a good price based on my receipt history?' },
-  { label: 'Best deals', prompt: 'What were the best deals I got recently?' },
+const PRISM_STARTERS = [
+  { icon: 'sparkles-outline' as const, label: 'Summarize this month', prompt: 'Summarize my spending this month and explain the biggest change.' },
+  { icon: 'search-outline' as const, label: 'Find an item', prompt: 'Help me find an item from my saved receipts.' },
+  { icon: 'git-compare-outline' as const, label: 'Compare stores', prompt: 'Compare the stores I use and show where I usually save most.' },
 ];
-
-const FEATURED_PROMPTS = [
-  { icon: 'analytics-outline' as const, label: 'Analyze spending', prompt: 'Give me a smart spending snapshot with best next moves' },
-  { icon: 'pricetag-outline' as const, label: 'Check prices', prompt: 'Show my price trends and biggest price swings' },
-  { icon: 'cart-outline' as const, label: 'Plan trip', prompt: 'Build my next shopping plan from my receipt history' },
-];
-
-function cleanPromptLabel(label: string) {
-  return label
-    .replace(/^[^\w?]+/u, '')
-    .replace(/[^\x20-\x7E]/g, '')
-    .trim();
-}
 
 export default function AgentScreen() {
   const { colors: C } = useTheme();
@@ -483,7 +461,7 @@ export default function AgentScreen() {
   }
 
   async function clearConversation() {
-    Alert.alert('Clear Conversation', 'Start a fresh conversation with the agent?', [
+    Alert.alert('Clear conversation', 'Start a fresh conversation with AI Generator?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Clear',
@@ -895,12 +873,10 @@ export default function AgentScreen() {
       keyboardVerticalOffset={90}
     >
       {/* Header info */}
-      <View style={[s.agentHeader, { backgroundColor: C.surface, borderBottomColor: C.border }]}>
+      <View style={[s.agentHeader, { backgroundColor: C.bg, borderBottomColor: C.border }]}>
         <View style={s.agentHeaderLeft}>
-          <View style={[s.agentDot, { backgroundColor: C.green }]} />
-          <Text style={[s.agentHeaderTxt, { color: C.text2 }]}>
-            {voiceMode === 'wake' ? 'Listening for Hey ReceiptAI' : voiceMode === 'dictate' ? 'Voice listening' : 'Ready'}
-          </Text>
+          <View style={s.miniPrismLogo}><View style={s.miniPrismViolet} /><View style={s.miniPrismMint} /></View>
+          <Text style={[s.agentHeaderTxt, { color: C.text }]}>ReceiptAI</Text>
         </View>
         <View style={s.headerActions}>
           <TouchableOpacity
@@ -910,14 +886,12 @@ export default function AgentScreen() {
             ]}
             onPress={() => voiceMode === 'wake' ? stopVoice() : startVoice('wake')}
             activeOpacity={0.8}
+            accessibilityLabel={voiceMode === 'wake' ? 'Stop Hey ReceiptAI listening' : 'Enable Hey ReceiptAI listening'}
           >
             <Ionicons name={voiceMode === 'wake' ? 'ear' : 'ear-outline'} size={14} color={voiceMode === 'wake' ? C.green : C.accent} />
-            <Text style={[s.wakeTxt, { color: voiceMode === 'wake' ? C.green : C.accent }]}>
-              Hey ReceiptAI
-            </Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={clearConversation}>
-            <Text style={{ color: C.accent, fontSize: 12 }}>Clear</Text>
+          <TouchableOpacity style={[s.headerRound, { backgroundColor:C.surface, borderColor:C.border }]} onPress={clearConversation} accessibilityLabel="Clear AI conversation">
+            <Ionicons name="refresh-outline" size={16} color={C.text2} />
           </TouchableOpacity>
         </View>
       </View>
@@ -934,42 +908,40 @@ export default function AgentScreen() {
         {msgs.length <= 1 && (
           <View style={s.quickSection}>
             <View style={[s.agentIntro, { backgroundColor: C.surface, borderColor: C.border }]}>
-              <View style={[s.agentIntroIcon, { backgroundColor: 'rgba(124,106,255,0.16)', borderColor: 'rgba(124,106,255,0.34)' }]}>
-                <Ionicons name="sparkles" size={18} color={C.accent} />
+              <View style={[s.agentIntroIcon, { backgroundColor: C.accent }]}>
+                <View style={s.prismOrbPink} />
+                <View style={s.prismOrbMint} />
+                <Ionicons name="sparkles" size={23} color="#FFFEFA" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[s.agentIntroKicker, { color: C.accent3 }]}>ReceiptAI Agent</Text>
-                <Text style={[s.agentIntroTitle, { color: C.text }]}>Shopping intelligence</Text>
+                <Text style={[s.agentIntroKicker, { color: C.accent3 }]}>Your receipt intelligence</Text>
+                <Text style={[s.agentIntroTitle, { color: C.text }]}>AI Generator</Text>
                 <Text style={[s.agentIntroText, { color: C.text2 }]}>
-                  Ask for price checks, spending analysis, store comparisons, and next-purchase plans.
+                  Turn your receipt history into one clear answer, whenever you need it.
                 </Text>
               </View>
             </View>
-            <View style={s.featuredGrid}>
-              {FEATURED_PROMPTS.map((q) => (
+            <Text style={[s.quickLabel, { color: C.text3 }]}>Start with</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.starterList}>
+              {PRISM_STARTERS.map((q) => (
                 <TouchableOpacity
                   key={q.label}
-                  style={[s.featuredCard, { backgroundColor: C.surface, borderColor: C.border }]}
+                  style={[s.starterCard, { backgroundColor: C.surface, borderColor: C.border }]}
                   onPress={() => sendMessage(q.prompt)}
                   activeOpacity={0.82}
                 >
-                  <Ionicons name={q.icon} size={18} color={C.accent} />
-                  <Text style={[s.featuredLabel, { color: C.text }]}>{q.label}</Text>
+                  <Text style={[s.starterLabel, { color: C.text }]}>{q.label}</Text>
                 </TouchableOpacity>
               ))}
-            </View>
-            <Text style={[s.quickLabel, { color: C.text3 }]}>Quick questions</Text>
-            <View style={s.quickGrid}>
-              {QUICK_PROMPTS.map((q, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={[s.quickChip, { backgroundColor: C.surface2, borderColor: C.border }]}
-                  onPress={() => sendMessage(q.prompt)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[s.quickChipTxt, { color: C.text2 }]}>{cleanPromptLabel(q.label)}</Text>
-                </TouchableOpacity>
-              ))}
+            </ScrollView>
+            <View style={s.aiPoster}>
+              <View style={s.aiPosterGlow} />
+              <Text style={s.aiPosterKicker}>Built from your receipt memory</Text>
+              <Text style={s.aiPosterTitle}>Ask once. Get one clear answer grounded in what you actually bought.</Text>
+              <View style={s.aiPosterSource}>
+                <Text style={s.aiPosterSourceText}>Prices · stores · spending</Text>
+                <Text style={s.aiPosterSourceReady}>Sources connected</Text>
+              </View>
             </View>
           </View>
         )}
@@ -979,9 +951,9 @@ export default function AgentScreen() {
       </ScrollView>
 
       {/* Input */}
-      <View style={[s.inputBar, { backgroundColor: C.surface, borderTopColor: C.border }]}>
+      <View style={[s.inputBar, { backgroundColor: C.bg, borderTopColor: C.border }]}>
         <TextInput
-          style={[s.input, { backgroundColor: C.surface2, borderColor: C.border, color: C.text }]}
+          style={[s.input, { backgroundColor: C.surface, borderColor: 'rgba(255,255,255,0.9)', color: C.text }]}
           placeholder="Ask about receipts, prices, stores, spending..."
           placeholderTextColor={C.text3}
           value={input}
@@ -1030,28 +1002,39 @@ export default function AgentScreen() {
 
 const s = StyleSheet.create({
   screen:       { flex: 1 },
-  agentHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 9, borderBottomWidth: 1 },
+  agentHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 6, borderBottomWidth: 0 },
   agentHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  headerActions:{ flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerActions:{ flexDirection: 'row', alignItems: 'center', gap: 7 },
+  miniPrismLogo:{ position:'relative', width:28, height:28, marginRight:2 },
+  miniPrismViolet:{ position:'absolute', left:2, top:2, width:16, height:23, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#6557FF', transform:[{rotate:'-8deg'}] },
+  miniPrismMint:{ position:'absolute', right:2, bottom:1, width:16, height:22, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#54D9D2', opacity:0.82, transform:[{rotate:'8deg'}] },
+  headerRound:{ width:40, height:40, borderRadius:15, borderBottomRightRadius:7, borderWidth:1, alignItems:'center', justifyContent:'center' },
   agentDot:     { width: 6, height: 6, borderRadius: 3 },
-  agentHeaderTxt: { fontSize: 11 },
-  wakeBtn:      { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: 99, paddingHorizontal: 9, paddingVertical: 5 },
+  agentHeaderTxt: { fontSize: 13, fontWeight:'800' },
+  wakeBtn:      { width:40, height:40, flexDirection: 'row', alignItems: 'center', justifyContent:'center', borderWidth: 1, borderRadius: 15, borderBottomRightRadius:7 },
   wakeTxt:      { fontSize: 10, fontWeight: '800' },
   chat:         { flex: 1 },
-  chatContent:  { padding: 16, paddingBottom: 12 },
+  chatContent:  { padding: 18, paddingBottom: 12 },
   quickSection: { marginBottom: 20 },
-  agentIntro:   { flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
-  agentIntroIcon:{ width: 42, height: 42, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  agentIntroKicker:{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 4 },
-  agentIntroTitle:{ fontSize: 22, lineHeight: 26, fontWeight: '900', letterSpacing: 0, marginBottom: 5 },
+  agentIntro:   { alignItems: 'flex-start', gap: 12, borderWidth: 0, borderRadius: 0, padding: 0, marginBottom: 17, shadowOpacity: 0, elevation: 0 },
+  agentIntroIcon:{ width: 66, height: 66, borderRadius: 24, borderBottomRightRadius: 8, borderWidth: 0, alignItems: 'center', justifyContent: 'center', shadowColor:'#6557FF', shadowOpacity:0.24, shadowRadius:18, shadowOffset:{width:0,height:10}, elevation:5 },
+  prismOrbPink:{ position:'absolute', width:44, height:44, borderRadius:22, right:-7, top:-8, backgroundColor:'rgba(244,155,207,0.72)' },
+  prismOrbMint:{ position:'absolute', width:38, height:38, borderRadius:19, left:-9, bottom:-8, backgroundColor:'rgba(84,217,210,0.76)' },
+  agentIntroKicker:{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1.25, marginBottom: 5 },
+  agentIntroTitle:{ fontSize: 35, lineHeight: 39, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight: '400', letterSpacing: -1.1, marginBottom: 6 },
   agentIntroText:{ fontSize: 13, lineHeight: 19 },
-  featuredGrid:  { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  featuredCard:  { flex: 1, minHeight: 78, borderWidth: 1, borderRadius: 14, padding: 11, justifyContent: 'space-between' },
-  featuredLabel: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
   quickLabel:   { fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 },
-  quickGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  quickChip:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 7 },
-  quickChipTxt: { fontSize: 12, fontWeight: '700' },
+  starterList:  { gap: 7, paddingRight: 4, marginBottom: 15 },
+  starterCard:  { minHeight: 36, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 8 },
+  starterIcon:  { width: 36, height: 36, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  starterLabel: { fontSize: 11, lineHeight: 16, fontWeight: '800' },
+  aiPoster:{ position:'relative', overflow:'hidden', minHeight:210, padding:20, borderRadius:31, borderBottomRightRadius:11, backgroundColor:'#272432', marginBottom:12, shadowColor:'#36243E', shadowOpacity:0.24, shadowRadius:24, shadowOffset:{width:0,height:14}, elevation:7 },
+  aiPosterGlow:{ position:'absolute', width:175, height:175, borderRadius:90, right:-63, bottom:-88, backgroundColor:'rgba(244,155,207,0.20)' },
+  aiPosterKicker:{ color:'rgba(255,254,250,0.66)', fontSize:9, fontWeight:'900', textTransform:'uppercase', letterSpacing:1.1 },
+  aiPosterTitle:{ color:'#FFFEFA', fontSize:24, lineHeight:28, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400', marginTop:17, maxWidth:305 },
+  aiPosterSource:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, borderTopWidth:1, borderTopColor:'rgba(255,255,255,0.10)', marginTop:20, paddingTop:13 },
+  aiPosterSourceText:{ color:'rgba(255,254,250,0.58)', fontSize:9, fontWeight:'700' },
+  aiPosterSourceReady:{ color:'#C8F37C', fontSize:9, fontWeight:'900' },
   msgRow:       { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14, gap: 8 },
   userRow:      { justifyContent: 'flex-end' },
   userMessageWrap:{ alignItems: 'flex-end', maxWidth: '86%' },
@@ -1094,10 +1077,10 @@ const s = StyleSheet.create({
   feedbackSaved:{ fontSize: 10, fontWeight: '800', paddingVertical: 5 },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
-  inputBar:     { flexDirection: 'row', alignItems: 'flex-end', padding: 12, paddingHorizontal: 16, borderTopWidth: 1, gap: 8, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
-  input:        { flex: 1, borderWidth: 1, borderRadius: 18, padding: 12, paddingHorizontal: 14, fontSize: 14, maxHeight: 100 },
-  micBtn:       { width: 44, height: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  sendBtn:      { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  inputBar:     { flexDirection: 'row', alignItems: 'flex-end', paddingTop: 12, paddingHorizontal: 18, paddingBottom: 92, borderTopWidth: 0, gap: 8, shadowColor: '#36283E', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
+  input:        { flex: 1, borderWidth: 1, borderRadius: 20, borderBottomRightRadius:7, padding: 12, paddingHorizontal: 15, fontSize: 13, maxHeight: 100, shadowColor:'#36283E', shadowOpacity:0.09, shadowRadius:16, shadowOffset:{width:0,height:8}, elevation:2 },
+  micBtn:       { width: 44, height: 44, borderRadius: 16, borderBottomRightRadius:7, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  sendBtn:      { width: 44, height: 44, borderRadius: 16, borderBottomRightRadius:6, alignItems: 'center', justifyContent: 'center', shadowColor: '#6557FF', shadowOpacity: 0.26, shadowRadius: 12, shadowOffset: { width: 0, height: 7 }, elevation: 4 },
   sendIcon:     { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 },
   voiceHint:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, paddingHorizontal: 16, paddingVertical: 8, gap: 10 },
   voiceHintTxt: { flex: 1, fontSize: 12 },

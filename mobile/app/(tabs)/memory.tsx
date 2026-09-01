@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   RefreshControl,
   Share,
@@ -14,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
 import { DARK_COLORS, useTheme } from '../../stores/themeStore';
@@ -32,10 +34,21 @@ type PriceMemoryItem = {
   good_deal_price: number;
   avoid_above_price: number;
   cheapest_store?: string | null;
+  cheapest_store_average?: number | null;
   last_bought_date?: string | null;
   buy_frequency_days?: number | null;
   next_expected_date?: string | null;
   recommendation: string;
+  recent_events?: PriceEvent[];
+  price_events?: PriceEvent[];
+};
+
+type PriceEvent = {
+  store?: string | null;
+  date?: string | null;
+  price?: number | string | null;
+  compare_price?: number | string | null;
+  receipt_id?: number | string | null;
 };
 
 type ShoppingPlanItem = {
@@ -115,7 +128,23 @@ type MonthlySnapshot = {
 
 type MemoryFilter = 'all' | 'soon' | 'compare' | 'learning';
 type MemorySort = 'smart' | 'savings' | 'swing' | 'recent';
-type MemoryView = 'today' | 'spending' | 'items' | 'more';
+type MemoryView = 'today' | 'items' | 'spending' | 'patterns' | 'insights' | 'more' | 'confidence';
+type DatePreset = 'week' | 'month' | 'year' | 'custom';
+
+type PeriodAnalytics = {
+  label: string;
+  total: number;
+  receipts: number;
+  average: number;
+  saved: number;
+  previousTotal: number;
+  trendPct: number | null;
+  categories: CategorySpend[];
+  stores: StoreSavings[];
+  daily: { key: string; label: string; total: number }[];
+  start: Date;
+  end: Date;
+};
 
 const n = (v: any) => Number.parseFloat(v) || 0;
 const money = (v: any) => `$${n(v).toFixed(2)}`;
@@ -135,6 +164,122 @@ const receiptSavingsValue = (receipt: ReceiptLite) => {
   if (explicitDiscount > 0) return explicitDiscount;
   return receiptItemDiscountSavings(receipt);
 };
+
+const startOfDay = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate());
+const endOfDay = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999);
+const dateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const parseDateInput = (value: string) => {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const parsed = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (parsed.getFullYear() !== Number(match[1]) || parsed.getMonth() !== Number(match[2]) - 1 || parsed.getDate() !== Number(match[3])) return null;
+  return parsed;
+};
+
+function periodRange(preset: DatePreset, customFrom: string, customTo: string) {
+  const now = new Date();
+  let start = startOfDay(now);
+  let end = endOfDay(now);
+
+  if (preset === 'week') {
+    const mondayOffset = (now.getDay() + 6) % 7;
+    start.setDate(start.getDate() - mondayOffset);
+    end = endOfDay(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6));
+  } else if (preset === 'month') {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  } else if (preset === 'year') {
+    start = new Date(now.getFullYear(), 0, 1);
+    end = endOfDay(new Date(now.getFullYear(), 11, 31));
+  } else {
+    const parsedFrom = parseDateInput(customFrom);
+    const parsedTo = parseDateInput(customTo);
+    if (parsedFrom) start = startOfDay(parsedFrom);
+    if (parsedTo) end = endOfDay(parsedTo);
+    if (start > end) [start, end] = [startOfDay(end), endOfDay(start)];
+  }
+
+  const durationMs = Math.max(24 * 60 * 60 * 1000, end.getTime() - start.getTime() + 1);
+  const previousEnd = new Date(start.getTime() - 1);
+  const previousStart = new Date(previousEnd.getTime() - durationMs + 1);
+  return { start, end, previousStart, previousEnd };
+}
+
+function buildPeriodAnalytics(receipts: ReceiptLite[], preset: DatePreset, customFrom: string, customTo: string): PeriodAnalytics {
+  const { start, end, previousStart, previousEnd } = periodRange(preset, customFrom, customTo);
+  const inRange = (receipt: ReceiptLite, from: Date, to: Date) => {
+    const date = receiptDateValue(receipt);
+    return !!date && date >= from && date <= to;
+  };
+  const selected = receipts.filter(receipt => inRange(receipt, start, end));
+  const previous = receipts.filter(receipt => inRange(receipt, previousStart, previousEnd));
+  const total = selected.reduce((sum, receipt) => sum + n(receipt.total), 0);
+  const previousTotal = previous.reduce((sum, receipt) => sum + n(receipt.total), 0);
+  const categoryTotals: Record<string, CategorySpend> = {};
+  const storeTotals: Record<string, StoreSavings> = {};
+  const dailyTotals: Record<string, number> = {};
+
+  selected.forEach(receipt => {
+    const totalValue = n(receipt.total);
+    const savedValue = receiptSavingsValue(receipt);
+    const category = receiptCategory(receipt);
+    const store = receipt.store || 'Unknown store';
+    const date = receiptDateValue(receipt);
+    categoryTotals[category.key] = categoryTotals[category.key] || { key:category.key, label:category.label, total:0, receipts:0, pct:0 };
+    categoryTotals[category.key].total += totalValue;
+    categoryTotals[category.key].receipts += 1;
+    storeTotals[store] = storeTotals[store] || { store, saved:0, spend:0, receipts:0, pct:0 };
+    storeTotals[store].saved += savedValue;
+    storeTotals[store].spend += totalValue;
+    storeTotals[store].receipts += 1;
+    if (date) dailyTotals[dateInputValue(date)] = (dailyTotals[dateInputValue(date)] || 0) + totalValue;
+  });
+
+  const categories = Object.values(categoryTotals)
+    .map(category => ({ ...category, pct:total > 0 ? (category.total / total) * 100 : 0 }))
+    .sort((a, b) => b.total - a.total);
+  const stores = Object.values(storeTotals)
+    .map(store => ({ ...store, pct:store.spend > 0 ? (store.saved / store.spend) * 100 : 0 }))
+    .sort((a, b) => b.saved - a.saved || b.spend - a.spend);
+  const dayCount = Math.max(1, Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1);
+  const visibleDays = Math.min(preset === 'week' ? 7 : 14, dayCount);
+  const dailyStart = new Date(end);
+  dailyStart.setDate(dailyStart.getDate() - visibleDays + 1);
+  const daily = Array.from({ length:visibleDays }, (_, index) => {
+    const date = new Date(dailyStart);
+    date.setDate(dailyStart.getDate() + index);
+    const key = dateInputValue(date);
+    return { key, label:date.toLocaleDateString(undefined, { weekday:'short' }).slice(0, 2), total:dailyTotals[key] || 0 };
+  });
+  const label = preset === 'week'
+    ? 'This week'
+    : preset === 'month'
+      ? end.toLocaleDateString(undefined, { month:'long', year:'numeric' })
+      : preset === 'year'
+        ? String(end.getFullYear())
+        : `${start.toLocaleDateString(undefined, { month:'short', day:'numeric' })} – ${end.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}`;
+
+  return {
+    label,
+    total,
+    receipts:selected.length,
+    average:selected.length ? total / selected.length : 0,
+    saved:selected.reduce((sum, receipt) => sum + receiptSavingsValue(receipt), 0),
+    previousTotal,
+    trendPct:previousTotal > 0 ? ((total - previousTotal) / previousTotal) * 100 : null,
+    categories,
+    stores,
+    daily,
+    start,
+    end,
+  };
+}
 const parseReceiptDate = (value: any) => {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -377,8 +522,14 @@ export default function PriceMemoryScreen() {
   const [recentReceipts, setRecentReceipts] = useState<ReceiptLite[]>([]);
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<MemoryFilter>('all');
-  const [activeSort, setActiveSort] = useState<MemorySort>('smart');
+  const [activeSort] = useState<MemorySort>('smart');
   const [activeView, setActiveView] = useState<MemoryView>('today');
+  const [datePreset, setDatePreset] = useState<DatePreset>('week');
+  const [customFrom, setCustomFrom] = useState(() => dateInputValue(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
+  const [customTo, setCustomTo] = useState(() => dateInputValue(new Date()));
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarTarget, setCalendarTarget] = useState<'from' | 'to'>('from');
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [checkItem, setCheckItem] = useState('');
   const [checkPrice, setCheckPrice] = useState('');
   const [liveCheck, setLiveCheck] = useState<any>(null);
@@ -803,17 +954,45 @@ export default function PriceMemoryScreen() {
   const learningItems = items.filter(item => item.recommendation === 'needs more history' || item.times_bought <= 1).length;
   const confidentItems = items.filter(item => item.times_bought >= 2 && n(item.price_range) > 0).length;
   const confidencePct = items.length ? Math.round((confidentItems / items.length) * 100) : 0;
+  const periodAnalytics = useMemo(
+    () => buildPeriodAnalytics(recentReceipts, datePreset, customFrom, customTo),
+    [recentReceipts, datePreset, customFrom, customTo],
+  );
+  const calendarDays = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstWeekday = new Date(year, month, 1).getDay();
+    const days = new Date(year, month + 1, 0).getDate();
+    return [...Array.from({ length:firstWeekday }, () => null), ...Array.from({ length:days }, (_, index) => index + 1)];
+  }, [calendarMonth]);
+  const openCalendar = (target: 'from' | 'to') => {
+    const selected = parseDateInput(target === 'from' ? customFrom : customTo) || new Date();
+    setCalendarTarget(target);
+    setCalendarMonth(new Date(selected.getFullYear(), selected.getMonth(), 1));
+    setCalendarOpen(true);
+  };
+  const selectCalendarDay = (day: number) => {
+    const selected = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
+    const value = dateInputValue(selected);
+    if (calendarTarget === 'from') {
+      setCustomFrom(value);
+      const currentTo = parseDateInput(customTo);
+      if (!currentTo || selected > currentTo) setCustomTo(value);
+    } else {
+      setCustomTo(value);
+      const currentFrom = parseDateInput(customFrom);
+      if (!currentFrom || selected < currentFrom) setCustomFrom(value);
+    }
+    setCalendarOpen(false);
+  };
+  const periodConfidence = periodAnalytics.receipts === 0
+    ? 0
+    : Math.min(100, Math.round(confidencePct * 0.65 + Math.min(35, periodAnalytics.receipts * 5)));
   const filterChips: { key: MemoryFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: items.length },
     { key: 'soon', label: 'Need soon', count: strongItems },
     { key: 'compare', label: 'Compare', count: compareItems },
     { key: 'learning', label: 'Learning', count: learningItems },
-  ];
-  const sortChips: { key: MemorySort; label: string }[] = [
-    { key: 'smart', label: 'Smart order' },
-    { key: 'savings', label: 'Best savings' },
-    { key: 'swing', label: 'Biggest swing' },
-    { key: 'recent', label: 'Recent' },
   ];
   const localNextPlan = items.filter(item => item.recommendation === 'may need soon').slice(0, 5);
   const localComparePlan = items
@@ -1180,47 +1359,31 @@ export default function PriceMemoryScreen() {
     { label:'Avoid above', value:noBuyItems.length ? money(noBuyItems[0].avoid_above_price) : money(avgAvoid), tone:'bad' },
     { label:'Next basket', value:basketBuilder.length ? money(basketTotal) : money(planTotal), tone:'mid' },
   ];
-  const showOverview = activeView === 'more';
-  const showMonthly = activeView === 'spending';
-  const showShopping = activeView === 'today';
-  const showInsights = activeView === 'more';
-  const showItems = activeView === 'items';
-  const showMore = activeView === 'more';
-  const shoppingContentCount = [
-    actionCards.length,
-    savingsMission.steps.length,
-    noBuyItems.length,
-    storeTripPlan.length,
-    returnWatch.length,
-    receiptAnomalies.length,
-    rhythmItems.length,
-    basketBuilder.length,
-    savingsOpportunities.length,
-    alerts.length,
-  ].filter(Boolean).length;
-  const insightContentCount = [
-    storeIntelligence.length,
-    loyaltySignals.length,
-    marketEdgeItems.length,
-    learningQueue.length,
-    dataQualityFlags.length,
-  ].filter(Boolean).length;
-  const monthlyContentCount = monthly ? 1 + monthly.categories.length + monthly.storeSavings.length : 0;
-  const viewChips: { key: MemoryView; label: string; count: number }[] = [
-    { key: 'today', label: 'Today', count: Math.max(1, Math.min(5, shoppingContentCount)) },
-    { key: 'spending', label: 'Spending', count: monthlyContentCount },
-    { key: 'items', label: 'Items', count: items.length },
-    { key: 'more', label: 'More', count: insightContentCount + dataQualityFlags.length + 2 },
+  // Prism keeps the first glance calm; the rich calculations feed compact cards below.
+  const showOverview = false;
+  const showMonthly = false;
+  const showShopping = false;
+  const showInsights = false;
+  const showItems = false;
+  const showMore = false;
+  const smartPeriodInsights = [
+    periodAnalytics.trendPct === null
+      ? `Scan receipts in two periods to see how your spending changes.`
+      : `You spent ${Math.abs(periodAnalytics.trendPct).toFixed(0)}% ${periodAnalytics.trendPct <= 0 ? 'less' : 'more'} than the previous comparable period.`,
+    periodAnalytics.categories[0]
+      ? `${periodAnalytics.categories[0].label} is your largest category at ${periodAnalytics.categories[0].pct.toFixed(0)}% of spending.`
+      : `Category insights will appear as receipts are added.`,
+    periodAnalytics.stores[0]
+      ? `${periodAnalytics.stores[0].store} leads this period with ${money(periodAnalytics.stores[0].spend)} spent${periodAnalytics.stores[0].saved > 0 ? ` and ${money(periodAnalytics.stores[0].saved)} saved` : ''}.`
+      : `Store comparisons will appear after your next scanned purchase.`,
   ];
-  const tabEmpty = !loading && !error && items.length > 0
-    ? activeView === 'spending' && monthlyContentCount === 0
-      ? { title:'No monthly snapshot yet', text:'Scan receipts with dates and totals to build monthly spend analysis.' }
-      : activeView === 'today' && shoppingContentCount === 0
-        ? { title:'No shopping actions yet', text:'Repeat purchases create buy-soon, avoid-above, and basket suggestions.' }
-        : activeView === 'more' && insightContentCount === 0
-          ? { title:'No advanced insights yet', text:'More repeat items will unlock store loyalty, price radar, and learning signals.' }
-          : null
-    : null;
+  const viewChips: { key: MemoryView; label: string }[] = [
+    { key: 'today', label: 'Overview' },
+    { key: 'items', label: 'Prices' },
+    { key: 'spending', label: 'Stores' },
+    { key: 'more', label: 'Alerts' },
+  ];
+  const showLegacySections: boolean = false;
 
   return (
     <View style={s.screen}>
@@ -1237,13 +1400,65 @@ export default function PriceMemoryScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       >
+        <View style={s.brandBar}>
+          <View style={s.brandLeft}>
+            <View style={s.miniPrismLogo}><View style={s.miniPrismViolet} /><View style={s.miniPrismMint} /></View>
+            <Text style={s.brandName}>ReceiptAI</Text>
+          </View>
+          <TouchableOpacity style={s.brandAction} onPress={() => setDatePreset('custom')} accessibilityLabel="Choose date range">
+            <Ionicons name="calendar-outline" size={17} color={C.text2} />
+          </TouchableOpacity>
+        </View>
         <View style={s.hero}>
-          <Text style={s.heroKicker}>See what matters now</Text>
-          <Text style={s.heroTitle}>Price Memory</Text>
-          <Text style={s.heroSub}>Quick buy, save, and spending signals from your real receipt prices.</Text>
+          <Text style={s.heroKicker}>What your receipts remember</Text>
+          <Text style={s.heroTitle}>Memory</Text>
+          <Text style={s.heroSub}>Spending, prices, stores, patterns, and alerts—explained from your saved receipts.</Text>
         </View>
 
-        <View style={s.statsRow}>
+        <View style={s.dateFilterBox}>
+          <View style={s.dateFilterHead}>
+            <View>
+              <Text style={s.dateFilterKicker}>Date filter</Text>
+              <Text style={s.dateFilterTitle}>{periodAnalytics.label}</Text>
+            </View>
+            <Text style={s.dateFilterCount}>{periodAnalytics.receipts} receipt{periodAnalytics.receipts === 1 ? '' : 's'}</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.datePresetRow} keyboardShouldPersistTaps="handled">
+            {([
+              { key:'week', label:'Week' },
+              { key:'month', label:'Month' },
+              { key:'year', label:'Year' },
+              { key:'custom', label:'Custom range' },
+            ] as { key:DatePreset; label:string }[]).map(option => (
+              <TouchableOpacity
+                key={option.key}
+                style={[s.datePresetChip, datePreset === option.key && s.datePresetChipActive]}
+                onPress={() => setDatePreset(option.key)}
+                activeOpacity={0.82}
+              >
+                <Text style={[s.datePresetTxt, datePreset === option.key && s.datePresetTxtActive]}>{option.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          {datePreset === 'custom' ? (
+            <View style={s.customDateRow}>
+              <View style={s.customDateField}>
+                <Text style={s.customDateLabel}>From</Text>
+                <TouchableOpacity style={s.customDateInput} onPress={() => openCalendar('from')} activeOpacity={0.82}>
+                  <Text style={s.customDateValue}>{customFrom}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={s.customDateField}>
+                <Text style={s.customDateLabel}>To</Text>
+                <TouchableOpacity style={s.customDateInput} onPress={() => openCalendar('to')} activeOpacity={0.82}>
+                  <Text style={s.customDateValue}>{customTo}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+        </View>
+
+        {showLegacySections && <View style={s.statsRow}>
           <View style={s.statBox}>
             <Text style={s.statVal}>{items.length}</Text>
             <Text style={s.statLbl}>Tracked</Text>
@@ -1256,11 +1471,11 @@ export default function PriceMemoryScreen() {
             <Text style={[s.statVal, { color: C.gold }]}>{compareItems}</Text>
             <Text style={s.statLbl}>Compare</Text>
           </View>
-        </View>
+        </View>}
 
-        {aiBrief ? (
+        {showLegacySections && activeView === 'today' && aiBrief ? (
           <View style={s.briefBox}>
-            <Text style={s.briefKicker}>Today</Text>
+            <Text style={s.briefKicker}>Overview</Text>
             <Text style={s.briefTitle}>{aiBrief.title}</Text>
             <Text style={s.briefPrimary}>{aiBrief.primary}</Text>
             <Text style={s.briefSecondary}>{aiBrief.secondary}</Text>
@@ -1277,7 +1492,7 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {false && items.length > 0 ? (
+        {showLegacySections && items.length > 0 ? (
           <View style={s.scoreBox}>
             {actionScoreboard.map(score => (
               <View key={score.label} style={s.scoreItem}>
@@ -1293,13 +1508,8 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {items.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={s.viewRow}
-            keyboardShouldPersistTaps="handled"
-          >
+        {!loading ? (
+          <View style={s.memoryTabs}>
             {viewChips.map(chip => {
               const selected = activeView === chip.key;
               return (
@@ -1310,18 +1520,367 @@ export default function PriceMemoryScreen() {
                   activeOpacity={0.82}
                 >
                   <Text style={[s.viewTxt, selected && s.viewTxtActive]}>{chip.label}</Text>
-                  <Text style={[s.viewCount, selected && s.viewCountActive]}>{chip.count}</Text>
                 </TouchableOpacity>
               );
             })}
-          </ScrollView>
+          </View>
+        ) : null}
+
+        {activeView === 'today' ? (
+          <>
+            <View style={s.memoryHeroCard}>
+              <View style={s.memoryHeroGlow} />
+              <Text style={s.memoryHeroLabel}>{periodAnalytics.label}</Text>
+              <Text style={s.memoryHeroTotal}>{money(periodAnalytics.total)}</Text>
+              <Text style={s.memoryHeroChange}>
+                {periodAnalytics.trendPct === null
+                  ? `${periodAnalytics.receipts} scanned receipt${periodAnalytics.receipts === 1 ? '' : 's'}`
+                  : `${money(Math.abs(periodAnalytics.total - periodAnalytics.previousTotal))} ${periodAnalytics.trendPct <= 0 ? 'less' : 'more'} than the previous period`}
+              </Text>
+              <View style={s.dailyChart}>
+                {periodAnalytics.daily.map(day => {
+                  const maxDaily = Math.max(1, ...periodAnalytics.daily.map(point => point.total));
+                  const height = day.total > 0 ? Math.max(8, Math.round((day.total / maxDaily) * 66)) : 3;
+                  return (
+                    <View key={day.key} style={s.dailyColumn}>
+                      <View style={s.memoryDailyTrack}><View style={[s.memoryDailyBar, day.total === maxDaily && s.memoryDailyBarPeak, { height }]} /></View>
+                      <Text style={s.memoryDailyLabel}>{day.label}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={s.spendSection}>
+              <View style={s.spendSectionHead}>
+                <Text style={s.spendSectionTitle}>Where your money went</Text>
+                <Text style={s.spendSectionDate}>{periodAnalytics.start.toLocaleDateString(undefined, { month:'short', day:'numeric' })} – {periodAnalytics.end.toLocaleDateString(undefined, { month:'short', day:'numeric' })}</Text>
+              </View>
+              <View style={s.spendBand}>
+                {periodAnalytics.categories.slice(0, 5).map((category, index) => (
+                  <View key={`${category.key}-band`} style={[s.spendBandPart, { flex:Math.max(1, category.total), backgroundColor:[C.accent, C.accent3, '#F3BE64', C.accent2, C.green][index] }]} />
+                ))}
+              </View>
+              <View style={s.spendLegend}>
+                {periodAnalytics.categories.slice(0, 3).map(category => (
+                  <View key={`${category.key}-legend`} style={s.spendLegendItem}>
+                    <Text style={s.spendLegendName}>{category.label}</Text>
+                    <Text style={s.spendLegendValue}>{money(category.total)}</Text>
+                  </View>
+                ))}
+              </View>
+              {periodAnalytics.categories.length === 0 ? <Text style={s.emptyInline}>Scan a receipt in this period to build the category split.</Text> : null}
+            </View>
+
+            <View style={s.premiumInsight}>
+              <View style={s.premiumInsightIcon}><Text style={s.premiumInsightGlyph}>✦</Text></View>
+              <View style={{ flex:1 }}>
+                <Text style={s.premiumInsightTitle}>Good to know</Text>
+                <Text style={s.premiumInsightText}>{smartPeriodInsights[0]}</Text>
+              </View>
+            </View>
+          </>
+        ) : null}
+
+        {activeView === 'items' ? (
+          <View>
+            <View style={s.sectionCard}>
+              <Text style={s.sectionKicker}>Price Memory</Text>
+              <Text style={s.sectionTitle}>Every price you remember</Text>
+              <Text style={s.sectionIntro}>Previous, average, lowest, highest, and history for each scanned item.</Text>
+              <View style={[s.searchWrap, { marginBottom:0 }]}>
+                <TextInput style={s.search} value={query} onChangeText={setQuery} placeholder="Search an item" placeholderTextColor={C.text3} autoCorrect={false} returnKeyType="search" />
+                {query ? <TouchableOpacity style={s.clearBtn} onPress={() => setQuery('')}><Text style={s.clearTxt}>Clear</Text></TouchableOpacity> : null}
+              </View>
+              {shown.length === 0 ? <Text style={s.emptyInline}>No matching price history yet.</Text> : null}
+            </View>
+            <View style={s.premiumInsight}>
+              <View style={s.premiumInsightIcon}><Text style={s.premiumInsightGlyph}>↻</Text></View>
+              <View style={{ flex:1 }}>
+                <Text style={s.premiumInsightTitle}>Purchase patterns</Text>
+                <Text style={s.premiumInsightText}>
+                  {rhythmItems[0]
+                    ? `${rhythmItems[0].item.item_name} is usually purchased every ${Math.max(1, Math.round(rhythmItems[0].frequency))} days${rhythmItems[0].item.next_expected_date ? ` and is expected around ${rhythmItems[0].item.next_expected_date}` : ''}.`
+                    : 'Repeat purchases will reveal how often you buy an item and when you may need it next.'}
+                </Text>
+              </View>
+            </View>
+            {shown.slice(0, 30).map((item, index) => {
+              const history = [...(item.price_events || item.recent_events || [])]
+                .filter(event => n(event.compare_price ?? event.price) > 0)
+                .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+              const previousEvent = history.length > 1 ? history[history.length - 2] : undefined;
+              const minHistory = history.length ? Math.min(...history.map(event => n(event.compare_price ?? event.price))) : 0;
+              const maxHistory = history.length ? Math.max(...history.map(event => n(event.compare_price ?? event.price))) : 0;
+              const historyRange = Math.max(0.01, maxHistory - minHistory);
+              return (
+                <View key={`${item.item_name}-price-memory-${index}`} style={s.sectionCard}>
+                  <View style={s.priceMemoryHead}>
+                    <View style={{ flex:1 }}>
+                      <Text style={s.priceMemoryName}>{item.item_name}</Text>
+                      <Text style={s.priceMemoryMeta}>{item.times_bought} purchase{item.times_bought === 1 ? '' : 's'}{item.product_size ? ` · ${item.product_size}` : ''}</Text>
+                    </View>
+                    <Text style={s.priceMemoryCurrent}>{money(history.length ? n(history[history.length - 1].compare_price ?? history[history.length - 1].price) : item.usual_price)}</Text>
+                  </View>
+                  <View style={s.priceMemoryGrid}>
+                    <View><Text style={s.priceMemoryLabel}>Previous</Text><Text style={s.priceMemoryValue}>{previousEvent ? money(previousEvent.compare_price ?? previousEvent.price) : '—'}</Text></View>
+                    <View><Text style={s.priceMemoryLabel}>Average</Text><Text style={s.priceMemoryValue}>{money(item.average_price)}</Text></View>
+                    <View><Text style={s.priceMemoryLabel}>Lowest</Text><Text style={[s.priceMemoryValue, { color:C.green }]}>{money(item.lowest_price)}</Text></View>
+                    <View><Text style={s.priceMemoryLabel}>Highest</Text><Text style={[s.priceMemoryValue, { color:C.gold }]}>{money(item.highest_price)}</Text></View>
+                  </View>
+                  <Text style={s.subsectionTitle}>Price history</Text>
+                  <View style={s.priceHistoryRow}>
+                    {history.slice(-10).map((event, eventIndex) => {
+                      const value = n(event.compare_price ?? event.price);
+                      const height = 8 + Math.round(((value - minHistory) / historyRange) * 34);
+                      return <View key={`${event.date}-${eventIndex}`} style={s.priceHistoryPoint}><View style={[s.priceHistoryBar, { height }]} /><Text style={s.priceHistoryDate}>{event.date ? new Date(event.date).toLocaleDateString(undefined, { month:'numeric', day:'numeric' }) : ''}</Text></View>;
+                    })}
+                    {history.length === 0 ? <Text style={s.emptyInline}>History will appear after this item is scanned again.</Text> : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+
+        {activeView === 'spending' ? (
+          <View style={s.sectionCard}>
+            <Text style={s.sectionKicker}>Store Intelligence</Text>
+            <Text style={s.sectionTitle}>Store comparison</Text>
+            <Text style={s.sectionIntro}>Cheapest known stores use item history; savings use the selected receipt period.</Text>
+            {periodAnalytics.stores.slice(0, 5).map((store, index) => (
+              <View key={`${store.store}-period-store-${index}`} style={s.storeCompareRow}>
+                <View style={s.storeRank}><Text style={s.storeRankTxt}>{index + 1}</Text></View>
+                <View style={{ flex:1 }}>
+                  <Text style={s.storeCompareName}>{store.store}</Text>
+                  <Text style={s.storeCompareMeta}>{store.receipts} receipt{store.receipts === 1 ? '' : 's'} · {money(store.spend)} spent</Text>
+                </View>
+                <View style={s.storeCompareRight}><Text style={s.storeCompareSaved}>{money(store.saved)}</Text><Text style={s.storeCompareSavedLabel}>saved</Text></View>
+              </View>
+            ))}
+            <View style={s.divider} />
+            <Text style={s.subsectionTitle}>Cheapest store by item</Text>
+            {items.filter(item => item.cheapest_store).slice(0, 5).map((item, index) => (
+              <View key={`${item.item_name}-cheapest-${index}`} style={s.simpleRow}>
+                <Text style={s.simpleRowName} numberOfLines={1}>{item.item_name}</Text>
+                <Text style={s.simpleRowValue} numberOfLines={1}>{item.cheapest_store}{n(item.cheapest_store_average) > 0 ? ` · ${money(item.cheapest_store_average)}` : ''}</Text>
+              </View>
+            ))}
+            {periodAnalytics.stores.length === 0 && !items.some(item => item.cheapest_store) ? <Text style={s.emptyInline}>More receipts are needed for store comparisons.</Text> : null}
+          </View>
+        ) : null}
+
+        {activeView === 'patterns' ? (
+          <View style={s.sectionCard}>
+            <Text style={s.sectionKicker}>Purchase Patterns</Text>
+            <Text style={s.sectionTitle}>Your buying rhythm</Text>
+            <Text style={s.sectionIntro}>Frequency and expected dates appear only after repeat purchases.</Text>
+            {rhythmItems.map(({ item, frequency }, index) => (
+              <View key={`${item.item_name}-pattern-${index}`} style={s.patternSimpleRow}>
+                <View style={{ flex:1 }}>
+                  <Text style={s.patternSimpleName}>{item.item_name}</Text>
+                  <Text style={s.patternSimpleMeta}>Usually every {Math.max(1, Math.round(frequency))} days · last {item.last_bought_date || 'unknown'}</Text>
+                </View>
+                <View style={s.patternDatePill}><Text style={s.patternDateLabel}>Expected</Text><Text style={s.patternDateValue}>{item.next_expected_date || 'Learning'}</Text></View>
+              </View>
+            ))}
+            {rhythmItems.length === 0 ? <Text style={s.emptyInline}>Scan the same items again to learn purchase frequency.</Text> : null}
+          </View>
+        ) : null}
+
+        {activeView === 'insights' ? (
+          <View style={s.sectionCard}>
+            <Text style={s.sectionKicker}>Smart Insights</Text>
+            <Text style={s.sectionTitle}>Plain-language highlights</Text>
+            {smartPeriodInsights.map((insight, index) => (
+              <View key={`${insight}-${index}`} style={s.insightSimpleRow}>
+                <Text style={s.insightSimpleNumber}>{index + 1}</Text>
+                <Text style={s.insightSimpleText}>{insight}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {activeView === 'more' ? (
+          <>
+            <View style={s.sectionCard}>
+              <View style={s.sectionHead}>
+                <View><Text style={s.sectionKicker}>Price Alerts</Text><Text style={s.sectionTitle}>Watch before buying</Text></View>
+                <Text style={s.alertCountTxt}>{alerts.length}</Text>
+              </View>
+              {alerts.slice(0, 8).map((alert, index) => {
+                const alertKey = `${alert.type}-${alert.item_name}`;
+                const scheduled = scheduledAlerts[alertKey];
+                return (
+                  <View key={`${alertKey}-only-${index}`} style={s.alertRow}>
+                    <View style={[s.alertDot, alert.severity === 'warning' && { backgroundColor:C.gold }, alert.severity === 'tip' && { backgroundColor:C.green }]} />
+                    <View style={{ flex:1 }}>
+                      <Text style={s.alertTitle}>{alert.title}</Text>
+                      <Text style={s.alertMsg}>{alert.message}</Text>
+                      {(alert.target_price || alert.avoid_above_price) ? <Text style={s.alertStore}>{alert.target_price ? `Good deal ${money(alert.target_price)}` : ''}{alert.target_price && alert.avoid_above_price ? ' · ' : ''}{alert.avoid_above_price ? `Avoid above ${money(alert.avoid_above_price)}` : ''}</Text> : null}
+                    </View>
+                    <TouchableOpacity style={[s.remindBtn, scheduled && s.remindBtnDone]} onPress={() => scheduleAlert(alert)} disabled={scheduled}><Text style={[s.remindTxt, scheduled && s.remindTxtDone]}>{scheduled ? 'Set' : 'Remind'}</Text></TouchableOpacity>
+                  </View>
+                );
+              })}
+              {alerts.length === 0 ? <Text style={s.emptyInline}>No unusual prices or deal alerts yet.</Text> : null}
+            </View>
+            <View style={s.sectionCard}>
+              <View style={s.confidenceOnlyHead}>
+                <View><Text style={s.sectionKicker}>Data Confidence</Text><Text style={s.sectionTitle}>{periodConfidence >= 75 ? 'Reliable' : periodConfidence >= 40 ? 'Building' : 'Early signal'}</Text></View>
+                <Text style={s.confidenceOnlyScore}>{periodConfidence}%</Text>
+              </View>
+              <View style={s.confidenceTrack}><View style={[s.confidenceFill, { width:`${periodConfidence}%` }]} /></View>
+              <Text style={s.sectionIntro}>Based on {periodAnalytics.receipts} receipt{periodAnalytics.receipts === 1 ? '' : 's'} in this period and {confidentItems} item{confidentItems === 1 ? '' : 's'} with repeat history.</Text>
+            </View>
+          </>
+        ) : null}
+
+        {activeView === 'confidence' ? (
+          <View style={s.sectionCard}>
+            <View style={s.confidenceOnlyHead}>
+              <View><Text style={s.sectionKicker}>Data Confidence</Text><Text style={s.sectionTitle}>{periodConfidence >= 75 ? 'Reliable' : periodConfidence >= 40 ? 'Building' : 'Early signal'}</Text></View>
+              <Text style={s.confidenceOnlyScore}>{periodConfidence}%</Text>
+            </View>
+            <View style={s.confidenceTrack}><View style={[s.confidenceFill, { width:`${periodConfidence}%` }]} /></View>
+            <Text style={s.sectionIntro}>Based on {periodAnalytics.receipts} receipt{periodAnalytics.receipts === 1 ? '' : 's'} in this period and {confidentItems} item{confidentItems === 1 ? '' : 's'} with repeat price history.</Text>
+            <View style={s.confidenceFacts}>
+              <View style={s.confidenceFact}><Text style={s.confidenceFactValue}>{periodAnalytics.receipts}</Text><Text style={s.confidenceFactLabel}>Period receipts</Text></View>
+              <View style={s.confidenceFact}><Text style={s.confidenceFactValue}>{confidentItems}</Text><Text style={s.confidenceFactLabel}>Reliable prices</Text></View>
+              <View style={s.confidenceFact}><Text style={s.confidenceFactValue}>{learningItems}</Text><Text style={s.confidenceFactLabel}>Still learning</Text></View>
+            </View>
+            {dataQualityFlags.slice(0, 3).map((flag, index) => (
+              <View key={`${flag.label}-confidence-${index}`} style={s.qualityRow}><Text style={s.qualityLabel}>{flag.label}</Text><Text style={s.qualityText}>{flag.text}</Text></View>
+            ))}
+          </View>
+        ) : null}
+
+        {showLegacySections && activeView === 'today' && monthly ? (
+          <View style={s.monthBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.monthKicker}>This month</Text>
+                <Text style={s.planTitle}>{monthly.label}</Text>
+              </View>
+              <View style={s.monthTotalPill}><Text style={s.monthTotalTxt}>{money(monthly.total)}</Text></View>
+            </View>
+            <View style={s.monthGrid}>
+              <View style={s.monthMetric}>
+                <Text style={s.monthMetricVal}>{monthly.receipts}</Text>
+                <Text style={s.monthMetricLbl}>Receipts</Text>
+              </View>
+              <View style={s.monthMetric}>
+                <Text style={s.monthMetricVal}>{money(monthly.average)}</Text>
+                <Text style={s.monthMetricLbl}>Avg trip</Text>
+              </View>
+              <View style={s.monthMetric}>
+                <Text style={[s.monthMetricVal, { color:C.green }]}>{money(monthly.saved)}</Text>
+                <Text style={s.monthMetricLbl}>Saved</Text>
+              </View>
+            </View>
+            <View style={s.memorySignalRow}>
+              <View style={{ flex:1 }}>
+                <Text style={s.memorySignalLabel}>Price confidence</Text>
+                <Text style={s.memorySignalValue}>{confidencePct}%</Text>
+              </View>
+              <View style={{ flex:1 }}>
+                <Text style={s.memorySignalLabel}>Top category</Text>
+                <Text style={s.memorySignalValue} numberOfLines={1}>{monthly.topCategory?.label || 'Learning'}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {showLegacySections && activeView === 'spending' && monthly ? (
+          <View style={s.monthBox}>
+            <View style={s.planHeader}>
+              <View>
+                <Text style={s.monthKicker}>Store memory</Text>
+                <Text style={s.planTitle}>Where your money goes</Text>
+              </View>
+              <View style={s.monthTotalPill}><Text style={s.monthTotalTxt}>{monthly.storeSavings.length || 1}</Text></View>
+            </View>
+            <View style={s.monthStoreRow}>
+              <View style={{ flex:1 }}>
+                <Text style={s.monthStoreLabel}>Most visited this month</Text>
+                <Text style={s.monthStoreName} numberOfLines={1}>{monthly.topStore}</Text>
+              </View>
+              <Text style={s.monthStoreTotal}>{money(monthly.topStoreTotal)}</Text>
+            </View>
+            <View style={s.monthTrack}>
+              <View style={[s.monthTrackFill, { width:`${Math.min(100, Math.round(monthly.topStorePct))}%` }]} />
+            </View>
+            <Text style={s.monthHint}>{monthly.topStorePct.toFixed(0)}% of this month&apos;s scanned spending.</Text>
+            {monthly.storeSavings.slice(0, 3).map((store, index) => (
+              <View key={`${store.store}-compact-${index}`} style={s.storeSavingsRow}>
+                <View style={s.storeSavingsRank}><Text style={s.storeSavingsRankTxt}>{index + 1}</Text></View>
+                <View style={{ flex:1 }}>
+                  <Text style={s.storeSavingsName} numberOfLines={1}>{store.store}</Text>
+                  <Text style={s.storeSavingsMeta}>{store.receipts} receipt{store.receipts === 1 ? '' : 's'} · {money(store.spend)} spent</Text>
+                </View>
+                <View style={s.storeSavingsValueBox}>
+                  <Text style={s.storeSavingsValue}>{money(store.saved)}</Text>
+                  <Text style={s.storeSavingsLabel}>saved</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {showLegacySections && activeView === 'more' ? (
+          <>
+            {alerts.length > 0 ? (
+              <View style={s.alertBox}>
+                <View style={s.planHeader}>
+                  <View>
+                    <Text style={s.alertKicker}>Worth your attention</Text>
+                    <Text style={s.planTitle}>Alerts</Text>
+                  </View>
+                  <View style={s.alertCountPill}><Text style={s.alertCountTxt}>{alerts.length}</Text></View>
+                </View>
+                {alerts.slice(0, 3).map((alert, index) => {
+                  const alertKey = `${alert.type}-${alert.item_name}`;
+                  const scheduled = scheduledAlerts[alertKey];
+                  return (
+                    <View key={`${alertKey}-compact-${index}`} style={s.alertRow}>
+                      <View style={[s.alertDot, alert.severity === 'warning' && { backgroundColor:C.gold }, alert.severity === 'tip' && { backgroundColor:C.green }]} />
+                      <View style={{ flex:1 }}>
+                        <Text style={s.alertTitle}>{alert.title}</Text>
+                        <Text style={s.alertMsg}>{alert.message}</Text>
+                      </View>
+                      <TouchableOpacity style={[s.remindBtn, scheduled && s.remindBtnDone]} onPress={() => scheduleAlert(alert)} disabled={scheduled}>
+                        <Text style={[s.remindTxt, scheduled && s.remindTxtDone]}>{scheduled ? 'Set' : 'Remind'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={s.tabEmptyBox}>
+                <Text style={s.tabEmptyTitle}>Nothing needs attention</Text>
+                <Text style={s.tabEmptyText}>New price changes and useful reminders will appear here.</Text>
+              </View>
+            )}
+            {dataQualityFlags.length > 0 ? (
+              <View style={s.qualityBox}>
+                <Text style={s.qualityKicker}>Receipt quality</Text>
+                <Text style={s.planTitle}>Improve your memory</Text>
+                {dataQualityFlags.slice(0, 2).map((flag, index) => (
+                  <View key={`${flag.label}-compact-${index}`} style={s.qualityRow}>
+                    <Text style={s.qualityLabel}>{flag.label}</Text>
+                    <Text style={s.qualityText}>{flag.text}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </>
         ) : null}
 
         {showOverview && items.length > 0 ? (
           <View style={s.healthBox}>
             <View style={s.healthTop}>
               <View>
-                <Text style={s.healthKicker}>Price Health Score</Text>
+                <Text style={s.healthKicker}>Receipt confidence</Text>
                 <Text style={s.healthTitle}>{healthLabel}</Text>
               </View>
               <Text style={[
@@ -1353,7 +1912,7 @@ export default function PriceMemoryScreen() {
             priceDoctor.tone === 'warn' && s.doctorWarn,
             priceDoctor.tone === 'mid' && s.doctorMid,
           ]}>
-            <Text style={s.doctorKicker}>Price Doctor</Text>
+            <Text style={s.doctorKicker}>Best next step</Text>
             <Text style={s.doctorTitle}>{priceDoctor.label}</Text>
             <Text style={s.doctorText}>{priceDoctor.text}</Text>
             <Text style={s.doctorFix}>{priceDoctor.fix}</Text>
@@ -1364,8 +1923,8 @@ export default function PriceMemoryScreen() {
           <View style={s.qualityBox}>
             <View style={s.planHeader}>
               <View>
-                <Text style={s.qualityKicker}>Data Quality Flags</Text>
-                <Text style={s.planTitle}>Review signals</Text>
+                <Text style={s.qualityKicker}>Receipt quality</Text>
+                <Text style={s.planTitle}>Information to review</Text>
               </View>
               <View style={s.qualityPill}>
                 <Text style={s.qualityPillTxt}>{dataQualityFlags.length}</Text>
@@ -1384,8 +1943,8 @@ export default function PriceMemoryScreen() {
           <View style={s.questionsBox}>
             <View style={s.planHeader}>
               <View>
-                <Text style={s.questionsKicker}>Smart Questions</Text>
-                <Text style={s.planTitle}>Ask the Agent next</Text>
+                <Text style={s.questionsKicker}>Useful questions</Text>
+                <Text style={s.planTitle}>Ask AI next</Text>
               </View>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.questionsRow}>
@@ -2290,13 +2849,6 @@ export default function PriceMemoryScreen() {
           </View>
         ) : null}
 
-        {tabEmpty ? (
-          <View style={s.tabEmptyBox}>
-            <Text style={s.tabEmptyTitle}>{tabEmpty.title}</Text>
-            <Text style={s.tabEmptyText}>{tabEmpty.text}</Text>
-          </View>
-        ) : null}
-
         {showItems && items.length > 0 ? (
           <>
             <ScrollView
@@ -2305,7 +2857,7 @@ export default function PriceMemoryScreen() {
               contentContainerStyle={s.filterRow}
               keyboardShouldPersistTaps="handled"
             >
-              {filterChips.map(chip => {
+              {filterChips.slice(0, 3).map(chip => {
                 const selected = activeFilter === chip.key;
                 return (
                   <TouchableOpacity
@@ -2321,26 +2873,6 @@ export default function PriceMemoryScreen() {
               })}
             </ScrollView>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={s.sortRow}
-              keyboardShouldPersistTaps="handled"
-            >
-              {sortChips.map(chip => {
-                const selected = activeSort === chip.key;
-                return (
-                  <TouchableOpacity
-                    key={chip.key}
-                    style={[s.sortChip, selected && s.sortChipActive]}
-                    onPress={() => setActiveSort(chip.key)}
-                    activeOpacity={0.82}
-                  >
-                    <Text style={[s.sortTxt, selected && s.sortTxtActive]}>{chip.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
           </>
         ) : null}
 
@@ -2475,6 +3007,39 @@ export default function PriceMemoryScreen() {
         ) : null}
       </ScrollView>
       </KeyboardAvoidingView>
+      <Modal visible={calendarOpen} transparent animationType="fade" onRequestClose={() => setCalendarOpen(false)}>
+        <View style={s.calendarOverlay}>
+          <View style={s.calendarCard}>
+            <View style={s.calendarHead}>
+              <TouchableOpacity style={s.calendarArrow} onPress={() => setCalendarMonth(current => new Date(current.getFullYear(), current.getMonth() - 1, 1))}>
+                <Text style={s.calendarArrowTxt}>‹</Text>
+              </TouchableOpacity>
+              <View style={{ alignItems:'center' }}>
+                <Text style={s.calendarKicker}>Choose {calendarTarget} date</Text>
+                <Text style={s.calendarTitle}>{calendarMonth.toLocaleDateString(undefined, { month:'long', year:'numeric' })}</Text>
+              </View>
+              <TouchableOpacity style={s.calendarArrow} onPress={() => setCalendarMonth(current => new Date(current.getFullYear(), current.getMonth() + 1, 1))}>
+                <Text style={s.calendarArrowTxt}>›</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={s.calendarWeekRow}>
+              {['S','M','T','W','T','F','S'].map((day, index) => <Text key={`${day}-${index}`} style={s.calendarWeekday}>{day}</Text>)}
+            </View>
+            <View style={s.calendarGrid}>
+              {calendarDays.map((day, index) => {
+                const value = day ? dateInputValue(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day)) : '';
+                const selected = value === (calendarTarget === 'from' ? customFrom : customTo);
+                return day ? (
+                  <TouchableOpacity key={`${day}-${index}`} style={[s.calendarDay, selected && s.calendarDaySelected]} onPress={() => selectCalendarDay(day)}>
+                    <Text style={[s.calendarDayTxt, selected && s.calendarDayTxtSelected]}>{day}</Text>
+                  </TouchableOpacity>
+                ) : <View key={`blank-${index}`} style={s.calendarDay} />;
+              })}
+            </View>
+            <TouchableOpacity style={s.calendarCancel} onPress={() => setCalendarOpen(false)}><Text style={s.calendarCancelTxt}>Cancel</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2482,11 +3047,129 @@ export default function PriceMemoryScreen() {
 const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   screen:{ flex:1, backgroundColor:C.bg },
   keyboardWrap:{ flex:1 },
-  content:{ padding:16, paddingBottom:180 },
-  hero:{ marginBottom:16 },
-  heroKicker:{ color:C.accent, fontSize:11, fontWeight:'700', textTransform:'uppercase', letterSpacing:0.6, marginBottom:6 },
-  heroTitle:{ color:C.text, fontSize:30, fontWeight:'900', letterSpacing:0 },
+  content:{ padding:18, paddingTop:10, paddingBottom:180 },
+  brandBar:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:13 },
+  brandLeft:{ flexDirection:'row', alignItems:'center', gap:7 },
+  miniPrismLogo:{ position:'relative', width:28, height:28 },
+  miniPrismViolet:{ position:'absolute', left:2, top:2, width:16, height:23, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#6557FF', transform:[{rotate:'-8deg'}] },
+  miniPrismMint:{ position:'absolute', right:2, bottom:1, width:16, height:22, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#54D9D2', opacity:0.82, transform:[{rotate:'8deg'}] },
+  brandName:{ color:C.text, fontSize:13, fontWeight:'800' },
+  brandAction:{ width:40, height:40, borderRadius:15, borderBottomRightRadius:7, backgroundColor:'rgba(255,253,248,0.78)', borderWidth:1, borderColor:'rgba(255,255,255,0.92)', alignItems:'center', justifyContent:'center', shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
+  hero:{ marginBottom:15, paddingTop:4 },
+  heroKicker:{ color:C.accent, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:1.35, marginBottom:7 },
+  heroTitle:{ color:C.text, fontSize:34, lineHeight:38, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400', letterSpacing:-1 },
   heroSub:{ color:C.text2, fontSize:13, lineHeight:19, marginTop:6 },
+  dateFilterBox:{ backgroundColor:'rgba(255,253,248,0.78)', borderWidth:1, borderColor:'rgba(255,255,255,0.92)', borderRadius:23, borderBottomRightRadius:9, padding:14, marginBottom:12, shadowColor:'#36283E', shadowOpacity:0.10, shadowRadius:20, shadowOffset:{width:0,height:10}, elevation:3 },
+  dateFilterHead:{ flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:12 },
+  dateFilterKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:3 },
+  dateFilterTitle:{ color:C.text, fontSize:17, fontWeight:'900' },
+  dateFilterCount:{ color:C.text2, fontSize:11, fontWeight:'800', backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:9, paddingVertical:5 },
+  datePresetRow:{ gap:7, paddingRight:3 },
+  datePresetChip:{ backgroundColor:'rgba(101,87,255,0.06)', borderWidth:1, borderColor:'rgba(101,87,255,0.08)', borderRadius:99, paddingHorizontal:13, paddingVertical:8 },
+  datePresetChipActive:{ backgroundColor:C.accent, borderColor:C.accent },
+  datePresetTxt:{ color:C.text2, fontSize:11, fontWeight:'800' },
+  datePresetTxtActive:{ color:'#FFFEFA' },
+  customDateRow:{ flexDirection:'row', gap:8, marginTop:11 },
+  customDateField:{ flex:1 },
+  customDateLabel:{ color:C.text3, fontSize:9, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.5, marginBottom:5 },
+  customDateInput:{ color:C.text, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, paddingHorizontal:10, paddingVertical:9, fontSize:12, fontWeight:'700' },
+  customDateValue:{ color:C.text, fontSize:12, fontWeight:'800' },
+  calendarOverlay:{ flex:1, backgroundColor:'rgba(8,8,14,0.72)', alignItems:'center', justifyContent:'center', padding:20 },
+  calendarCard:{ width:'100%', maxWidth:380, backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:24, padding:16, shadowColor:'#000', shadowOpacity:0.35, shadowRadius:24, shadowOffset:{width:0,height:14}, elevation:12 },
+  calendarHead:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:14 },
+  calendarArrow:{ width:38, height:38, borderRadius:13, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, alignItems:'center', justifyContent:'center' },
+  calendarArrowTxt:{ color:C.accent, fontSize:25, lineHeight:28, fontWeight:'700' },
+  calendarKicker:{ color:C.accent, fontSize:9, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:3 },
+  calendarTitle:{ color:C.text, fontSize:16, fontWeight:'900' },
+  calendarWeekRow:{ flexDirection:'row', marginBottom:5 },
+  calendarWeekday:{ width:'14.285%', textAlign:'center', color:C.text3, fontSize:9, fontWeight:'900' },
+  calendarGrid:{ flexDirection:'row', flexWrap:'wrap' },
+  calendarDay:{ width:'14.285%', aspectRatio:1, alignItems:'center', justifyContent:'center', borderRadius:13 },
+  calendarDaySelected:{ backgroundColor:C.accent },
+  calendarDayTxt:{ color:C.text2, fontSize:12, fontWeight:'800' },
+  calendarDayTxtSelected:{ color:'#fff' },
+  calendarCancel:{ marginTop:12, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, paddingVertical:10, alignItems:'center' },
+  calendarCancelTxt:{ color:C.text2, fontSize:12, fontWeight:'900' },
+  sectionCard:{ backgroundColor:'rgba(255,253,248,0.86)', borderWidth:1, borderColor:'rgba(255,255,255,0.94)', borderRadius:25, borderBottomRightRadius:9, padding:16, marginBottom:14, shadowColor:'#36283E', shadowOpacity:0.11, shadowRadius:20, shadowOffset:{width:0,height:10}, elevation:4 },
+  sectionHead:{ flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:13 },
+  sectionKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:4 },
+  sectionTitle:{ color:C.text, fontSize:22, lineHeight:25, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400', letterSpacing:-0.4 },
+  sectionTotal:{ color:C.text, fontSize:22, fontWeight:'900' },
+  sectionIntro:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:6, marginBottom:10 },
+  subsectionTitle:{ color:C.text3, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:9 },
+  overviewGrid:{ flexDirection:'row', gap:8, marginBottom:14 },
+  overviewMetric:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:14, padding:10 },
+  overviewMetricValue:{ color:C.text, fontSize:14, fontWeight:'900' },
+  overviewMetricLabel:{ color:C.text3, fontSize:9, lineHeight:13, fontWeight:'700', marginTop:4 },
+  dailyChartBox:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:15, padding:11, marginBottom:12 },
+  dailyChart:{ minHeight:104, flexDirection:'row', alignItems:'flex-end', justifyContent:'space-between', gap:3, marginTop:17 },
+  dailyColumn:{ flex:1, minWidth:16, alignItems:'center' },
+  dailyValue:{ color:C.text3, fontSize:7, height:12, marginBottom:2 },
+  dailyTrack:{ height:66, width:'70%', justifyContent:'flex-end', borderRadius:99, backgroundColor:'rgba(124,106,255,0.08)', overflow:'hidden' },
+  dailyBar:{ width:'100%', minHeight:3, borderRadius:99, backgroundColor:C.accent },
+  dailyLabel:{ color:C.text3, fontSize:8, fontWeight:'800', marginTop:5 },
+  emptyInline:{ color:C.text2, fontSize:12, lineHeight:18, paddingVertical:12 },
+  priceMemoryHead:{ flexDirection:'row', alignItems:'flex-start', gap:12, marginBottom:12 },
+  priceMemoryName:{ color:C.text, fontSize:16, lineHeight:20, fontWeight:'900' },
+  priceMemoryMeta:{ color:C.text2, fontSize:11, marginTop:4 },
+  priceMemoryCurrent:{ color:C.accent, fontSize:18, fontWeight:'900' },
+  priceMemoryGrid:{ flexDirection:'row', justifyContent:'space-between', gap:8, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:14, padding:11, marginBottom:13 },
+  priceMemoryLabel:{ color:C.text3, fontSize:9, fontWeight:'800', textTransform:'uppercase', marginBottom:4 },
+  priceMemoryValue:{ color:C.text, fontSize:12, fontWeight:'900' },
+  priceHistoryRow:{ minHeight:62, flexDirection:'row', alignItems:'flex-end', gap:6 },
+  priceHistoryPoint:{ flex:1, minWidth:18, alignItems:'center' },
+  priceHistoryBar:{ width:8, minHeight:8, borderRadius:99, backgroundColor:C.accent },
+  priceHistoryDate:{ color:C.text3, fontSize:7, marginTop:4 },
+  storeCompareRow:{ flexDirection:'row', alignItems:'center', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
+  storeCompareName:{ color:C.text, fontSize:13, fontWeight:'900' },
+  storeCompareMeta:{ color:C.text2, fontSize:11, marginTop:3 },
+  storeCompareRight:{ alignItems:'flex-end' },
+  storeCompareSaved:{ color:C.green, fontSize:13, fontWeight:'900' },
+  storeCompareSavedLabel:{ color:C.text3, fontSize:8, fontWeight:'900', textTransform:'uppercase', marginTop:2 },
+  divider:{ height:1, backgroundColor:C.border, marginVertical:12 },
+  simpleRow:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:12, paddingVertical:9, borderTopWidth:1, borderTopColor:C.border },
+  simpleRowName:{ flex:1, color:C.text, fontSize:12, fontWeight:'800' },
+  simpleRowValue:{ maxWidth:'45%', color:C.accent, fontSize:12, fontWeight:'900' },
+  patternSimpleRow:{ flexDirection:'row', alignItems:'center', gap:10, paddingVertical:11, borderTopWidth:1, borderTopColor:C.border },
+  patternSimpleName:{ color:C.text, fontSize:13, fontWeight:'900' },
+  patternSimpleMeta:{ color:C.text2, fontSize:11, lineHeight:16, marginTop:3 },
+  patternDatePill:{ alignItems:'flex-end', backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:11, paddingHorizontal:9, paddingVertical:7 },
+  patternDateLabel:{ color:C.text3, fontSize:8, fontWeight:'900', textTransform:'uppercase' },
+  patternDateValue:{ color:C.accent, fontSize:10, fontWeight:'900', marginTop:3 },
+  insightSimpleRow:{ flexDirection:'row', alignItems:'flex-start', gap:10, paddingVertical:12, borderTopWidth:1, borderTopColor:C.border },
+  insightSimpleNumber:{ width:24, height:24, borderRadius:12, textAlign:'center', textAlignVertical:'center', overflow:'hidden', color:C.accent, backgroundColor:'rgba(124,106,255,0.14)', fontSize:11, fontWeight:'900' },
+  insightSimpleText:{ flex:1, color:C.text2, fontSize:13, lineHeight:19, fontWeight:'700' },
+  confidenceOnlyHead:{ flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:12 },
+  confidenceOnlyScore:{ color:C.green, fontSize:28, fontWeight:'900' },
+  confidenceFacts:{ flexDirection:'row', gap:8, marginTop:13, marginBottom:8 },
+  confidenceFact:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:13, padding:10 },
+  confidenceFactValue:{ color:C.text, fontSize:16, fontWeight:'900' },
+  confidenceFactLabel:{ color:C.text3, fontSize:9, lineHeight:13, marginTop:3, fontWeight:'700' },
+  memoryTabs:{ flexDirection:'row', alignItems:'center', padding:5, backgroundColor:'rgba(255,253,248,0.74)', borderWidth:1, borderColor:'rgba(255,255,255,0.9)', borderRadius:21, borderBottomRightRadius:10, marginBottom:15, shadowColor:'#36283E', shadowOpacity:0.07, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
+  memoryHeroCard:{ position:'relative', overflow:'hidden', minHeight:258, padding:20, borderRadius:31, borderBottomRightRadius:11, backgroundColor:'#5C536B', marginBottom:17, shadowColor:'#36253F', shadowOpacity:0.24, shadowRadius:24, shadowOffset:{width:0,height:14}, elevation:7 },
+  memoryHeroGlow:{ position:'absolute', width:170, height:170, borderRadius:85, right:-52, top:-67, backgroundColor:'rgba(194,171,228,0.25)' },
+  memoryHeroLabel:{ color:'rgba(255,254,250,0.72)', fontSize:11, fontWeight:'700', marginBottom:8 },
+  memoryHeroTotal:{ color:'#FFFEFA', fontSize:42, lineHeight:47, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400', letterSpacing:-1.5 },
+  memoryHeroChange:{ color:'#72E0D8', fontSize:11, lineHeight:16, fontWeight:'800', marginTop:5 },
+  memoryDailyTrack:{ height:72, width:'72%', justifyContent:'flex-end', borderRadius:7, backgroundColor:'rgba(255,255,255,0.04)', overflow:'hidden' },
+  memoryDailyBar:{ width:'100%', minHeight:3, borderRadius:7, backgroundColor:'rgba(255,255,255,0.20)' },
+  memoryDailyBarPeak:{ backgroundColor:'#72DDD5' },
+  memoryDailyLabel:{ color:'rgba(255,254,250,0.58)', fontSize:8, fontWeight:'800', marginTop:6 },
+  spendSection:{ paddingVertical:2, marginBottom:15 },
+  spendSectionHead:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:11 },
+  spendSectionTitle:{ color:C.text, fontSize:14, fontWeight:'900' },
+  spendSectionDate:{ color:C.text3, fontSize:10, fontWeight:'700' },
+  spendBand:{ height:18, overflow:'hidden', borderRadius:99, flexDirection:'row', backgroundColor:C.surface2 },
+  spendBandPart:{ height:'100%' },
+  spendLegend:{ flexDirection:'row', gap:8, marginTop:10 },
+  spendLegendItem:{ flex:1 },
+  spendLegendName:{ color:C.text, fontSize:11, fontWeight:'900' },
+  spendLegendValue:{ color:C.text3, fontSize:10, marginTop:3 },
+  premiumInsight:{ flexDirection:'row', alignItems:'flex-start', gap:11, backgroundColor:'rgba(255,253,248,0.76)', borderWidth:1, borderColor:'rgba(255,255,255,0.94)', borderRadius:21, borderBottomRightRadius:7, padding:14, marginBottom:14, shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:18, shadowOffset:{width:0,height:9}, elevation:3 },
+  premiumInsightIcon:{ width:35, height:35, borderRadius:13, borderBottomRightRadius:5, backgroundColor:'rgba(101,87,255,0.11)', alignItems:'center', justifyContent:'center' },
+  premiumInsightGlyph:{ color:C.accent, fontSize:16, fontWeight:'900' },
+  premiumInsightTitle:{ color:C.text, fontSize:12, fontWeight:'900' },
+  premiumInsightText:{ color:C.text2, fontSize:11, lineHeight:17, marginTop:4 },
   statsRow:{ flexDirection:'row', gap:10, marginBottom:14 },
   statBox:{ flex:1, backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:16, padding:12, shadowColor:'#000', shadowOpacity:0.16, shadowRadius:12, shadowOffset:{width:0,height:7}, elevation:3 },
   statVal:{ color:C.accent, fontSize:22, fontWeight:'900' },
@@ -2505,10 +3188,10 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   scoreValue:{ color:C.text, fontSize:15, fontWeight:'900' },
   scoreLabel:{ color:C.text3, fontSize:10, fontWeight:'800', marginTop:3 },
   viewRow:{ gap:8, paddingBottom:14 },
-  viewChip:{ flexDirection:'row', alignItems:'center', gap:7, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:12, paddingHorizontal:13, paddingVertical:9 },
-  viewChipActive:{ backgroundColor:'rgba(124,106,255,0.16)', borderColor:'rgba(124,106,255,0.42)' },
-  viewTxt:{ color:C.text2, fontSize:12, fontWeight:'900' },
-  viewTxtActive:{ color:C.text },
+  viewChip:{ flex:1, alignItems:'center', justifyContent:'center', backgroundColor:'transparent', borderWidth:0, borderRadius:16, borderBottomRightRadius:7, paddingHorizontal:8, paddingVertical:11 },
+  viewChipActive:{ backgroundColor:'#403D42' },
+  viewTxt:{ color:C.text3, fontSize:11, fontWeight:'800' },
+  viewTxtActive:{ color:'#FFFEFA' },
   viewCount:{ color:C.text3, fontSize:11, fontWeight:'900' },
   viewCountActive:{ color:C.accent },
   healthBox:{ backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:18, padding:15, marginBottom:14, shadowColor:'#000', shadowOpacity:0.18, shadowRadius:14, shadowOffset:{width:0,height:8}, elevation:4 },
@@ -2557,6 +3240,9 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   monthMetric:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:14, padding:10 },
   monthMetricVal:{ color:C.text, fontSize:15, fontWeight:'900' },
   monthMetricLbl:{ color:C.text3, fontSize:10, marginTop:3, fontWeight:'700' },
+  memorySignalRow:{ flexDirection:'row', gap:8, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:14, padding:12 },
+  memorySignalLabel:{ color:C.text3, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.4, marginBottom:4 },
+  memorySignalValue:{ color:C.text, fontSize:15, fontWeight:'900' },
   forecastBox:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, padding:12, marginBottom:12 },
   forecastTop:{ flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:10, marginBottom:10 },
   forecastKicker:{ color:C.text3, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5, marginBottom:3 },

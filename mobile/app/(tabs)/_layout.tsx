@@ -42,6 +42,8 @@ export default function TabLayout() {
   // Show tabs after auth
   return (
     <Tabs
+      initialRouteName="home"
+      backBehavior="history"
       screenOptions={{
         headerStyle: {
           backgroundColor: C.bg,
@@ -51,72 +53,96 @@ export default function TabLayout() {
           shadowOpacity: 0,
         },
         headerTintColor: C.text,
-        headerTitleStyle: { fontWeight:'900', fontSize:17, letterSpacing:0 },
-        headerRight: () => <View style={styles.dot} />,
+        headerTitleStyle: { fontWeight:'900', fontSize:17, letterSpacing:-0.2 },
         tabBarStyle: {
-          backgroundColor: C.surface,
-          borderTopColor: 'rgba(238,242,255,0.08)',
+          position: 'absolute',
+          left: 13,
+          right: 13,
+          bottom: 10,
+          backgroundColor: 'rgba(255,253,248,0.94)',
+          borderTopColor: 'rgba(255,255,255,0.92)',
           borderTopWidth: 1,
-          height: 78,
-          paddingBottom: 14,
-          paddingTop: 9,
+          borderLeftWidth: 1,
+          borderRightWidth: 1,
+          borderBottomWidth: 1,
+          borderColor: 'rgba(255,255,255,0.92)',
+          borderRadius: 26,
+          borderBottomRightRadius: 16,
+          height: 72,
+          paddingBottom: 8,
+          paddingTop: 7,
           elevation: 10,
-          shadowColor: '#000',
-          shadowOpacity: 0.24,
-          shadowRadius: 18,
-          shadowOffset: { width: 0, height: -8 },
+          shadowColor: '#36283E',
+          shadowOpacity: 0.17,
+          shadowRadius: 22,
+          shadowOffset: { width: 0, height: 11 },
         },
         tabBarActiveTintColor: C.accent,
         tabBarInactiveTintColor: C.text3,
-        tabBarLabelStyle: { fontSize:10, fontWeight:'800', marginTop:2, letterSpacing:0 },
+        tabBarLabelStyle: { fontSize:10, fontWeight:'800', marginTop:2, letterSpacing:-0.1 },
       }}
     >
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
-          title: 'ReceiptAI',
-          tabBarLabel: 'Scan',
-          tabBarIcon: ({ color, size }) => <Ionicons name="scan-outline" size={size} color={color} />,
+          title: 'Home',
+          headerShown: false,
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="receipts"
         options={{
-          title: 'My Receipts',
+          title: 'Receipts',
+          headerShown: false,
           tabBarLabel: 'Receipts',
-          tabBarIcon: ({ color, size }) => <Ionicons name="receipt-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'receipt' : 'receipt-outline'} size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="shop"
+        name="index"
         options={{
-          title: 'Today List',
-          tabBarLabel: 'Shop',
-          tabBarIcon: ({ color, size }) => <Ionicons name="basket-outline" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="agent"
-        options={{
-          title: 'Ask Anything',
-          tabBarLabel: 'Agent',
-          tabBarIcon: ({ color, size }) => <Ionicons name="sparkles-outline" size={size} color={color} />,
+          title: 'Capture',
+          tabBarLabel: 'Capture',
+          tabBarItemStyle: styles.captureItem,
+          tabBarIcon: () => (
+            <View style={[styles.captureButton, { backgroundColor:C.accent, shadowColor:C.accent }]}>
+              <Ionicons name="scan-outline" size={25} color="#FFF" />
+            </View>
+          ),
         }}
       />
       <Tabs.Screen
         name="memory"
         options={{
-          title: 'Matters Now',
+          title: 'Memory',
+          headerShown: false,
           tabBarLabel: 'Memory',
-          tabBarIcon: ({ color, size }) => <Ionicons name="pricetag-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'bar-chart' : 'bar-chart-outline'} size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="agent"
+        options={{
+          title: 'AI Generator',
+          headerShown: false,
+          tabBarLabel: 'AI',
+          tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'sparkles' : 'sparkles-outline'} size={size + 1} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="shop"
+        options={{
+          href: null,
+          title: 'Shopping',
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
+          href: null,
           title: 'Profile',
-          tabBarLabel: 'Profile',
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
         }}
       />
     </Tabs>
@@ -124,9 +150,19 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  dot: {
-    width:7, height:7, borderRadius:4,
-    backgroundColor:'#4ade80', marginRight:16,
-    shadowColor:'#4ade80', shadowOpacity:0.8, shadowRadius:4,
+  captureItem: {
+    marginTop:-12,
+  },
+  captureButton: {
+    width:56,
+    height:56,
+    borderRadius:20,
+    borderBottomRightRadius:8,
+    alignItems:'center',
+    justifyContent:'center',
+    shadowOpacity:0.34,
+    shadowRadius:13,
+    shadowOffset:{width:0,height:8},
+    elevation:7,
   },
 });

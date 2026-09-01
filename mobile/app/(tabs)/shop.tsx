@@ -206,9 +206,9 @@ export default function ShopScreen() {
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={s.hero}>
           <View>
-            <Text style={s.kicker}>Before you shop</Text>
-            <Text style={s.title}>Today List</Text>
-            <Text style={s.sub}>Add items, then buy with your receipt price memory beside you.</Text>
+            <Text style={s.kicker}>Plan smarter, spend less</Text>
+            <Text style={s.title}>Shopping</Text>
+            <Text style={s.sub}>Build your list and keep your receipt price memory beside you.</Text>
           </View>
           <View style={s.heroPill}>
             <Text style={s.heroPillText}>{remaining} left</Text>

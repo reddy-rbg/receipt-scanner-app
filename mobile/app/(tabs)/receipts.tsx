@@ -2,6 +2,7 @@ import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { API } from '../../config/api';
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -200,6 +201,7 @@ export default function ReceiptsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab]   = useState('all');
   const [filterInfo, setFilterInfo] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Filter inputs
   const [storeQ,  setStoreQ]  = useState('');
@@ -559,11 +561,7 @@ export default function ReceiptsScreen() {
           </View>
         );
       default:
-        return (
-          <TouchableOpacity style={[s.filterBtn,{alignSelf:'flex-start'}]} onPress={load}>
-            <Text style={s.filterBtnTxt}>  Refresh</Text>
-          </TouchableOpacity>
-        );
+        return null;
     }
   }
 
@@ -576,81 +574,93 @@ export default function ReceiptsScreen() {
 
       {/*  TOP SECTION (fixed)  */}
       <View style={s.top}>
+        <View style={s.brandBar}>
+          <View style={s.brandLeft}>
+            <View style={s.miniPrismLogo}><View style={s.miniPrismViolet} /><View style={s.miniPrismMint} /></View>
+            <Text style={s.brandName}>ReceiptAI</Text>
+          </View>
+          <View style={s.brandAction}><Ionicons name="search-outline" size={17} color={C.text2} /></View>
+        </View>
         <View style={s.hero}>
-          <Text style={s.heroKicker}>Receipt Library</Text>
-          <Text style={s.heroTitle}>Find purchases fast</Text>
-          <Text style={s.heroSub}>Search by store, item, category, or receipt number.</Text>
+          <Text style={s.heroKicker}>Everything in one glance</Text>
+          <Text style={s.heroTitle}>Your receipts</Text>
+          <Text style={s.heroSub}>A clear, searchable record of every purchase you save.</Text>
         </View>
 
-        <View style={s.searchBox}>
-          <TextInput
-            style={s.searchInput}
-            placeholder="Search receipts..."
-            placeholderTextColor={C.text3}
-            value={storeQ}
-            onChangeText={(text) => {
-              if (activeTab !== 'store') setActiveTab('store');
-              setStoreQ(text);
-            }}
-            returnKeyType="search"
-            autoCorrect={false}
-            blurOnSubmit={false}
-          />
-          {storeQ ? (
-            <TouchableOpacity
-              style={s.searchClear}
-              onPress={() => {
-                setStoreQ('');
-                setActiveTab('all');
-                setShown(applySort(all, 'newest'));
-                setFilterInfo('');
+        <View style={s.searchToolsRow}>
+          <View style={s.searchBox}>
+            <Ionicons name="search-outline" size={17} color={C.text3} />
+            <TextInput
+              style={s.searchInput}
+              placeholder="Search store, item, or receipt"
+              placeholderTextColor={C.text3}
+              value={storeQ}
+              onChangeText={(text) => {
+                if (activeTab !== 'store') setActiveTab('store');
+                setStoreQ(text);
               }}
-            >
-              <Text style={s.searchClearTxt}>Clear</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.categoryRow} keyboardShouldPersistTaps="handled">
-          {CATEGORIES.slice(0, 8).map(cat => (
-            <TouchableOpacity
-              key={cat.key}
-              style={[s.categoryQuickChip, category === cat.key && activeTab === 'category' && s.categoryQuickActive]}
-              onPress={() => {
-                setActiveTab('category');
-                setCategory(cat.key);
-                filterByCategory(cat.key);
-              }}
-              activeOpacity={0.82}
-            >
-              <Text style={[s.categoryQuickTxt, category === cat.key && activeTab === 'category' && s.categoryQuickTxtActive]}>{cat.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* Filter Tabs */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsRow} keyboardShouldPersistTaps="handled">
-          {FILTER_TABS.map(tab => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[s.tab, activeTab===tab.key && s.tabActive]}
-              onPress={() => {
-                setActiveTab(tab.key);
-                if (tab.key === 'all') {
+              returnKeyType="search"
+              autoCorrect={false}
+              blurOnSubmit={false}
+            />
+            {storeQ ? (
+              <TouchableOpacity
+                style={s.searchClear}
+                onPress={() => {
                   setStoreQ('');
+                  setActiveTab('all');
                   setShown(applySort(all, 'newest'));
                   setFilterInfo('');
-                }
-              }}
-            >
-              <Text style={[s.tabTxt, activeTab===tab.key && s.tabTxtActive]}>{tab.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+                }}
+              >
+                <Ionicons name="close" size={16} color={C.accent} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <TouchableOpacity
+            style={[s.filterToggle, filtersOpen && s.filterToggleActive]}
+            onPress={() => setFiltersOpen(open => !open)}
+            activeOpacity={0.82}
+            accessibilityRole="button"
+            accessibilityLabel={filtersOpen ? 'Close receipt filters' : 'Open receipt filters'}
+          >
+            <Ionicons name="options-outline" size={18} color={filtersOpen || filterInfo ? C.accent : C.text2} />
+            <Text style={[s.filterToggleTxt, (filtersOpen || filterInfo) && s.filterToggleTxtActive]}>Filters</Text>
+            {filterInfo ? <View style={s.filterActiveDot} /> : null}
+          </TouchableOpacity>
+        </View>
 
-        {/* Filter Panel */}
-        <View style={s.filterPanel}>
-          {renderFilterPanel()}
+        {filtersOpen ? (
+          <View style={s.filterDrawer}>
+            <Text style={s.filterDrawerKicker}>Refine receipts</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsRow} keyboardShouldPersistTaps="handled">
+              {FILTER_TABS.map(tab => (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={[s.tab, activeTab===tab.key && s.tabActive]}
+                  onPress={() => {
+                    setActiveTab(tab.key);
+                    if (tab.key === 'all') {
+                      setStoreQ('');
+                      setShown(applySort(all, 'newest'));
+                      setFilterInfo('');
+                    }
+                  }}
+                >
+                  <Text style={[s.tabTxt, activeTab===tab.key && s.tabTxtActive]}>{tab.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <View style={s.filterPanel}>
+              {renderFilterPanel()}
+            </View>
+          </View>
+        ) : null}
+
+        <View style={s.receiptSummary}>
+          <Text style={s.receiptSummaryLabel}>{filterInfo || 'Saved receipts'}</Text>
+          <Text style={s.receiptSummaryTotal}>${shown.reduce((sum, receipt) => sum + n(receipt.total), 0).toFixed(2)}</Text>
         </View>
 
         {/* Results info */}
@@ -681,12 +691,15 @@ export default function ReceiptsScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           removeClippedSubviews={false}
-          renderItem={({item:r}) => (
+          renderItem={({item:r,index}) => (
             <TouchableOpacity
               style={s.card}
               onPress={() => { setSelected(r); setDeleted(false); setDeleteMode(false); }}
               activeOpacity={0.8}
             >
+              <View style={[s.receiptIcon, { backgroundColor:['#8F77EE','#E88C91','#E8B961','#58B8B2'][index % 4] }]}>
+                <Ionicons name="receipt-outline" size={19} color="#FFFEFA" />
+              </View>
               <View style={{flex:1}}>
                 <View style={s.cardTopLine}>
                   <Text style={s.idBadge}>#{r.id}</Text>
@@ -958,29 +971,44 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   screen:{ flex:1, backgroundColor:C.bg },
 
   top:{ backgroundColor:C.bg, paddingTop:8 },
-  hero:{ paddingHorizontal:16, paddingTop:4, paddingBottom:10 },
-  heroKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:5 },
-  heroTitle:{ color:C.text, fontSize:24, fontWeight:'900', letterSpacing:0 },
+  brandBar:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', paddingHorizontal:18, paddingTop:4, paddingBottom:10 },
+  brandLeft:{ flexDirection:'row', alignItems:'center', gap:7 },
+  miniPrismLogo:{ position:'relative', width:28, height:28 },
+  miniPrismViolet:{ position:'absolute', left:2, top:2, width:16, height:23, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#6557FF', transform:[{rotate:'-8deg'}] },
+  miniPrismMint:{ position:'absolute', right:2, bottom:1, width:16, height:22, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#54D9D2', opacity:0.82, transform:[{rotate:'8deg'}] },
+  brandName:{ color:C.text, fontSize:13, fontWeight:'800' },
+  brandAction:{ width:40, height:40, borderRadius:15, borderBottomRightRadius:7, backgroundColor:'rgba(255,253,248,0.78)', borderWidth:1, borderColor:'rgba(255,255,255,0.92)', alignItems:'center', justifyContent:'center', shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
+  hero:{ paddingHorizontal:18, paddingTop:4, paddingBottom:13 },
+  heroKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:1.25, marginBottom:6 },
+  heroTitle:{ color:C.text, fontSize:34, lineHeight:38, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400', letterSpacing:-1 },
   heroSub:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:4 },
-  searchBox:{ marginHorizontal:16, marginBottom:10, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:16, flexDirection:'row', alignItems:'center', paddingHorizontal:12 },
+  searchToolsRow:{ flexDirection:'row', alignItems:'center', gap:9, paddingHorizontal:16, marginBottom:10 },
+  searchBox:{ flex:1, minWidth:0, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:16, flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:12 },
   searchInput:{ flex:1, color:C.text, fontSize:14, paddingVertical:12 },
   searchClear:{ paddingLeft:10, paddingVertical:8 },
   searchClearTxt:{ color:C.accent, fontSize:12, fontWeight:'800' },
-  categoryRow:{ gap:8, paddingHorizontal:16, paddingBottom:8 },
+  filterToggle:{ height:46, flexDirection:'row', alignItems:'center', gap:6, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:16, paddingHorizontal:13 },
+  filterToggleActive:{ backgroundColor:'rgba(124,106,255,0.12)', borderColor:'rgba(124,106,255,0.38)' },
+  filterToggleTxt:{ color:C.text2, fontSize:12, fontWeight:'800' },
+  filterToggleTxtActive:{ color:C.accent },
+  filterActiveDot:{ width:6, height:6, borderRadius:3, backgroundColor:C.green },
+  filterDrawer:{ marginHorizontal:16, marginBottom:10, paddingVertical:12, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:20, overflow:'hidden' },
+  filterDrawerKicker:{ color:C.text3, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.7, paddingHorizontal:14, marginBottom:7 },
+  categoryRow:{ gap:8, paddingHorizontal:14, paddingBottom:4 },
   categoryQuickChip:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:12, paddingHorizontal:12, paddingVertical:8 },
   categoryQuickActive:{ backgroundColor:'rgba(124,106,255,0.16)', borderColor:'rgba(124,106,255,0.42)' },
   categoryQuickTxt:{ color:C.text2, fontSize:11, fontWeight:'700' },
   categoryQuickTxtActive:{ color:C.accent },
 
   // Filter tabs
-  tabsRow:{ flexDirection:'row', gap:6, paddingHorizontal:16, paddingVertical:6 },
+  tabsRow:{ flexDirection:'row', gap:6, paddingHorizontal:14, paddingVertical:6 },
   tab:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, paddingHorizontal:14, paddingVertical:8, flexShrink:0 },
   tabActive:{ backgroundColor:'rgba(124,106,255,0.15)', borderColor:'rgba(124,106,255,0.4)' },
   tabTxt:{ color:C.text2, fontSize:12, fontWeight:'500' },
   tabTxtActive:{ color:C.accent },
 
   // Filter panel
-  filterPanel:{ paddingHorizontal:16, paddingVertical:10 },
+  filterPanel:{ paddingHorizontal:14, paddingTop:8, paddingBottom:2 },
   filterRow:{ flexDirection:'row', gap:8, alignItems:'center', marginBottom:6 },
   filterLabel:{ color:C.text3, fontSize:12, minWidth:36 },
   filterInput:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:11, padding:10, paddingHorizontal:14, color:C.text, fontSize:13 },
@@ -988,6 +1016,9 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   filterBtnTxt:{ color:'#fff', fontWeight:'600', fontSize:13 },
   filterHint:{ color:C.text3, fontSize:11, lineHeight:15, marginTop:2 },
   searchHintBox:{ backgroundColor:'rgba(124,106,255,0.06)', borderWidth:1, borderColor:'rgba(124,106,255,0.14)', borderRadius:12, padding:10 },
+  receiptSummary:{ marginHorizontal:16, marginBottom:10, minHeight:50, flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:12, paddingHorizontal:15, paddingVertical:12, borderRadius:20, borderBottomRightRadius:8, backgroundColor:'#5C536B', shadowColor:'#36253F', shadowOpacity:0.18, shadowRadius:18, shadowOffset:{width:0,height:10}, elevation:5 },
+  receiptSummaryLabel:{ color:'rgba(255,254,250,0.70)', fontSize:11, fontWeight:'800', flex:1 },
+  receiptSummaryTotal:{ color:'#FFFEFA', fontSize:19, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400' },
 
   // Select chips (month/year/sort)
   selectChip:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, paddingHorizontal:14, paddingVertical:6, flexShrink:0 },
@@ -1003,20 +1034,21 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
 
   // List
   list:{ flex:1 },
-  listContent:{ padding:16, paddingTop:4, paddingBottom:40 },
+  listContent:{ padding:16, paddingTop:4, paddingBottom:124 },
   loadingWrap:{ flex:1, alignItems:'center', justifyContent:'center', padding:28 },
   loadingTitle:{ color:C.text, fontSize:16, fontWeight:'900', marginTop:14 },
   loadingText:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:5, textAlign:'center' },
 
   // Receipt cards
-  card:{ backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:16, padding:16, marginBottom:12, flexDirection:'row', alignItems:'center', gap:10, shadowColor:'#000', shadowOpacity:0.18, shadowRadius:14, shadowOffset:{width:0,height:8}, elevation:4 },
+  card:{ backgroundColor:'rgba(255,253,248,0.88)', borderWidth:1, borderColor:'rgba(255,255,255,0.94)', borderRadius:22, borderBottomRightRadius:8, padding:11, marginBottom:8, flexDirection:'row', alignItems:'center', gap:11, shadowColor:'#36283E', shadowOpacity:0.09, shadowRadius:16, shadowOffset:{width:0,height:8}, elevation:3 },
+  receiptIcon:{ width:45, height:45, borderRadius:16, borderBottomRightRadius:6, alignItems:'center', justifyContent:'center' },
   cardTopLine:{ flexDirection:'row', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:4 },
   idBadge:{ color:C.text3, fontSize:9, fontFamily:'monospace', letterSpacing:0.5, marginBottom:3 },
   categoryBadge:{ backgroundColor:'rgba(128,111,255,0.10)', borderWidth:1, borderColor:'rgba(128,111,255,0.24)', borderRadius:8, paddingHorizontal:8, paddingVertical:3 },
   categoryBadgeTxt:{ color:C.accent, fontSize:10, fontWeight:'600' },
-  storeName:{ color:C.text, fontSize:15, fontWeight:'900', marginBottom:3 },
+  storeName:{ color:C.text, fontSize:13, fontWeight:'900', marginBottom:3 },
   meta:{ color:C.text2, fontSize:11, lineHeight:16 },
-  total:{ color:C.text, fontSize:18, fontWeight:'900', letterSpacing:0 },
+  total:{ color:C.text, fontSize:15, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'700', letterSpacing:-0.2 },
   pill:{ backgroundColor:'rgba(74,222,128,0.1)', borderWidth:1, borderColor:'rgba(74,222,128,0.2)', borderRadius:99, paddingHorizontal:8, paddingVertical:2, marginTop:4 },
   pillTxt:{ color:C.green, fontSize:10 },
   arrow:{ color:C.text3, fontSize:22, marginLeft:2 },
