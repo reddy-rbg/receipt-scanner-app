@@ -5033,6 +5033,14 @@ def looks_like_overview_question(message: str) -> bool:
     )
 
 
+def looks_like_total_spending_question(message: str) -> bool:
+    return agent_analytics.looks_like_total_spending_question(
+        message,
+        normalize_text=normalize_text,
+        correct_query_words=correct_query_words,
+    )
+
+
 def looks_like_weekly_question(message: str) -> bool:
     return agent_analytics.looks_like_weekly_question(message, normalize_text=normalize_text)
 
@@ -6862,6 +6870,34 @@ def run_agent(
             else "general_advice"
         )
         return general_knowledge_response(original_message, resolved_intent)
+
+    # Aggregate receipt questions can contain words such as "paid" that also
+    # occur in item-price questions. Route this narrow, entity-free case before
+    # extraction while leaving specialized analytics (shopping plans, price
+    # memory, graph memory, and category tables) on their established paths.
+    if (
+        intent_plan.intent == AgentIntent.RECEIPT_ANALYTICS
+        and not intent_plan.item_query
+        and not intent_plan.items
+        and looks_like_total_spending_question(original_message)
+    ):
+        answer = deterministic_overview_answer(original_message, user_id, guest_session_id)
+        card = deterministic_overview_answer_card(original_message, user_id, guest_session_id)
+        return finalize_agent_result({
+            "response": answer or "I do not see enough receipt data to answer that yet.",
+            "answer_card": card,
+            "tools_used": ["receipt_memory"],
+            "thinking": "",
+            "rag_trace": rag_trace(
+                intent=intent_plan.legacy_intent or "receipt_analytics",
+                retrieval="structured_receipt_aggregation",
+                original_message=original_message,
+                normalized_query=message,
+                evidence=evidence_rows_from_card(card),
+                strict=True,
+                note="Executed the prepared aggregate-receipt plan before item entity extraction.",
+            ),
+        }, original_message)
 
     deterministic_general = receipt_intelligence.parse_receipt_query(original_message)
     if (

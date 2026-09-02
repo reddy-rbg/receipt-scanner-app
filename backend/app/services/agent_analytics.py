@@ -80,9 +80,29 @@ REPEAT_PRICE_TREND_TERMS = [
 ]
 
 
+def looks_like_total_spending_question(message: str, *, normalize_text, correct_query_words) -> bool:
+    text = correct_query_words(normalize_text(message))
+    # Aggregate totals must never be interpreted as a product named after the
+    # surrounding request words (for example, "across both test receipts").
+    # Keep item-specific questions such as "what did I pay for eggs in total"
+    # on the item-history path unless the user explicitly scopes receipts.
+    has_spend_verb = bool(re.search(r"\b(?:pay|paid|spend|spent)\b", text))
+    has_aggregate_scope = bool(re.search(r"\b(?:in total|altogether|overall|combined|across)\b", text))
+    has_receipt_scope = bool(re.search(r"\breceipts?\b", text))
+    item_specific = bool(re.search(r"\b(?:pay|paid|spend|spent)\s+for\b", text))
+    return has_spend_verb and has_aggregate_scope and (has_receipt_scope or not item_specific)
+
+
 def looks_like_overview_question(message: str, *, normalize_text, correct_query_words) -> bool:
     text = correct_query_words(normalize_text(message))
-    return any(re.search(rf"\b{re.escape(phrase)}\b", text) for phrase in OVERVIEW_PHRASES)
+    return (
+        any(re.search(rf"\b{re.escape(phrase)}\b", text) for phrase in OVERVIEW_PHRASES)
+        or looks_like_total_spending_question(
+            message,
+            normalize_text=normalize_text,
+            correct_query_words=correct_query_words,
+        )
+    )
 
 
 def looks_like_weekly_question(message: str, *, normalize_text) -> bool:

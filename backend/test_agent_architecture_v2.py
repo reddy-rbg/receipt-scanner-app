@@ -106,12 +106,45 @@ def test_ttl_cache_reuses_data_without_request_wide_clear():
     assert agent._ttl_cache_get(cache, key) == [1, 2, 3]
 
 
+def test_aggregate_receipt_total_honors_analytics_plan_before_item_rag():
+    receipts = [
+        {"id": 138, "store": "Test Grocery Mart", "date": "2026-09-02", "total": 12.94, "items": []},
+        {"id": 139, "store": "Test Wholesale Market", "date": "2026-09-01", "total": 64.80, "items": []},
+    ]
+    original_receipts = agent.fetch_owner_receipts
+    original_events = agent.fetch_owner_item_events
+    agent.fetch_owner_receipts = lambda *_args, **_kwargs: receipts
+    agent.fetch_owner_item_events = lambda *_args, **_kwargs: []
+    try:
+        question = "Across both test receipts, how much did I pay in total?"
+        plan = agent.build_intent_plan(question, question, [])
+        assert plan.intent == AgentIntent.RECEIPT_ANALYTICS
+        assert not plan.item_query
+        result = agent.run_agent(question, [], intent_plan=plan, message_is_resolved=True)
+    finally:
+        agent.fetch_owner_receipts = original_receipts
+        agent.fetch_owner_item_events = original_events
+
+    assert "$77.74" in result["response"]
+    assert "purchase found" not in result["response"].lower()
+    assert result["rag_trace"]["retrieval"] == "structured_receipt_aggregation"
+
+
+def test_item_specific_total_remains_an_item_question():
+    question = "How much did I pay for eggs in total?"
+    plan = agent.build_intent_plan(question, question, [])
+    assert plan.intent != AgentIntent.RECEIPT_ANALYTICS
+    assert plan.item_query == "eggs"
+
+
 if __name__ == "__main__":
     tests = [
         test_intent_plan_preserves_raw_question_and_operation,
         test_prepared_plan_skips_second_interpretation,
         test_workflow_passes_one_plan_into_execution,
         test_ttl_cache_reuses_data_without_request_wide_clear,
+        test_aggregate_receipt_total_honors_analytics_plan_before_item_rag,
+        test_item_specific_total_remains_an_item_question,
     ]
     for test in tests:
         test()
