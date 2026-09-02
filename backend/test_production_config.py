@@ -80,6 +80,15 @@ def test_railway_launches_with_fail_closed_production_validation():
 
     assert '"startCommand": "APP_ENV=production ' in railway
     assert procfile.startswith("web: APP_ENV=production ")
+    for setting in (
+        "PUBLIC_BASE_URL=https://web-production-3605f4.up.railway.app",
+        "PASSWORD_RESET_REDIRECT_URL=https://web-production-3605f4.up.railway.app/reset-password/",
+        "CORS_ALLOWED_ORIGINS=https://web-production-3605f4.up.railway.app",
+        "SUPPORT_EMAIL=support@receiptai.app",
+        "LOG_JSON=true",
+    ):
+        assert setting in railway
+        assert setting in procfile
     assert "status_code=200 if report.ready else 503" in main_source
 
 

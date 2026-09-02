@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "APP_ENV=production uvicorn main:app --host 0.0.0.0 --port $PORT",
+    "startCommand": "APP_ENV=production PUBLIC_BASE_URL=https://web-production-3605f4.up.railway.app PASSWORD_RESET_REDIRECT_URL=https://web-production-3605f4.up.railway.app/reset-password/ CORS_ALLOWED_ORIGINS=https://web-production-3605f4.up.railway.app SUPPORT_EMAIL=support@receiptai.app LOG_JSON=true uvicorn main:app --host 0.0.0.0 --port $PORT",
     "healthcheckPath": "/health/ready",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",

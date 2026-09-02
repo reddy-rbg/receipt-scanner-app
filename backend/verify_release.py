@@ -145,6 +145,16 @@ def check_repository(checks: ReleaseChecks) -> None:
     checks.check(
         deploy.get("healthcheckPath") == "/health/ready"
         and str(deploy.get("startCommand") or "").startswith("APP_ENV=production ")
+        and all(
+            setting in str(deploy.get("startCommand") or "")
+            for setting in (
+                "PUBLIC_BASE_URL=https://",
+                "PASSWORD_RESET_REDIRECT_URL=https://",
+                "CORS_ALLOWED_ORIGINS=https://",
+                "SUPPORT_EMAIL=",
+                "LOG_JSON=true",
+            )
+        )
         and deploy.get("restartPolicyType") in {"ON_FAILURE", "ALWAYS"}
         and isinstance(deploy.get("restartPolicyMaxRetries"), int)
         and deploy["restartPolicyMaxRetries"] > 0
