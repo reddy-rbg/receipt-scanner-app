@@ -144,6 +144,7 @@ def check_repository(checks: ReleaseChecks) -> None:
     deploy = railway.get("deploy") or {}
     checks.check(
         deploy.get("healthcheckPath") == "/health/ready"
+        and str(deploy.get("startCommand") or "").startswith("APP_ENV=production ")
         and deploy.get("restartPolicyType") in {"ON_FAILURE", "ALWAYS"}
         and isinstance(deploy.get("restartPolicyMaxRetries"), int)
         and deploy["restartPolicyMaxRetries"] > 0
@@ -154,7 +155,7 @@ def check_repository(checks: ReleaseChecks) -> None:
         and isinstance(deploy.get("drainingSeconds"), int)
         and deploy["drainingSeconds"] >= 0,
         "Railway health and restart policies are source-controlled",
-        "Railway must use /health/ready and numeric deploy/restart settings",
+        "Railway must launch with APP_ENV=production, use /health/ready, and use numeric deploy/restart settings",
     )
 
     nixpacks = tomllib.loads(

@@ -15,6 +15,7 @@ import math
 import os
 import re
 import time
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from urllib.parse import urlencode
@@ -2028,10 +2029,23 @@ PRICE_MEMORY_TOKEN_STOPWORDS = {
 
 
 def is_valid_receipt_item_name(value: Any) -> bool:
+    raw_value = str(value or "").strip()
     normalized = normalize_text(value)
     if not normalized:
         return False
     if normalized in {"unknown", "unknown item", "item", "nan", "none", "null"}:
+        return False
+    if re.match(
+        r"^(?:cashier|clerk|served by|operator|transaction|reference|auth(?:orization)?|"
+        r"credit card sale|debit card sale)\b",
+        normalized,
+    ):
+        return False
+    if re.match(
+        r"^(?:cut\s+|weight\s+|wt\s+)?\d+(?:\.\d+)?\s*(?:lb|lbs|kg|kgs|oz|g)\s*(?:@|at)\s*\$?\d",
+        raw_value,
+        re.I,
+    ):
         return False
     return bool(token_set(normalized))
 
@@ -2181,6 +2195,19 @@ def fetch_owner_item_events(user_id: str | None = None, guest_session_id: str | 
     # miss real purchases because a backfill/index step lagged behind.
     try:
         json_events = build_item_events(receipts_for_merge)
+        repaired_receipt_ids = {
+            str(event.get("receipt_id"))
+            for event in json_events
+            if isinstance(event.get("metadata"), dict)
+            and event["metadata"].get("merged_from_split_lines")
+        }
+        if repaired_receipt_ids:
+            # Old normalized rows may contain the pre-repair cashier/weight split.
+            # Prefer the freshly repaired canonical JSON events for that receipt.
+            events = [
+                event for event in events
+                if str(event.get("receipt_id")) not in repaired_receipt_ids
+            ]
         event_positions = {
             canonical_purchase_event_key(event): index
             for index, event in enumerate(events)
@@ -2204,7 +2231,15 @@ def fetch_owner_item_events(user_id: str | None = None, guest_session_id: str | 
 def build_item_events(receipts: list[dict]) -> list[dict]:
     """Flatten receipt JSON items into exact purchase events for grounded RAG."""
     events: list[dict] = []
-    for receipt in receipts:
+    for source_receipt in receipts:
+        receipt = source_receipt
+        try:
+            # Re-run deterministic normalization on read so historical scans gain
+            # new cashier/continuation repairs without mutating stored customer data.
+            from app.services.claude import normalize_receipt_data
+            receipt = normalize_receipt_data(deepcopy(source_receipt))
+        except Exception as error:
+            logger.warning("Could not normalize historical receipt %s: %s", source_receipt.get("id"), error)
         receipt_items = []
         for item in receipt.get("items") or []:
             if isinstance(item, dict):
@@ -4389,9 +4424,21 @@ def parse_receipt_date(value: Any) -> datetime | None:
     if not value:
         return None
     text = str(value).strip()
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y"):
+    iso_text = text.replace("Z", "+00:00")
+    try:
+        parsed_iso = datetime.fromisoformat(iso_text)
+        return parsed_iso.replace(tzinfo=None)
+    except ValueError:
+        pass
+    date_text = re.split(r"[T\s]+(?=\d{1,2}:\d{2})", text, maxsplit=1)[0].strip()
+    for fmt in (
+        "%Y-%m-%d", "%Y/%m/%d",
+        "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y",
+        "%d-%b-%Y", "%d-%b-%y", "%d-%B-%Y", "%d-%B-%y",
+        "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y",
+    ):
         try:
-            return datetime.strptime(text[:10], fmt)
+            return datetime.strptime(date_text, fmt)
         except ValueError:
             continue
     return None
@@ -4432,6 +4479,11 @@ def receipt_week_key(receipt: dict) -> tuple[str, str, str]:
 
 def event_date(event: dict) -> datetime | None:
     return parse_receipt_date(event.get("date")) or parse_receipt_date((event.get("created_at") or "")[:10])
+
+
+def event_date_iso(event: dict) -> str | None:
+    parsed = event_date(event)
+    return parsed.strftime("%Y-%m-%d") if parsed else None
 
 
 def price_memory_event_price(event: dict) -> float:
@@ -4605,7 +4657,7 @@ def build_price_memory(user_id: str | None = None, guest_session_id: str | None 
             "avoid_above_price": round(avoid_above_price, 2),
             "cheapest_store": cheapest_store,
             "cheapest_store_average": store_averages.get(cheapest_store) if cheapest_store else None,
-            "last_bought_date": latest_event.get("date") or (latest_event.get("created_at") or "")[:10],
+            "last_bought_date": event_date_iso(latest_event),
             "last_receipt_id": latest_event.get("receipt_id"),
             "last_line_index": latest_event.get("line_index"),
             "cheapest_receipt_id": cheapest_event.get("receipt_id"),
@@ -4617,7 +4669,7 @@ def build_price_memory(user_id: str | None = None, guest_session_id: str | None 
             "recent_events": [
                 {
                     "store": e.get("store"),
-                    "date": e.get("date"),
+                    "date": event_date_iso(e),
                     "price": e.get("line_price"),
                     "compare_price": price_memory_event_price(e),
                     "quantity": e.get("quantity"),
@@ -4625,12 +4677,12 @@ def build_price_memory(user_id: str | None = None, guest_session_id: str | None 
                     "unit_price": e.get("unit_price"),
                     "receipt_id": e.get("receipt_id"),
                 }
-                for e in sorted(events, key=lambda e: e.get("created_at") or e.get("date") or "", reverse=True)[:5]
+                for e in sorted(events, key=lambda e: event_date(e) or datetime.min, reverse=True)[:5]
             ],
             "price_events": [
                 {
                     "store": e.get("store"),
-                    "date": e.get("date"),
+                    "date": event_date_iso(e),
                     "price": e.get("line_price"),
                     "compare_price": price_memory_event_price(e),
                     "quantity": e.get("quantity"),

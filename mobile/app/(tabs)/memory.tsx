@@ -181,6 +181,27 @@ const parseDateInput = (value: string) => {
   if (parsed.getFullYear() !== Number(match[1]) || parsed.getMonth() !== Number(match[2]) - 1 || parsed.getDate() !== Number(match[3])) return null;
   return parsed;
 };
+const parseMemoryDate = (value?: string | null) => {
+  if (!value) return null;
+  const isoDate = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoDate) {
+    const parsed = new Date(Number(isoDate[1]), Number(isoDate[2]) - 1, Number(isoDate[3]));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp);
+};
+const formatHistoryDate = (value?: string | null) => {
+  const parsed = parseMemoryDate(value);
+  return parsed ? parsed.toLocaleDateString(undefined, { month:'short', day:'numeric' }) : 'Date unavailable';
+};
+const memoryErrorMessage = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error || '');
+  if (/failed to fetch|network request failed|networkerror/i.test(message)) {
+    return 'Memory is temporarily unavailable. Check your connection and try again.';
+  }
+  return message || 'Could not load Price Memory. Please try again.';
+};
 
 function periodRange(preset: DatePreset, customFrom: string, customTo: string) {
   const now = new Date();
@@ -572,7 +593,7 @@ export default function PriceMemoryScreen() {
         return n(b.price_range) - n(a.price_range);
       }
       if (activeSort === 'recent') {
-        return new Date(b.last_bought_date || 0).getTime() - new Date(a.last_bought_date || 0).getTime();
+        return (parseMemoryDate(b.last_bought_date)?.getTime() || 0) - (parseMemoryDate(a.last_bought_date)?.getTime() || 0);
       }
 
       const priority = (item: PriceMemoryItem) => {
@@ -612,8 +633,8 @@ export default function PriceMemoryScreen() {
       await loadShoppingPlan(headers, isGuest ? (guestId || user.id) : '');
       await loadPriceAlerts(headers, isGuest ? (guestId || user.id) : '', nextItems);
       await loadMonthlySnapshot(headers, isGuest ? (guestId || user.id) : '');
-    } catch (e: any) {
-      setError(e.message || 'Could not load Price Memory.');
+    } catch (e: unknown) {
+      setError(memoryErrorMessage(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -1608,7 +1629,7 @@ export default function PriceMemoryScreen() {
             {shown.slice(0, 30).map((item, index) => {
               const history = [...(item.price_events || item.recent_events || [])]
                 .filter(event => n(event.compare_price ?? event.price) > 0)
-                .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+                .sort((a, b) => (parseMemoryDate(a.date)?.getTime() || 0) - (parseMemoryDate(b.date)?.getTime() || 0));
               const previousEvent = history.length > 1 ? history[history.length - 2] : undefined;
               const minHistory = history.length ? Math.min(...history.map(event => n(event.compare_price ?? event.price))) : 0;
               const maxHistory = history.length ? Math.max(...history.map(event => n(event.compare_price ?? event.price))) : 0;
@@ -1629,11 +1650,18 @@ export default function PriceMemoryScreen() {
                     <View><Text style={s.priceMemoryLabel}>Highest</Text><Text style={[s.priceMemoryValue, { color:C.gold }]}>{money(item.highest_price)}</Text></View>
                   </View>
                   <Text style={s.subsectionTitle}>Price history</Text>
+                  <Text style={s.priceHistoryHint}>Each violet bar is one purchase. Taller means a higher per-unit price.</Text>
                   <View style={s.priceHistoryRow}>
                     {history.slice(-10).map((event, eventIndex) => {
                       const value = n(event.compare_price ?? event.price);
                       const height = 8 + Math.round(((value - minHistory) / historyRange) * 34);
-                      return <View key={`${event.date}-${eventIndex}`} style={s.priceHistoryPoint}><View style={[s.priceHistoryBar, { height }]} /><Text style={s.priceHistoryDate}>{event.date ? new Date(event.date).toLocaleDateString(undefined, { month:'numeric', day:'numeric' }) : ''}</Text></View>;
+                      return (
+                        <View key={`${event.date || 'undated'}-${eventIndex}`} style={s.priceHistoryPoint}>
+                          <Text style={s.priceHistoryPrice}>{money(value)}</Text>
+                          <View style={[s.priceHistoryBar, { height }]} />
+                          <Text style={s.priceHistoryDate} numberOfLines={1}>{formatHistoryDate(event.date)}</Text>
+                        </View>
+                      );
                     })}
                     {history.length === 0 ? <Text style={s.emptyInline}>History will appear after this item is scanned again.</Text> : null}
                   </View>
@@ -3116,10 +3144,12 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   priceMemoryGrid:{ flexDirection:'row', justifyContent:'space-between', gap:8, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:14, padding:11, marginBottom:13 },
   priceMemoryLabel:{ color:C.text3, fontSize:9, fontWeight:'800', textTransform:'uppercase', marginBottom:4 },
   priceMemoryValue:{ color:C.text, fontSize:12, fontWeight:'900' },
-  priceHistoryRow:{ minHeight:62, flexDirection:'row', alignItems:'flex-end', gap:6 },
-  priceHistoryPoint:{ flex:1, minWidth:18, alignItems:'center' },
+  priceHistoryHint:{ color:C.text3, fontSize:9, lineHeight:13, marginTop:-4, marginBottom:8 },
+  priceHistoryRow:{ minHeight:78, flexDirection:'row', alignItems:'flex-end', gap:6 },
+  priceHistoryPoint:{ flex:1, minWidth:36, alignItems:'center' },
+  priceHistoryPrice:{ color:C.text2, fontSize:8, fontWeight:'900', marginBottom:4 },
   priceHistoryBar:{ width:8, minHeight:8, borderRadius:99, backgroundColor:C.accent },
-  priceHistoryDate:{ color:C.text3, fontSize:7, marginTop:4 },
+  priceHistoryDate:{ color:C.text3, fontSize:7, marginTop:4, maxWidth:58, textAlign:'center' },
   storeCompareRow:{ flexDirection:'row', alignItems:'center', gap:10, paddingVertical:10, borderTopWidth:1, borderTopColor:C.border },
   storeCompareName:{ color:C.text, fontSize:13, fontWeight:'900' },
   storeCompareMeta:{ color:C.text2, fontSize:11, marginTop:3 },

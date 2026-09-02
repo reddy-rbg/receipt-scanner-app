@@ -72,6 +72,17 @@ def test_legacy_receipt_qa_cannot_use_global_service_role_mcp():
     assert "owner-scoped receipt list" in function
 
 
+def test_railway_launches_with_fail_closed_production_validation():
+    root = Path(__file__).parent
+    railway = (root / "railway.json").read_text(encoding="utf-8")
+    procfile = (root / "Procfile").read_text(encoding="utf-8")
+    main_source = (root / "main.py").read_text(encoding="utf-8")
+
+    assert '"startCommand": "APP_ENV=production ' in railway
+    assert procfile.startswith("web: APP_ENV=production ")
+    assert "status_code=200 if report.ready else 503" in main_source
+
+
 if __name__ == "__main__":
     tests = [
         test_valid_production_environment_is_ready,
@@ -79,6 +90,7 @@ if __name__ == "__main__":
         test_missing_secrets_and_wildcard_cors_fail_closed,
         test_http_urls_and_reused_service_key_are_rejected,
         test_legacy_receipt_qa_cannot_use_global_service_role_mcp,
+        test_railway_launches_with_fail_closed_production_validation,
     ]
     for test in tests:
         test()

@@ -918,6 +918,21 @@ def normalize_receipt_data(data: dict) -> dict:
     weight_units = {"lb", "lbs", "oz", "kg", "g", "mg"}
     volume_units = {"fl oz", "floz", "ml", "l", "liter", "liters", "gal", "gallon", "gallons", "pt", "pint", "qt", "quart"}
     count_units = {"each", "ea", "ct", "count", "pack"}
+    repair_notes: list[str] = []
+    metadata_line_patterns = [
+        _re.compile(r"^(?:cashier|clerk|served\s+by|operator)\b", _re.I),
+        _re.compile(r"^(?:transaction|reference|ref|auth|approval|mid|terminal)\s*(?:id|no|number|#|:)?\s*[a-z0-9*:-]*$", _re.I),
+        _re.compile(r"^(?:credit|debit)\s+card\s+sale\b", _re.I),
+        _re.compile(r"^(?:visa|master\s*card|mastercard|amex|discover)\s+(?:cardholder|x{2,}|\*{2,}|\d{4})", _re.I),
+        _re.compile(r"^(?:order|receipt|invoice)\s*(?:no|number|#|:)\s*[a-z0-9-]+$", _re.I),
+    ]
+    weighted_detail_re = _re.compile(
+        r"^(?P<prefix>.*?)\b(?P<quantity>\d+(?:\.\d+)?)\s*"
+        r"(?P<unit>lb|lbs|kg|kgs|oz|g)\s*(?:@|at)\s*\$?\s*"
+        r"(?P<unit_price>\d+(?:\.\d+)?)\s*(?:/|per\s+)\s*"
+        r"(?P<rate_unit>lb|lbs|kg|kgs|oz|g)\b.*$",
+        _re.I,
+    )
 
     def _safe_float(value, default=0.0) -> float:
         try:
@@ -938,8 +953,59 @@ def normalize_receipt_data(data: dict) -> dict:
             return "package_size" if product_size else "count"
         return "package_size" if product_size else "each"
 
+    def clean_display_name(value: str) -> str:
+        value = _re.sub(r"\bBayani\b", "Biryani", value, flags=_re.I)
+        value = _re.sub(r"(?<=[A-Za-z])/(?=[A-Za-z])", " ", value)
+        value = _re.sub(r"(?<=[A-Za-z])\(", " (", value)
+        return _re.sub(r"\s+", " ", value).strip(" -")
+
+    def is_metadata_line(value: str) -> bool:
+        compact = _re.sub(r"\s+", " ", value).strip()
+        return any(pattern.search(compact) for pattern in metadata_line_patterns)
+
+    def parse_weighted_detail(value: str) -> dict | None:
+        match = weighted_detail_re.match(value.strip())
+        if not match:
+            return None
+        unit = match.group("unit").lower()
+        unit = "lb" if unit == "lbs" else "kg" if unit == "kgs" else unit
+        rate_unit = match.group("rate_unit").lower()
+        rate_unit = "lb" if rate_unit == "lbs" else "kg" if rate_unit == "kgs" else rate_unit
+        if unit != rate_unit:
+            return None
+        quantity = _safe_float(match.group("quantity"), 0.0)
+        unit_price = _safe_float(match.group("unit_price"), 0.0)
+        if quantity <= 0 or unit_price <= 0:
+            return None
+        return {
+            "prefix": clean_display_name(match.group("prefix") or ""),
+            "quantity": quantity,
+            "unit": unit,
+            "unit_price": unit_price,
+            "price": round(quantity * unit_price, 2),
+        }
+
+    def apply_weighted_detail(item: dict, detail: dict, source_line: str) -> None:
+        item["quantity"] = detail["quantity"]
+        item["unit"] = detail["unit"]
+        item["unit_price"] = detail["unit_price"]
+        item["price"] = detail["price"]
+        item["quantity_type"] = "weight"
+        item["unit_label"] = f"per {detail['unit']}"
+        item["explicit_quantity"] = True
+        item["merged_from_split_lines"] = True
+        item["weight_source_line"] = source_line
+
     def clean_item(item: dict, source: str = "printed") -> dict:
         name = str(item.get("name") or item.get("item") or "").strip()
+        leading_quantity = _re.match(r"^(\d{1,2})\s+([A-Za-z].+)$", name)
+        if leading_quantity and not item.get("code"):
+            printed_quantity = int(leading_quantity.group(1))
+            name = leading_quantity.group(2)
+            if printed_quantity > 1 and _safe_float(item.get("quantity"), 1.0) <= 1 and not item.get("explicit_quantity"):
+                item["quantity"] = printed_quantity
+                item["explicit_quantity"] = True
+        name = clean_display_name(name)
         item["name"] = name
         item.setdefault("source", source)
         item_price = _safe_float(item.get("price"), 0.0)
@@ -1019,6 +1085,34 @@ def normalize_receipt_data(data: dict) -> dict:
         while index < len(items):
             current = dict(items[index])
             current_name = str(current.get("name") or "")
+            if is_metadata_line(current_name):
+                repair_notes.append(f"Removed non-product receipt metadata line: {current_name}")
+                index += 1
+                continue
+
+            weighted_detail = parse_weighted_detail(current_name)
+            if weighted_detail:
+                prefix_tokens = item_tokens(weighted_detail["prefix"])
+                generic_prefix = not prefix_tokens or set(prefix_tokens) <= {"cut", "weight", "wt", "qty", "price"}
+                if merged and generic_prefix:
+                    target = merged[-1]
+                    prefix = weighted_detail["prefix"]
+                    if prefix and prefix.lower() not in str(target.get("name") or "").lower():
+                        target["name"] = clean_display_name(f"{target.get('name', '')} {prefix}")
+                    target["normalized_name"] = str(target.get("name") or "").lower().strip()
+                    apply_weighted_detail(target, weighted_detail, current_name)
+                    repair_notes.append(f"Merged weighted continuation line into product: {current_name}")
+                    index += 1
+                    continue
+                if weighted_detail["prefix"]:
+                    current["name"] = weighted_detail["prefix"]
+                    current["normalized_name"] = current["name"].lower().strip()
+                    apply_weighted_detail(current, weighted_detail, current_name)
+                else:
+                    repair_notes.append(f"Removed weighted detail line without a product name: {current_name}")
+                    index += 1
+                    continue
+
             current_unit = str(current.get("unit") or "each").strip().lower()
             badam_tail = _re.match(r"^(.*?)(\bVL\s+Badam\s+Carnival.*)$", current_name, _re.I)
             if (
@@ -1064,6 +1158,9 @@ def normalize_receipt_data(data: dict) -> dict:
     for field in ("returned_items", "manual_adjustments", "validation_notes"):
         if field not in data or data.get(field) is None:
             data[field] = []
+    for note in repair_notes:
+        if note not in data["validation_notes"]:
+            data["validation_notes"].append(note)
     if data.get("total") in ("", "null"):
         data["total"] = None
 
@@ -1134,6 +1231,54 @@ def normalize_receipt_data(data: dict) -> dict:
     return data
 
 
+def scan_integrity_issues(data: dict) -> list[str]:
+    """Return deterministic corruption signals that should never enter memory."""
+    issues: list[str] = []
+    items = [item for item in (data.get("items") or []) if isinstance(item, dict)]
+
+    def number(value, default=0.0):
+        try:
+            if value is None or value == "":
+                return default
+            return float(str(value).replace("$", "").replace(",", "").strip())
+        except Exception:
+            return default
+
+    metadata_re = re.compile(
+        r"^(?:cashier|clerk|served\s+by|operator|transaction|reference|auth(?:orization)?|"
+        r"credit\s+card\s+sale|debit\s+card\s+sale)\b",
+        re.I,
+    )
+    weighted_detail_only_re = re.compile(
+        r"^(?:cut\s+|weight\s+|wt\s+)?\d+(?:\.\d+)?\s*(?:lb|lbs|kg|kgs|oz|g)\s*(?:@|at)\s*\$?\d",
+        re.I,
+    )
+    for item in items:
+        name = str(item.get("name") or item.get("item") or "").strip()
+        if metadata_re.search(name):
+            issues.append("non_product_metadata_item")
+        if weighted_detail_only_re.search(name):
+            issues.append("unmerged_weight_detail")
+
+    subtotal = number(data.get("subtotal"), 0.0)
+    if subtotal > 0 and items:
+        merchandise_items = [
+            item for item in items
+            if not item.get("is_discount")
+            and str(item.get("source") or "").strip().lower() != "discount"
+        ]
+        positive = round(sum(max(0.0, number(item.get("price"), 0.0)) for item in merchandise_items), 2)
+        negative = round(sum(abs(min(0.0, number(item.get("price"), 0.0))) for item in items), 2)
+        closest_line_total = min(positive, max(0.0, positive - negative))
+        tolerance = max(0.75, subtotal * 0.06)
+        # A line sum far above the printed subtotal is a strong duplicate/shifted
+        # price signal. Missing fees can make it lower, so do not reject that case.
+        if closest_line_total > subtotal + tolerance:
+            issues.append("item_lines_exceed_subtotal")
+
+    return list(dict.fromkeys(issues))
+
+
 def validate_scan_quality(data: dict) -> None:
     """Reject low-quality receipt reads before saving incorrect item data."""
     validation = data.get("validation") if isinstance(data.get("validation"), dict) else {}
@@ -1170,6 +1315,14 @@ def validate_scan_quality(data: dict) -> None:
 
     if total in (None, "", 0, 0.0) and len(items) <= 2:
         raise ValueError("The receipt total and items are not readable enough. Please retake a clearer photo.")
+
+    integrity_issues = scan_integrity_issues(data)
+    if integrity_issues:
+        logger.warning("Rejected receipt scan with integrity issues: %s", ", ".join(integrity_issues))
+        raise ValueError(
+            "The receipt lines could not be matched safely to the printed subtotal. "
+            "Please retake the full receipt closer and keep every item price visible."
+        )
 
 
 def scan_receipt_image(
@@ -1387,6 +1540,9 @@ WHAT TO EXTRACT:
 
    For WEIGHTED items (sold by weight — look for lb, kg, oz, g on the receipt):
    - These appear as: "2.71 lb @ $1.97/lb" = 2.71 lbs at $1.97 per lb
+   - A product name may wrap onto the next printed line. For example, "Fresh Chicken Biryani Style" followed by "Cut" and then "1.85 lb @ $4.39/lb" is ONE item named "Fresh Chicken Biryani Style Cut", not separate items.
+   - Never return a bare weight/rate line such as "1.85 lb @ $4.39/lb" as its own item. Attach its quantity, unit, unit_price, and calculated line price to the immediately preceding product.
+   - Never shift the next product's price onto the previous product. For weighted products, calculate price as quantity × unit_price and verify it against the visible line total.
    - code: barcode if visible or null
    - name: exact product name (e.g. "TOMATO 4X5")
    - quantity: the weight amount (e.g. 2.71)
@@ -1531,11 +1687,19 @@ Return JSON only — no extra text, no markdown:
         fast_normalized = normalize_receipt_data(data) if "error" not in data else data
         fast_validation = fast_normalized.get("validation") or {}
         fast_confidence = float(fast_validation.get("confidence") or 0)
-        should_fallback = "error" in data or fast_confidence < SCAN_CASCADE_MIN_CONFIDENCE
+        fast_integrity_issues = scan_integrity_issues(fast_normalized) if "error" not in data else []
+        should_fallback = bool(
+            "error" in data
+            or fast_confidence < SCAN_CASCADE_MIN_CONFIDENCE
+            or fast_integrity_issues
+        )
         cascade_info["fast_confidence"] = fast_confidence
+        cascade_info["fast_integrity_issues"] = fast_integrity_issues
         cascade_info["fallback_reason"] = (
             "fast_model_error"
             if "error" in data
+            else "receipt_integrity_check_failed"
+            if fast_integrity_issues
             else "confidence_below_threshold"
             if should_fallback
             else None

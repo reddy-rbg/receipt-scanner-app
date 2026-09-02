@@ -11,7 +11,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -315,13 +315,14 @@ def health_live():
 @app.get("/health/ready", include_in_schema=False)
 def health_ready():
     report = validate_production_config()
-    return {
+    payload = {
         "status": "ready" if report.ready else "not_ready",
         "version": app.version,
         "environment": report.environment,
         "production": report.production,
         "warnings": list(report.warnings),
     }
+    return JSONResponse(content=payload, status_code=200 if report.ready else 503)
 
 
 @app.get("/agent-health")

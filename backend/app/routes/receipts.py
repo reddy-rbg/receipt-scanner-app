@@ -13,6 +13,7 @@
 
 # APIRouter groups related endpoints together
 # like a mini FastAPI app for receipts only
+import copy
 import re
 import time
 
@@ -92,6 +93,20 @@ def record_scan_token_usage(
 
 def public_receipt_data(receipt_data: dict) -> dict:
     return {key: value for key, value in receipt_data.items() if not str(key).startswith("_")}
+
+
+def normalized_receipt_for_response(receipt_data: dict) -> dict:
+    """Repair legacy scan artifacts in API responses without rewriting stored data."""
+    try:
+        repaired = claude.normalize_receipt_data(copy.deepcopy(receipt_data))
+        return public_receipt_data(repaired)
+    except Exception:
+        logger.exception("Could not normalize receipt %s for response", receipt_data.get("id"))
+        return public_receipt_data(receipt_data)
+
+
+def normalized_receipts_for_response(receipts: list[dict]) -> list[dict]:
+    return [normalized_receipt_for_response(receipt) for receipt in receipts]
 
 
 class ReceiptItemUpdate(BaseModel):
@@ -477,7 +492,7 @@ def get_receipts(request: Request):
     """
     access = rbac.get_access_context(request)
     receipts = rbac.list_accessible_receipts(access)
-    return {"total_receipts": len(receipts), "receipts": receipts}
+    return {"total_receipts": len(receipts), "receipts": normalized_receipts_for_response(receipts)}
 
 
 # ── ENDPOINT 3: Get receipts by store ──
@@ -516,7 +531,7 @@ def get_by_store(store_name: str, request: Request, session_id: str | None = Non
     return {
         "store_search": store_name,
         "total_found":  len(receipts),
-        "receipts":     receipts
+        "receipts":     normalized_receipts_for_response(receipts)
     }
 
 
@@ -554,7 +569,7 @@ def get_by_date(from_date: str, to_date: str, request: Request, session_id: str 
         "from":        from_date,
         "to":          to_date,
         "total_found": len(receipts),
-        "receipts":    receipts
+        "receipts":    normalized_receipts_for_response(receipts)
     }
 
 
@@ -772,7 +787,7 @@ def get_guest_receipts(session_id: str):
     except Exception as e:
         logger.exception("Guest receipt listing failed")
         raise HTTPException(status_code=503, detail="Receipt data is temporarily unavailable.")
-    return {"total_receipts": len(rows), "receipts": rows}
+    return {"total_receipts": len(rows), "receipts": normalized_receipts_for_response(rows)}
 
 
 @router.get("/summary")
