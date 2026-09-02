@@ -73,7 +73,7 @@ cd backend
 python -m pip install -r requirements-dev.txt
 python -m pip check
 python -m compileall -q app main.py verify_release.py
-pytest -q --ignore=test_claude.py --ignore=test_websearch.py
+pytest -q
 python verify_release.py --offline
 
 cd ..\mobile
@@ -81,6 +81,8 @@ npm ci
 npm audit --omit=dev --audit-level=critical
 npm run lint
 npx tsc --noEmit
+npx expo-doctor
+npx expo export --platform all --output-dir .release-export --clear
 ```
 
 Review `docs/SECURITY_EXCEPTIONS.md` when assessing non-critical npm audit
@@ -89,7 +91,7 @@ findings. A critical advisory or an expired exception blocks release.
 ## 4. Verify public and store metadata
 
 - [ ] `support@receiptai.app` receives mail and is monitored.
-- [ ] `/privacy/` and `/support/` are publicly reachable over HTTPS.
+- [ ] `/privacy/`, `/support/`, and `/delete-account/` are publicly reachable over HTTPS.
 - [ ] The same privacy URL, support URL, support email, and legal entity details
       are entered in App Store Connect and Google Play Console.
 - [ ] Apple privacy answers and Google Play Data Safety answers match

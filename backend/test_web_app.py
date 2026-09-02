@@ -48,7 +48,7 @@ def test_web_root_and_client_routes_use_the_shared_app():
     assert '<div id="root"></div>' in root.text
     assert '<div id="root"></div>' in client_route.text
     assert api.status_code == 200
-    assert api.json()["version"] == "1.0.3"
+    assert api.json()["version"] == "1.0.4"
 
 
 def test_backend_routes_keep_priority_over_spa_fallback():
@@ -56,6 +56,19 @@ def test_backend_routes_keep_priority_over_spa_fallback():
     assert client.get("/health/live").json()["status"] == "ok"
     assert '<script src="./app.js" defer></script>' in client.get("/ops/").text
     assert client.get("/receipts").status_code == 401
+
+
+def test_public_privacy_support_and_account_deletion_pages_are_reachable():
+    client = TestClient(app)
+    privacy = client.get("/privacy/")
+    support = client.get("/support/")
+    deletion = client.get("/delete-account/")
+
+    assert privacy.status_code == support.status_code == deletion.status_code == 200
+    assert "ReceiptAI Privacy Policy" in privacy.text
+    assert "ReceiptAI Support" in support.text
+    assert "Delete your ReceiptAI account" in deletion.text
+    assert "support@receiptai.app" in deletion.text
 
 
 def test_client_errors_are_sanitized_and_recorded(monkeypatch):

@@ -31,3 +31,5 @@ Privacy and support requests can be sent to `support@receiptai.app`.
 Public policy URL: `https://web-production-3605f4.up.railway.app/privacy/`
 
 Public support URL: `https://web-production-3605f4.up.railway.app/support/`
+
+Public account deletion URL: `https://web-production-3605f4.up.railway.app/delete-account/`

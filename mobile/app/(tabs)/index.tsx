@@ -515,7 +515,7 @@ export default function ScanScreen(){
     if(!p.granted){Alert.alert('Permission needed','Allow photo access.');return;}
     const r=await ImagePicker.launchImageLibraryAsync({
       mediaTypes:['images'],
-      quality:0.85,
+      quality:1,
       allowsMultipleSelection:true,
       selectionLimit:MAX_SCAN_IMAGE_PAGES,
     });
@@ -544,7 +544,7 @@ export default function ScanScreen(){
     }
     const p=await ImagePicker.requestCameraPermissionsAsync();
     if(!p.granted){Alert.alert('Permission needed','Allow camera access.');return;}
-    const r=await ImagePicker.launchCameraAsync({quality:0.85});
+    const r=await ImagePicker.launchCameraAsync({quality:1});
     if(!r.canceled&&r.assets[0]){
       setFileStatus('');
       setScanError('');
@@ -557,7 +557,7 @@ export default function ScanScreen(){
       setResultItemPage(0);
       setPriceInsights([]);
       setDuplicate('');
-      const pageText = nextUris.length > 1 ? `${nextUris.length} pages ready. Take another page or scan all pages together.` : '1 page ready. Take another photo if this receipt has more pages.';
+      const pageText = nextUris.length > 1 ? `${nextUris.length} sections ready. Take another section or scan them together.` : '1 photo ready. For a long receipt, add closer overlapping sections.';
       setFileStatus(prepared.compressed ? `${pageText} Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB.` : pageText);
     }
   }
@@ -957,14 +957,14 @@ export default function ScanScreen(){
             {uri && !isPDF && imageUris.length > 1 && (
               <View style={s.multiPreview}>
                 <View style={s.multiPreviewHead}>
-                  <Text style={s.multiPreviewTitle}>{imageUris.length} pages selected</Text>
-                  <Text style={s.multiPreviewSub}>Scans as one receipt or invoice</Text>
+                  <Text style={s.multiPreviewTitle}>{imageUris.length} sections selected</Text>
+                  <Text style={s.multiPreviewSub}>Overlapping sections merge into one receipt</Text>
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pageStrip}>
                   {imageUris.map((pageUri, index) => (
                     <View key={`${pageUri}-${index}`} style={s.pageThumbWrap}>
                       <Image source={{uri: pageUri}} style={s.pageThumb} resizeMode="cover" />
-                      <Text style={s.pageThumbLabel}>Page {index + 1}</Text>
+                      <Text style={s.pageThumbLabel}>Section {index + 1}</Text>
                     </View>
                   ))}
                 </ScrollView>
@@ -996,12 +996,19 @@ export default function ScanScreen(){
               </TouchableOpacity>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={takePhoto} activeOpacity={0.8}>
                 <Ionicons name="camera-outline" size={18} color={C.text} />
-                <Text style={s.btnSecTxt}>{imageUris.length ? 'Add Page' : 'Camera'}</Text>
+                <Text style={s.btnSecTxt}>{imageUris.length ? 'Add Section' : 'Camera'}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={pickPDF} activeOpacity={0.8}>
                 <Ionicons name="document-outline" size={18} color={C.text} />
                 <Text style={s.btnSecTxt}>PDF</Text>
               </TouchableOpacity>
+            </View>
+
+            <View style={s.captureGuide}>
+              <Ionicons name="sparkles-outline" size={16} color={C.accent} />
+              <Text style={s.captureGuideText}>
+                Long receipt? Fill the frame with the top, middle and bottom in overlapping photos. ReceiptAI auto-crops and merges them without repeating boundary lines.
+              </Text>
             </View>
 
             {uri&&(
@@ -1013,7 +1020,7 @@ export default function ScanScreen(){
               >
                 {loading
                   ?<ActivityIndicator color="#fff" size="small"/>
-                  :<Text style={s.btnPriTxt}>{!isPDF && imageUris.length > 1 ? `Scan ${imageUris.length} Pages` : 'Scan Receipt'}</Text>
+                  :<Text style={s.btnPriTxt}>{!isPDF && imageUris.length > 1 ? `Scan ${imageUris.length} Sections` : 'Scan Receipt'}</Text>
                 }
               </TouchableOpacity>
             )}
@@ -1402,6 +1409,8 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   pdfPreviewText:{color:C.accent,fontSize:13,fontWeight:'600'},
   pdfPreviewSub:{color:C.text3,fontSize:11,marginTop:4},
   btnRow:{flexDirection:'row',gap:8,marginTop:12},
+  captureGuide:{marginTop:10,flexDirection:'row',alignItems:'flex-start',gap:8,backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,borderRadius:12,padding:11},
+  captureGuideText:{color:C.text2,fontSize:11,lineHeight:16,flex:1},
   btn:{borderRadius:14,padding:14,alignItems:'center',marginTop:10},
   btnPri:{backgroundColor:C.accent,shadowColor:C.accent,shadowOpacity:0.34,shadowRadius:14,shadowOffset:{width:0,height:8},elevation:4},
   btnPriTxt:{color:'#fff',fontSize:15,fontWeight:'600'},

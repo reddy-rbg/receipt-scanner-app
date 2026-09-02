@@ -192,9 +192,9 @@ python -m pytest test_ai_optimization.py test_receipt_autocrop.py -q
 Run the production regression suite:
 
 ```powershell
-python -m pytest -q --ignore=test_claude.py --ignore=test_websearch.py
+python -m pytest -q
 python verify_release.py --offline
 ```
 
-`test_claude.py` and `test_websearch.py` are live-provider scripts and are
+`test_claude.py` and `test_websearch.py` skip unless `RUN_LIVE_PROVIDER_TESTS=true`; they are
 excluded from offline CI.

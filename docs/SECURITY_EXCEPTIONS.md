@@ -2,25 +2,26 @@
 
 ## Expo 54 transitive build-tool advisories
 
-- Recorded: July 23, 2026
+- Last reviewed: September 2, 2026
 - Review by: 2026-09-30
 - Scope: mobile build and local development dependency graph
 - Status: accepted temporarily; Expo SDK migration required
 
-`npm audit --omit=dev` reports two remaining high-severity advisory families:
+After all non-breaking fixes and a major-compatible `brace-expansion` override,
+`npm audit --omit=dev` reports no critical advisory. The remaining high-severity
+families are:
 
 - PostCSS (`GHSA-qx2v-qp2m-jg93`, `GHSA-6g55-p6wh-862q`) through
   `@expo/metro-config`.
-- `ws` (`GHSA-96hv-2xvq-fx4p`) through Metro, React Native development
-  middleware, and React DevTools.
+- `image-size` (`GHSA-w3rx-r6r6-pgpr`, `GHSA-5p2g-fcmc-qvqq`) through Metro.
 
-The audit also counts 18 moderate transitive findings in the same Expo
-build-tool chain, including the `uuid` advisory used by Xcode project tooling.
-They share the same breaking Expo-major remediation and are covered by this
-exception.
+The audit also reports moderate transitive findings, including
+`decode-uri-component` in React Navigation's query-string chain and `uuid` in
+Xcode project tooling. npm offers only breaking Expo/Expo Router changes for
+these remaining findings, so they are covered by this exception.
 
 `npm audit fix` has applied every available non-breaking remediation. npm's
-remaining fix upgrades Expo 54 to Expo 57, which is a breaking native-platform
+remaining fixes upgrade or downgrade core Expo/Expo Router packages, which is a breaking native-platform
 migration. Expo Doctor passes all 18 checks on the current locked dependency
 graph.
 

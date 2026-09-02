@@ -111,6 +111,17 @@ def test_shifted_duplicate_prices_fail_integrity_gate():
     assert "item_lines_exceed_subtotal" in claude.scan_integrity_issues(malformed)
 
 
+def test_missing_item_lines_fail_integrity_gate_instead_of_polluting_memory():
+    incomplete = {
+        "subtotal": 30.00,
+        "items": [
+            {"name": "Visible item one", "price": 8.00},
+            {"name": "Visible item two", "price": 7.00},
+        ],
+    }
+    assert "item_lines_below_subtotal" in claude.scan_integrity_issues(incomplete)
+
+
 def test_positive_discount_rows_do_not_trigger_false_total_failure():
     valid = {
         "subtotal": 14.90,
@@ -121,6 +132,26 @@ def test_positive_discount_rows_do_not_trigger_false_total_failure():
         ],
     }
     assert claude.scan_integrity_issues(valid) == []
+
+
+def test_missing_discount_is_recovered_from_printed_totals():
+    receipt = {
+        "subtotal": 20.00,
+        "tax": 1.20,
+        "total": 18.20,
+        "discount": 0,
+        "total_savings": 0,
+        "items": [
+            {"name": "Item one", "price": 12.00},
+            {"name": "Item two", "price": 8.00},
+        ],
+    }
+
+    normalized = claude.normalize_receipt_data(receipt)
+
+    assert normalized["discount"] == 3.00
+    assert normalized["total_savings"] == 3.00
+    assert normalized["calculated_fields"]["discount"] == "subtotal_plus_tax_minus_total"
 
 
 def test_price_memory_emits_iso_dates_for_month_name_receipts():

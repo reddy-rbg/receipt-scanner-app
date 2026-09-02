@@ -168,7 +168,7 @@ def test_default_scan_keeps_existing_model_and_caches_only_stable_prompt(monkeyp
     monkeypatch.setattr(
         claude_service,
         "optimize_scan_image_for_claude",
-        lambda content, page_index=1: (
+        lambda content, page_index=1, **kwargs: (
             content,
             "image/jpeg",
             {"estimated_image_tokens_saved": 0},
@@ -215,7 +215,7 @@ def test_scan_cascade_falls_back_without_changing_default_model_configuration(mo
     monkeypatch.setattr(
         claude_service,
         "optimize_scan_image_for_claude",
-        lambda content, page_index=1: (
+        lambda content, page_index=1, **kwargs: (
             content,
             "image/jpeg",
             {"estimated_image_tokens_saved": 0},
@@ -255,7 +255,7 @@ def test_scan_structured_output_is_opt_in(monkeypatch):
     monkeypatch.setattr(
         claude_service,
         "optimize_scan_image_for_claude",
-        lambda content, page_index=1: (
+        lambda content, page_index=1, **kwargs: (
             content,
             "image/jpeg",
             {"estimated_image_tokens_saved": 0},

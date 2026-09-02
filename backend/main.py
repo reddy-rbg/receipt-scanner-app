@@ -130,7 +130,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Receipt Scanner API",
     description="Scan receipts with Claude AI and track prices",
-    version="1.0.3",
+    version="1.0.4",
     lifespan=lifespan,
 )
 
@@ -158,6 +158,7 @@ async def operations_security_headers(request, call_next):
         or request.url.path.startswith("/reset-password")
         or request.url.path.startswith("/privacy")
         or request.url.path.startswith("/support")
+        or request.url.path.startswith("/delete-account")
     ):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -290,6 +291,11 @@ app.mount(
     "/support",
     StaticFiles(directory=str(Path(__file__).parent / "support"), html=True),
     name="support",
+)
+app.mount(
+    "/delete-account",
+    StaticFiles(directory=str(Path(__file__).parent / "delete_account"), html=True),
+    name="account-deletion",
 )
 
 # ── Health check ──

@@ -44,6 +44,10 @@ MAX_SCAN_OUTPUT_TOKENS = int(os.getenv("MAX_SCAN_OUTPUT_TOKENS", "16000"))
 MAX_SCAN_IMAGE_LONG_EDGE = int(os.getenv("MAX_SCAN_IMAGE_LONG_EDGE", "1800"))
 MAX_SCAN_IMAGE_TOKENS = int(os.getenv("MAX_SCAN_IMAGE_TOKENS", "1568"))
 SCAN_IMAGE_JPEG_QUALITY = int(os.getenv("SCAN_IMAGE_JPEG_QUALITY", "82"))
+LONG_RECEIPT_TILING_ENABLED = os.getenv("LONG_RECEIPT_TILING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+LONG_RECEIPT_ASPECT_RATIO = float(os.getenv("LONG_RECEIPT_ASPECT_RATIO", "2.8"))
+LONG_RECEIPT_MAX_SEGMENTS = max(2, min(6, int(os.getenv("LONG_RECEIPT_MAX_SEGMENTS", "4"))))
+LONG_RECEIPT_OVERLAP = min(0.30, max(0.08, float(os.getenv("LONG_RECEIPT_OVERLAP", "0.16"))))
 SCAN_FAST_MODEL = os.getenv("CLAUDE_SCAN_FAST_MODEL", MODEL_HAIKU)
 SCAN_CASCADE_MIN_CONFIDENCE = float(
     os.getenv("CLAUDE_SCAN_CASCADE_MIN_CONFIDENCE", "0.82")
@@ -603,6 +607,69 @@ def auto_crop_receipt_region(image_bytes: bytes) -> tuple[bytes, dict]:
         return image_bytes, {"auto_cropped_receipt": False, "reason": "preprocess_error"}
 
 
+def split_long_receipt_segments(image_bytes: bytes) -> tuple[list[bytes], dict]:
+    """Split only unusually tall receipt crops into readable overlapping bands.
+
+    A full long receipt can be sharp in the camera roll but become only a few
+    hundred pixels wide after the vision provider applies its long-edge limit.
+    Overlapping bands preserve text resolution and boundary lines. Ordinary
+    receipts stay single-image, so their latency and token use do not change.
+    """
+    try:
+        from PIL import Image, ImageOps
+        import io
+        import math
+
+        image = ImageOps.exif_transpose(Image.open(io.BytesIO(image_bytes))).convert("RGB")
+        width, height = image.size
+        aspect_ratio = height / max(1, width)
+        if not LONG_RECEIPT_TILING_ENABLED or aspect_ratio < LONG_RECEIPT_ASPECT_RATIO:
+            return [image_bytes], {
+                "long_receipt_tiled": False,
+                "aspect_ratio": round(aspect_ratio, 3),
+                "segment_count": 1,
+            }
+
+        segment_count = min(
+            LONG_RECEIPT_MAX_SEGMENTS,
+            max(2, math.ceil(aspect_ratio / 1.8)),
+        )
+        coverage_factor = 1 + (segment_count - 1) * (1 - LONG_RECEIPT_OVERLAP)
+        segment_height = min(height, max(1, math.ceil(height / coverage_factor)))
+        max_start = max(0, height - segment_height)
+        starts = [
+            round(index * max_start / max(1, segment_count - 1))
+            for index in range(segment_count)
+        ]
+
+        segments: list[bytes] = []
+        boxes: list[list[int]] = []
+        for top in starts:
+            bottom = min(height, top + segment_height)
+            top = max(0, bottom - segment_height)
+            tile = image.crop((0, top, width, bottom))
+            output = io.BytesIO()
+            tile.save(output, format="JPEG", quality=90, optimize=True)
+            segments.append(output.getvalue())
+            boxes.append([0, top, width, bottom])
+
+        return segments, {
+            "long_receipt_tiled": True,
+            "aspect_ratio": round(aspect_ratio, 3),
+            "segment_count": len(segments),
+            "overlap_ratio": LONG_RECEIPT_OVERLAP,
+            "source_size": [width, height],
+            "segment_boxes": boxes,
+        }
+    except Exception as error:
+        logger.warning("Long-receipt segmentation skipped: %s", error)
+        return [image_bytes], {
+            "long_receipt_tiled": False,
+            "segment_count": 1,
+            "reason": "segmentation_error",
+        }
+
+
 def _image_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
     try:
         from PIL import Image
@@ -624,7 +691,13 @@ def _estimate_vision_image_tokens(
     return provider_image_token_count(width, height, model=model)
 
 
-def optimize_scan_image_for_claude(image_bytes: bytes, *, page_index: int = 1) -> tuple[bytes, str, dict]:
+def optimize_scan_image_for_claude(
+    image_bytes: bytes,
+    *,
+    page_index: int = 1,
+    preprocessed_bytes: bytes | None = None,
+    preprocessor_info: dict | None = None,
+) -> tuple[bytes, str, dict]:
     """Optimize camera/gallery receipt photos before sending to Vision.
 
     Digital PDFs can be parsed as text, but photos are pixels. This keeps the
@@ -637,7 +710,14 @@ def optimize_scan_image_for_claude(image_bytes: bytes, *, page_index: int = 1) -
         import io
 
         original_width, original_height = _image_dimensions(image_bytes)
-        working_bytes, crop_info = auto_crop_receipt_region(image_bytes)
+        if preprocessed_bytes is None:
+            working_bytes, crop_info = auto_crop_receipt_region(image_bytes)
+        else:
+            working_bytes = preprocessed_bytes
+            crop_info = preprocessor_info or {
+                "auto_cropped_receipt": False,
+                "reason": "preprocessed_input",
+            }
         image = ImageOps.exif_transpose(Image.open(io.BytesIO(working_bytes))).convert("RGB")
 
         before_resize = image.size
@@ -1179,6 +1259,23 @@ def normalize_receipt_data(data: dict) -> dict:
     printed_tax = _safe_float(data.get("tax"), 0.0)
     printed_total = _safe_float(data.get("total"), None)
 
+    if (
+        printed_subtotal > 0
+        and printed_total is not None
+        and printed_discount <= 0
+        and negative_line_discount <= 0
+    ):
+        inferred_discount = round(printed_subtotal + printed_tax - printed_total, 2)
+        if 0.02 < inferred_discount <= max(0.05, printed_subtotal * 0.50):
+            data["discount"] = inferred_discount
+            data.setdefault("calculated_fields", {})["discount"] = "subtotal_plus_tax_minus_total"
+            if _safe_float(data.get("total_savings"), 0.0) <= 0:
+                data["total_savings"] = inferred_discount
+                data.setdefault("calculated_fields", {})["total_savings"] = "subtotal_plus_tax_minus_total"
+            data.setdefault("validation_notes", []).append(
+                "Recovered a missing receipt-level discount by reconciling subtotal, tax, and final total."
+            )
+
     if positive_line_total > 0 and printed_subtotal <= 0:
         data["subtotal"] = positive_line_total
         data.setdefault("calculated_fields", {})["subtotal"] = "sum_positive_item_lines"
@@ -1269,12 +1366,13 @@ def scan_integrity_issues(data: dict) -> list[str]:
         ]
         positive = round(sum(max(0.0, number(item.get("price"), 0.0)) for item in merchandise_items), 2)
         negative = round(sum(abs(min(0.0, number(item.get("price"), 0.0))) for item in items), 2)
-        closest_line_total = min(positive, max(0.0, positive - negative))
+        candidate_line_totals = (positive, max(0.0, positive - negative))
+        closest_line_total = min(candidate_line_totals, key=lambda value: abs(value - subtotal))
         tolerance = max(0.75, subtotal * 0.06)
-        # A line sum far above the printed subtotal is a strong duplicate/shifted
-        # price signal. Missing fees can make it lower, so do not reject that case.
         if closest_line_total > subtotal + tolerance:
             issues.append("item_lines_exceed_subtotal")
+        elif closest_line_total < subtotal - tolerance:
+            issues.append("item_lines_below_subtotal")
 
     return list(dict.fromkeys(issues))
 
@@ -1424,29 +1522,61 @@ def scan_receipt_image(
     scan_optimization_events: list[dict] = []
     for page_index, page_bytes in enumerate(page_images, 1):
         if extension != "pdf":
-            page_bytes, page_media_type, optimization_info = optimize_scan_image_for_claude(page_bytes, page_index=page_index)
-            scan_optimization_events.append(optimization_info)
-            if optimization_info.get("auto_cropped_receipt"):
+            cropped_page, crop_info = auto_crop_receipt_region(page_bytes)
+            segments, tiling_info = split_long_receipt_segments(cropped_page)
+            prepared_segments: list[tuple[bytes, str, dict]] = []
+            for segment_index, segment_bytes in enumerate(segments, 1):
+                optimization_source = page_bytes if len(segments) == 1 else segment_bytes
+                optimized_bytes, page_media_type, optimization_info = optimize_scan_image_for_claude(
+                    optimization_source,
+                    page_index=page_index,
+                    preprocessed_bytes=segment_bytes,
+                    preprocessor_info=(
+                        crop_info
+                        if len(segments) == 1
+                        else {"auto_cropped_receipt": False, "reason": "long_receipt_segment"}
+                    ),
+                )
+                optimization_info.update({
+                    "source_crop_info": crop_info,
+                    "long_receipt_tiling": tiling_info,
+                    "segment_index": segment_index,
+                    "segment_count": len(segments),
+                })
+                prepared_segments.append((optimized_bytes, page_media_type, optimization_info))
+                scan_optimization_events.append(optimization_info)
+            if crop_info.get("auto_cropped_receipt"):
                 logger.info(
-                    "Auto-cropped receipt image page=%s original=%s optimized=%s estimated_tokens_saved=%s",
+                    "Auto-cropped receipt image page=%s original=%s segments=%s",
                     page_index,
-                    optimization_info.get("original_size"),
-                    optimization_info.get("optimized_size"),
-                    optimization_info.get("estimated_image_tokens_saved"),
+                    crop_info.get("original_size"),
+                    len(prepared_segments),
                 )
         else:
-            page_bytes, page_media_type = compress_image_for_claude(page_bytes)
-        image_data = base64.standard_b64encode(page_bytes).decode("utf-8")
-        image_blocks.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": page_media_type,
-                "data": image_data,
-            },
-        })
-        if len(page_images) > 1:
-            image_blocks.append({"type": "text", "text": f"Page {page_index} of {len(page_images)}"})
+            compressed_bytes, page_media_type = compress_image_for_claude(page_bytes)
+            prepared_segments = [(compressed_bytes, page_media_type, {})]
+
+        for segment_index, (prepared_bytes, page_media_type, _) in enumerate(prepared_segments, 1):
+            image_data = base64.standard_b64encode(prepared_bytes).decode("utf-8")
+            image_blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": page_media_type,
+                    "data": image_data,
+                },
+            })
+            if len(prepared_segments) > 1:
+                image_blocks.append({
+                    "type": "text",
+                    "text": (
+                        f"Receipt page {page_index}, overlapping vertical segment "
+                        f"{segment_index} of {len(prepared_segments)}. Boundary lines may repeat; "
+                        "extract each printed item or discount once."
+                    ),
+                })
+            elif len(page_images) > 1:
+                image_blocks.append({"type": "text", "text": f"Page {page_index} of {len(page_images)}"})
 
     # ── Step 6: Send to Claude with detailed extraction instructions ──
     # Put the stable instructions before user-specific pixels. This allows
@@ -1468,6 +1598,7 @@ FIRST — check if this is a readable receipt, invoice, or wholesale vendor pric
   {"error": "Cannot read this receipt or invoice clearly. Please retake the photo closer, sharper, and with the full document visible."}
 - If it IS readable, extract all data below.
 - If multiple pages are provided, extract rows from every page in order and combine them into one invoice/receipt JSON.
+- A very long receipt may be supplied as overlapping vertical image segments. Use the overlap only for continuity and never duplicate an item, coupon, discount, subtotal, tax, or total that appears at a segment boundary.
 - For damaged/folded receipts or invoices, extract all readable lines and add unclear or hidden parts to validation_notes instead of inventing them.
 - In validation.confidence, use 0.90+ only when store/vendor, date or effective date, and most item lines/prices are clearly readable. Use below 0.72 for far, tiny, blurry, or uncertain scans.
 

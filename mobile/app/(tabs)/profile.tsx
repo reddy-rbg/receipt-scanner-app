@@ -436,10 +436,6 @@ export default function ProfileScreen() {
               <Text style={s.privacyLinkText}>Data Privacy Policy</Text>
               <Text style={s.menuArrow}></Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.privacyLink} onPress={()=>Alert.alert('Export Data','Data export feature coming soon!')}>
-              <Text style={s.privacyLinkText}>Export My Data</Text>
-              <Text style={s.menuArrow}></Text>
-            </TouchableOpacity>
             <TouchableOpacity style={[s.privacyLink,{ borderBottomWidth:0 }]} onPress={()=>{ setActiveModal('deleteAccount'); setDeleteEmail(''); setDeletePassword(''); setDeleteError(''); }}>
               <Text style={[s.privacyLinkText,{ color:C.red }]}>Delete My Account</Text>
               <Text style={s.menuArrow}></Text>

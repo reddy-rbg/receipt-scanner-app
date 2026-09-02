@@ -16,7 +16,7 @@ supabase_module.Client = object
 supabase_module.create_client = lambda *args, **kwargs: None
 sys.modules["supabase"] = supabase_module
 
-from app.services.claude import auto_crop_receipt_region, optimize_scan_image_for_claude
+from app.services.claude import auto_crop_receipt_region, optimize_scan_image_for_claude, split_long_receipt_segments
 
 
 def make_small_receipt_photo() -> bytes:
@@ -65,7 +65,29 @@ def test_optimize_scan_image_reduces_estimated_vision_tokens():
     assert info["optimized_bytes"] == len(optimized)
 
 
+def test_long_receipt_is_split_into_overlapping_readable_segments():
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (900, 5000), (246, 242, 224))
+    draw = ImageDraw.Draw(image)
+    for y in range(80, 4920, 44):
+        draw.line((70, y, 830, y), fill=(60, 60, 60), width=2)
+    output = io.BytesIO()
+    image.save(output, format="JPEG", quality=92)
+
+    segments, info = split_long_receipt_segments(output.getvalue())
+
+    assert info["long_receipt_tiled"] is True
+    assert 2 <= info["segment_count"] <= 4
+    assert len(segments) == info["segment_count"]
+    boxes = info["segment_boxes"]
+    assert boxes[0][1] == 0
+    assert boxes[-1][3] == 5000
+    assert all(boxes[index][3] > boxes[index + 1][1] for index in range(len(boxes) - 1))
+
+
 if __name__ == "__main__":
     test_auto_crop_receipt_region_enlarges_small_receipt()
     test_optimize_scan_image_reduces_estimated_vision_tokens()
+    test_long_receipt_is_split_into_overlapping_readable_segments()
     print("Receipt auto-crop regression test passed.")
