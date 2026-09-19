@@ -3,6 +3,8 @@ import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { IconButton } from '../../components/IconButton';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { API } from '../../config/api';
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -569,7 +571,7 @@ export default function ReceiptsScreen() {
     <KeyboardAvoidingView
       style={s.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+      keyboardVerticalOffset={0}
     >
 
       {/*  TOP SECTION (fixed)  */}
@@ -720,12 +722,12 @@ export default function ReceiptsScreen() {
                   </View>
                 )}
               </View>
-              <Text style={s.arrow}></Text>
+              <Ionicons name="chevron-forward" size={20} color={C.text3} />
             </TouchableOpacity>
           )}
           ListEmptyComponent={
             <View style={s.empty}>
-              <Text style={s.emptyEmoji}></Text>
+              <Ionicons name="receipt-outline" size={44} color={C.text3} />
               <Text style={s.emptyTitle}>{filterInfo ? 'No matching receipts' : 'No receipts yet'}</Text>
               <Text style={s.emptyTxt}>
                 {filterInfo
@@ -752,7 +754,7 @@ export default function ReceiptsScreen() {
 
       {/*  DETAIL MODAL  */}
       <Modal visible={!!selected} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelected(null)}>
-        <View style={s.modal}>
+        <SafeAreaView style={s.modal} edges={['top', 'bottom']}>
           <View style={s.modalHeader}>
             <View style={{flex:1}}>
               <Text style={s.modalStore}>{selected?.store||'Unknown Store'}</Text>
@@ -765,14 +767,12 @@ export default function ReceiptsScreen() {
                 {[selected?.id&&`#${selected.id}`, selected?.date, selected?.time, selected?.address].filter(Boolean).join('    ')}
               </Text>
             </View>
-            <TouchableOpacity onPress={() => setSelected(null)} style={s.closeBtn}>
-              <Text style={s.closeBtnTxt}></Text>
-            </TouchableOpacity>
+            <IconButton name="close" label="Close receipt details" onPress={() => setSelected(null)} />
           </View>
 
           {deleted ? (
             <View style={s.deletedBox}>
-              <Text style={{fontSize:48,marginBottom:14}}></Text>
+              <Ionicons name="checkmark-circle-outline" size={48} color={C.green} style={{ marginBottom:14 }} />
               <Text style={s.deletedTitle}>Receipt Deleted</Text>
               <Text style={s.deletedSub}>Permanently removed.</Text>
             </View>
@@ -908,7 +908,7 @@ export default function ReceiptsScreen() {
               )}
             </ScrollView>
           )}
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal visible={!!editingItem} animationType="slide" transparent onRequestClose={() => setEditingItem(null)}>
@@ -977,7 +977,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   miniPrismViolet:{ position:'absolute', left:2, top:2, width:16, height:23, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#6557FF', transform:[{rotate:'-8deg'}] },
   miniPrismMint:{ position:'absolute', right:2, bottom:1, width:16, height:22, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#54D9D2', opacity:0.82, transform:[{rotate:'8deg'}] },
   brandName:{ color:C.text, fontSize:13, fontWeight:'800' },
-  brandAction:{ width:40, height:40, borderRadius:15, borderBottomRightRadius:7, backgroundColor:'rgba(255,253,248,0.78)', borderWidth:1, borderColor:'rgba(255,255,255,0.92)', alignItems:'center', justifyContent:'center', shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
+  brandAction:{ width:40, height:40, borderRadius:15, borderBottomRightRadius:7, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, alignItems:'center', justifyContent:'center', shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
   hero:{ paddingHorizontal:18, paddingTop:4, paddingBottom:13 },
   heroKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:1.25, marginBottom:6 },
   heroTitle:{ color:C.text, fontSize:34, lineHeight:38, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400', letterSpacing:-1 },
@@ -1034,13 +1034,13 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
 
   // List
   list:{ flex:1 },
-  listContent:{ padding:16, paddingTop:4, paddingBottom:124 },
+  listContent:{ padding:16, paddingTop:4, paddingBottom:32 },
   loadingWrap:{ flex:1, alignItems:'center', justifyContent:'center', padding:28 },
   loadingTitle:{ color:C.text, fontSize:16, fontWeight:'900', marginTop:14 },
   loadingText:{ color:C.text2, fontSize:12, lineHeight:17, marginTop:5, textAlign:'center' },
 
   // Receipt cards
-  card:{ backgroundColor:'rgba(255,253,248,0.88)', borderWidth:1, borderColor:'rgba(255,255,255,0.94)', borderRadius:22, borderBottomRightRadius:8, padding:11, marginBottom:8, flexDirection:'row', alignItems:'center', gap:11, shadowColor:'#36283E', shadowOpacity:0.09, shadowRadius:16, shadowOffset:{width:0,height:8}, elevation:3 },
+  card:{ backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:22, borderBottomRightRadius:8, padding:11, marginBottom:8, flexDirection:'row', alignItems:'center', gap:11, shadowColor:'#36283E', shadowOpacity:0.09, shadowRadius:16, shadowOffset:{width:0,height:8}, elevation:3 },
   receiptIcon:{ width:45, height:45, borderRadius:16, borderBottomRightRadius:6, alignItems:'center', justifyContent:'center' },
   cardTopLine:{ flexDirection:'row', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:4 },
   idBadge:{ color:C.text3, fontSize:9, fontFamily:'monospace', letterSpacing:0.5, marginBottom:3 },
@@ -1065,8 +1065,6 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   modalHeader:{ flexDirection:'row', alignItems:'flex-start', padding:20, borderBottomWidth:1, borderBottomColor:C.border, backgroundColor:C.card },
   modalStore:{ color:C.text, fontSize:20, fontWeight:'800', marginBottom:4 },
   modalMeta:{ color:C.text2, fontSize:12 },
-  closeBtn:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, width:32, height:32, alignItems:'center', justifyContent:'center' },
-  closeBtnTxt:{ color:C.text2, fontSize:15 },
   modalBody:{ padding:20, paddingBottom:40 },
   detailSummary:{ flexDirection:'row', gap:8, marginBottom:12 },
   detailTile:{ flex:1, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:14, padding:12, minHeight:66 },

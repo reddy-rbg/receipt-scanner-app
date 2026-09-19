@@ -14,7 +14,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
@@ -859,7 +858,12 @@ export default function PriceMemoryScreen() {
   }
 
   async function scheduleAlert(alert: PriceAlert) {
+    if (Platform.OS === 'web') {
+      Alert.alert('Mobile reminder', 'Scheduled shopping reminders are available in the iOS and Android apps.');
+      return;
+    }
     try {
+      const Notifications = await import('expo-notifications');
       const permissions = await Notifications.getPermissionsAsync();
       let status = permissions.status;
       if (status !== 'granted') {
@@ -898,7 +902,13 @@ export default function PriceMemoryScreen() {
       return;
     }
 
+    if (Platform.OS === 'web') {
+      Alert.alert('Mobile reminders', 'Scheduled shopping reminders are available in the iOS and Android apps.');
+      return;
+    }
+
     try {
+      const Notifications = await import('expo-notifications');
       const permissions = await Notifications.getPermissionsAsync();
       let status = permissions.status;
       if (status !== 'granted') {
@@ -3075,19 +3085,19 @@ export default function PriceMemoryScreen() {
 const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   screen:{ flex:1, backgroundColor:C.bg },
   keyboardWrap:{ flex:1 },
-  content:{ padding:18, paddingTop:10, paddingBottom:180 },
+  content:{ padding:18, paddingTop:10, paddingBottom:40 },
   brandBar:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:13 },
   brandLeft:{ flexDirection:'row', alignItems:'center', gap:7 },
   miniPrismLogo:{ position:'relative', width:28, height:28 },
   miniPrismViolet:{ position:'absolute', left:2, top:2, width:16, height:23, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#6557FF', transform:[{rotate:'-8deg'}] },
   miniPrismMint:{ position:'absolute', right:2, bottom:1, width:16, height:22, borderRadius:6, borderBottomRightRadius:9, backgroundColor:'#54D9D2', opacity:0.82, transform:[{rotate:'8deg'}] },
   brandName:{ color:C.text, fontSize:13, fontWeight:'800' },
-  brandAction:{ width:40, height:40, borderRadius:15, borderBottomRightRadius:7, backgroundColor:'rgba(255,253,248,0.78)', borderWidth:1, borderColor:'rgba(255,255,255,0.92)', alignItems:'center', justifyContent:'center', shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
+  brandAction:{ width:40, height:40, borderRadius:15, borderBottomRightRadius:7, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, alignItems:'center', justifyContent:'center', shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
   hero:{ marginBottom:15, paddingTop:4 },
   heroKicker:{ color:C.accent, fontSize:10, fontWeight:'800', textTransform:'uppercase', letterSpacing:1.35, marginBottom:7 },
   heroTitle:{ color:C.text, fontSize:34, lineHeight:38, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400', letterSpacing:-1 },
   heroSub:{ color:C.text2, fontSize:13, lineHeight:19, marginTop:6 },
-  dateFilterBox:{ backgroundColor:'rgba(255,253,248,0.78)', borderWidth:1, borderColor:'rgba(255,255,255,0.92)', borderRadius:23, borderBottomRightRadius:9, padding:14, marginBottom:12, shadowColor:'#36283E', shadowOpacity:0.10, shadowRadius:20, shadowOffset:{width:0,height:10}, elevation:3 },
+  dateFilterBox:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:23, borderBottomRightRadius:9, padding:14, marginBottom:12, shadowColor:'#36283E', shadowOpacity:0.10, shadowRadius:20, shadowOffset:{width:0,height:10}, elevation:3 },
   dateFilterHead:{ flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:12 },
   dateFilterKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:3 },
   dateFilterTitle:{ color:C.text, fontSize:17, fontWeight:'900' },
@@ -3118,7 +3128,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   calendarDayTxtSelected:{ color:'#fff' },
   calendarCancel:{ marginTop:12, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:12, paddingVertical:10, alignItems:'center' },
   calendarCancelTxt:{ color:C.text2, fontSize:12, fontWeight:'900' },
-  sectionCard:{ backgroundColor:'rgba(255,253,248,0.86)', borderWidth:1, borderColor:'rgba(255,255,255,0.94)', borderRadius:25, borderBottomRightRadius:9, padding:16, marginBottom:14, shadowColor:'#36283E', shadowOpacity:0.11, shadowRadius:20, shadowOffset:{width:0,height:10}, elevation:4 },
+  sectionCard:{ backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:25, borderBottomRightRadius:9, padding:16, marginBottom:14, shadowColor:'#36283E', shadowOpacity:0.11, shadowRadius:20, shadowOffset:{width:0,height:10}, elevation:4 },
   sectionHead:{ flexDirection:'row', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:13 },
   sectionKicker:{ color:C.accent, fontSize:10, fontWeight:'900', textTransform:'uppercase', letterSpacing:0.6, marginBottom:4 },
   sectionTitle:{ color:C.text, fontSize:22, lineHeight:25, fontFamily:Platform.OS === 'android' ? 'serif' : 'Georgia', fontWeight:'400', letterSpacing:-0.4 },
@@ -3175,7 +3185,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   confidenceFact:{ flex:1, backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:13, padding:10 },
   confidenceFactValue:{ color:C.text, fontSize:16, fontWeight:'900' },
   confidenceFactLabel:{ color:C.text3, fontSize:9, lineHeight:13, marginTop:3, fontWeight:'700' },
-  memoryTabs:{ flexDirection:'row', alignItems:'center', padding:5, backgroundColor:'rgba(255,253,248,0.74)', borderWidth:1, borderColor:'rgba(255,255,255,0.9)', borderRadius:21, borderBottomRightRadius:10, marginBottom:15, shadowColor:'#36283E', shadowOpacity:0.07, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
+  memoryTabs:{ flexDirection:'row', alignItems:'center', padding:5, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:21, borderBottomRightRadius:10, marginBottom:15, shadowColor:'#36283E', shadowOpacity:0.07, shadowRadius:14, shadowOffset:{width:0,height:7}, elevation:2 },
   memoryHeroCard:{ position:'relative', overflow:'hidden', minHeight:258, padding:20, borderRadius:31, borderBottomRightRadius:11, backgroundColor:'#5C536B', marginBottom:17, shadowColor:'#36253F', shadowOpacity:0.24, shadowRadius:24, shadowOffset:{width:0,height:14}, elevation:7 },
   memoryHeroGlow:{ position:'absolute', width:170, height:170, borderRadius:85, right:-52, top:-67, backgroundColor:'rgba(194,171,228,0.25)' },
   memoryHeroLabel:{ color:'rgba(255,254,250,0.72)', fontSize:11, fontWeight:'700', marginBottom:8 },
@@ -3195,7 +3205,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   spendLegendItem:{ flex:1 },
   spendLegendName:{ color:C.text, fontSize:11, fontWeight:'900' },
   spendLegendValue:{ color:C.text3, fontSize:10, marginTop:3 },
-  premiumInsight:{ flexDirection:'row', alignItems:'flex-start', gap:11, backgroundColor:'rgba(255,253,248,0.76)', borderWidth:1, borderColor:'rgba(255,255,255,0.94)', borderRadius:21, borderBottomRightRadius:7, padding:14, marginBottom:14, shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:18, shadowOffset:{width:0,height:9}, elevation:3 },
+  premiumInsight:{ flexDirection:'row', alignItems:'flex-start', gap:11, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:21, borderBottomRightRadius:7, padding:14, marginBottom:14, shadowColor:'#36283E', shadowOpacity:0.08, shadowRadius:18, shadowOffset:{width:0,height:9}, elevation:3 },
   premiumInsightIcon:{ width:35, height:35, borderRadius:13, borderBottomRightRadius:5, backgroundColor:'rgba(101,87,255,0.11)', alignItems:'center', justifyContent:'center' },
   premiumInsightGlyph:{ color:C.accent, fontSize:16, fontWeight:'900' },
   premiumInsightTitle:{ color:C.text, fontSize:12, fontWeight:'900' },

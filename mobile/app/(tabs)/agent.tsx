@@ -461,7 +461,7 @@ export default function AgentScreen() {
   }
 
   async function clearConversation() {
-    Alert.alert('Clear conversation', 'Start a fresh conversation with AI Generator?', [
+    Alert.alert('Clear conversation', 'Start a fresh conversation with AI Assistant?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Clear',
@@ -870,7 +870,7 @@ export default function AgentScreen() {
     <KeyboardAvoidingView
       style={[s.screen, { backgroundColor: C.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={90}
+      keyboardVerticalOffset={0}
     >
       {/* Header info */}
       <View style={[s.agentHeader, { backgroundColor: C.bg, borderBottomColor: C.border }]}>
@@ -915,7 +915,7 @@ export default function AgentScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[s.agentIntroKicker, { color: C.accent3 }]}>Your receipt intelligence</Text>
-                <Text style={[s.agentIntroTitle, { color: C.text }]}>AI Generator</Text>
+                <Text style={[s.agentIntroTitle, { color: C.text }]}>AI Assistant</Text>
                 <Text style={[s.agentIntroText, { color: C.text2 }]}>
                   Turn your receipt history into one clear answer, whenever you need it.
                 </Text>
@@ -940,7 +940,7 @@ export default function AgentScreen() {
               <Text style={s.aiPosterTitle}>Ask once. Get one clear answer grounded in what you actually bought.</Text>
               <View style={s.aiPosterSource}>
                 <Text style={s.aiPosterSourceText}>Prices · stores · spending</Text>
-                <Text style={s.aiPosterSourceReady}>Sources connected</Text>
+                <Text style={s.aiPosterSourceReady}>Uses saved receipts</Text>
               </View>
             </View>
           </View>
@@ -953,8 +953,9 @@ export default function AgentScreen() {
       {/* Input */}
       <View style={[s.inputBar, { backgroundColor: C.bg, borderTopColor: C.border }]}>
         <TextInput
-          style={[s.input, { backgroundColor: C.surface, borderColor: 'rgba(255,255,255,0.9)', color: C.text }]}
-          placeholder="Ask about receipts, prices, stores, spending..."
+          style={[s.input, { backgroundColor: C.surface, borderColor: C.border, color: C.text }]}
+          accessibilityLabel="Message the AI assistant"
+          placeholder="Ask about your receipts..."
           placeholderTextColor={C.text3}
           value={input}
           onChangeText={setInput}
@@ -968,6 +969,8 @@ export default function AgentScreen() {
             s.micBtn,
             { backgroundColor: voiceMode === 'dictate' ? C.green : C.surface2, borderColor: C.border },
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={voiceMode === 'dictate' ? 'Stop dictation' : 'Dictate a message'}
           onPress={() => voiceMode === 'dictate' ? stopVoice() : startVoice('dictate')}
           disabled={loading}
           activeOpacity={0.85}
@@ -976,6 +979,8 @@ export default function AgentScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={[s.sendBtn, { backgroundColor: C.accent }, (!input.trim() || loading) && { opacity: 0.35 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
           onPress={() => sendMessage(input)}
           disabled={!input.trim() || loading}
           activeOpacity={0.85}
@@ -1077,7 +1082,7 @@ const s = StyleSheet.create({
   feedbackSaved:{ fontSize: 10, fontWeight: '800', paddingVertical: 5 },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
-  inputBar:     { flexDirection: 'row', alignItems: 'flex-end', paddingTop: 12, paddingHorizontal: 18, paddingBottom: 92, borderTopWidth: 0, gap: 8, shadowColor: '#36283E', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
+  inputBar:     { flexDirection: 'row', alignItems: 'flex-end', paddingTop: 12, paddingHorizontal: 18, paddingBottom: 12, borderTopWidth: 0, gap: 8, shadowColor: '#36283E', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
   input:        { flex: 1, borderWidth: 1, borderRadius: 20, borderBottomRightRadius:7, padding: 12, paddingHorizontal: 15, fontSize: 13, maxHeight: 100, shadowColor:'#36283E', shadowOpacity:0.09, shadowRadius:16, shadowOffset:{width:0,height:8}, elevation:2 },
   micBtn:       { width: 44, height: 44, borderRadius: 16, borderBottomRightRadius:7, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   sendBtn:      { width: 44, height: 44, borderRadius: 16, borderBottomRightRadius:6, alignItems: 'center', justifyContent: 'center', shadowColor: '#6557FF', shadowOpacity: 0.26, shadowRadius: 12, shadowOffset: { width: 0, height: 7 }, elevation: 4 },

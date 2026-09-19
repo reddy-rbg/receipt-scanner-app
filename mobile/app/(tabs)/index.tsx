@@ -801,7 +801,7 @@ export default function ScanScreen(){
                 <Text style={[rs.title, { color: C2.text }]}>Review scanned items</Text>
                 <Text style={[rs.subtitle, { color: C2.text3 }]}>Fix any OCR errors before they affect your price memory</Text>
               </View>
-              <TouchableOpacity onPress={() => setReviewModalVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close scanned item review" onPress={() => setReviewModalVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Ionicons name="close" size={22} color={C2.text2} />
               </TouchableOpacity>
             </View>
@@ -924,7 +924,7 @@ export default function ScanScreen(){
         {/*  LOGIN GATE  */}
         {!isLoggedIn ? (
           <View style={s.loginGate}>
-            <Text style={s.loginGateEmoji}></Text>
+            <Ionicons name="lock-closed-outline" size={44} color={C.accent} />
             <Text style={s.loginGateTitle}>Sign in to scan receipts</Text>
             <Text style={s.loginGateDesc}>
               Create a free account or start a 24-hour trial to scan receipts, track prices and save money.

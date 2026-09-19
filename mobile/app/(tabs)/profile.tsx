@@ -4,11 +4,13 @@ import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Alert, Modal, Switch,
-  Linking, Share,
+  Linking, Platform, Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
+import { IconButton } from '../../components/IconButton';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Updates from 'expo-updates';
+import * as Clipboard from 'expo-clipboard';
 import { API } from '../../config/api';
 
 const n = (v:any) => parseFloat(v)||0;
@@ -112,16 +114,57 @@ export default function ProfileScreen() {
         Alert.alert(' Up to date', 'You have the latest version of ReceiptAI!');
       }
     } catch {
-      Alert.alert(' Up to date', 'You have the latest version of ReceiptAI!');
+      Alert.alert('Could not check for updates', 'Please try again later. Your current version is still available.');
     } finally {
       setUpdateLoading(false);
     }
   }
 
   async function handleShare() {
+    const message = 'Check out ReceiptAI — scan receipts, track prices, and save money on groceries!';
     try {
-      await Share.share({ message:' Check out ReceiptAI  scan receipts, track prices, and save money on groceries!', title:'ReceiptAI' });
-    } catch {}
+      if (Platform.OS === 'web') {
+        const share = (globalThis.navigator as any)?.share;
+        if (typeof share === 'function') {
+          await share.call(globalThis.navigator, { title:'ReceiptAI', text:message, url:globalThis.location?.origin });
+          return;
+        }
+        await Clipboard.setStringAsync(`${message} ${globalThis.location?.origin || ''}`.trim());
+        Alert.alert('Share link copied', 'ReceiptAI information was copied to your clipboard.');
+        return;
+      }
+      await Share.share({ message, title:'ReceiptAI' });
+    } catch (error:any) {
+      if (error?.name !== 'AbortError') Alert.alert('Could not share', 'Please try again.');
+    }
+  }
+
+  async function requestNotificationPermission() {
+    try {
+      if (Platform.OS === 'web') {
+        const NotificationApi = (globalThis as any).Notification;
+        if (!NotificationApi?.requestPermission) {
+          Alert.alert('Notifications unavailable', 'This browser does not support notification permissions.');
+          return false;
+        }
+        return (await NotificationApi.requestPermission()) === 'granted';
+      }
+      const Notifications = await import('expo-notifications');
+      const { status } = await Notifications.requestPermissionsAsync();
+      return status === 'granted';
+    } catch {
+      return false;
+    }
+  }
+
+  async function updateNotificationSetting(value: boolean, setter: (next: boolean) => void) {
+    if (!value) {
+      setter(false);
+      return;
+    }
+    const granted = await requestNotificationPermission();
+    setter(granted);
+    if (!granted) Alert.alert('Permission Required', 'Please enable notifications in your device or browser settings.');
   }
 
   function handleHelpSupport() {
@@ -324,10 +367,10 @@ export default function ProfileScreen() {
 
       {/*  NOTIFICATIONS MODAL  */}
       <Modal visible={activeModal==='notifications'} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setActiveModal(null)}>
-        <View style={s.modal}>
+        <SafeAreaView style={s.modal} edges={['top', 'bottom']}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>  Notifications</Text>
-            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}></Text></TouchableOpacity>
+            <Text style={s.modalTitle}>Notifications</Text>
+            <IconButton name="close" label="Close settings" onPress={() => setActiveModal(null)} />
           </View>
           <ScrollView contentContainerStyle={s.modalBody}>
             <Text style={s.settingSection}>Push Notifications</Text>
@@ -339,18 +382,7 @@ export default function ProfileScreen() {
               </View>
               <Switch
                 value={notifReceipts}
-                onValueChange={async (val) => {
-                  setNotifReceipts(val);
-                  if (val) {
-                    try {
-                      const { status } = await Notifications.requestPermissionsAsync();
-                      if (status !== 'granted') {
-                        Alert.alert('Permission Required', 'Please enable notifications in your device settings.');
-                        setNotifReceipts(false);
-                      }
-                    } catch { setNotifReceipts(val); }
-                  }
-                }}
+                onValueChange={(val) => updateNotificationSetting(val, setNotifReceipts)}
                 trackColor={{false:C.surface3, true:C.accent}}
                 thumbColor="#fff"
               />
@@ -363,18 +395,7 @@ export default function ProfileScreen() {
               </View>
               <Switch
                 value={notifSavings}
-                onValueChange={async (val) => {
-                  setNotifSavings(val);
-                  if (val) {
-                    try {
-                      const { status } = await Notifications.requestPermissionsAsync();
-                      if (status !== 'granted') {
-                        Alert.alert('Permission Required', 'Please enable notifications in your device settings.');
-                        setNotifSavings(false);
-                      }
-                    } catch { setNotifSavings(val); }
-                  }
-                }}
+                onValueChange={(val) => updateNotificationSetting(val, setNotifSavings)}
                 trackColor={{false:C.surface3, true:C.accent}}
                 thumbColor="#fff"
               />
@@ -387,32 +408,21 @@ export default function ProfileScreen() {
               </View>
               <Switch
                 value={notifDeals}
-                onValueChange={async (val) => {
-                  setNotifDeals(val);
-                  if (val) {
-                    try {
-                      const { status } = await Notifications.requestPermissionsAsync();
-                      if (status !== 'granted') {
-                        Alert.alert('Permission Required', 'Please enable notifications in your device settings.');
-                        setNotifDeals(false);
-                      }
-                    } catch { setNotifDeals(val); }
-                  }
-                }}
+                onValueChange={(val) => updateNotificationSetting(val, setNotifDeals)}
                 trackColor={{false:C.surface3, true:C.accent}}
                 thumbColor="#fff"
               />
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/*  PRIVACY MODAL  */}
       <Modal visible={activeModal==='privacy'} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setActiveModal(null)}>
-        <View style={s.modal}>
+        <SafeAreaView style={s.modal} edges={['top', 'bottom']}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>  Privacy & Security</Text>
-            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}></Text></TouchableOpacity>
+            <Text style={s.modalTitle}>Privacy & Security</Text>
+            <IconButton name="close" label="Close settings" onPress={() => setActiveModal(null)} />
           </View>
           <ScrollView contentContainerStyle={s.modalBody}>
             <Text style={s.settingSection}>Account</Text>
@@ -434,22 +444,22 @@ export default function ProfileScreen() {
             <Text style={[s.settingSection,{ marginTop:24 }]}>Your Data</Text>
             <TouchableOpacity style={s.privacyLink} onPress={()=>Linking.openURL(`${API}/privacy/`)}>
               <Text style={s.privacyLinkText}>Data Privacy Policy</Text>
-              <Text style={s.menuArrow}></Text>
+              <Ionicons name="chevron-forward" size={20} color={C.text3} />
             </TouchableOpacity>
             <TouchableOpacity style={[s.privacyLink,{ borderBottomWidth:0 }]} onPress={()=>{ setActiveModal('deleteAccount'); setDeleteEmail(''); setDeletePassword(''); setDeleteError(''); }}>
               <Text style={[s.privacyLinkText,{ color:C.red }]}>Delete My Account</Text>
-              <Text style={s.menuArrow}></Text>
+              <Ionicons name="chevron-forward" size={20} color={C.text3} />
             </TouchableOpacity>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/*  APPEARANCE MODAL  */}
       <Modal visible={activeModal==='appearance'} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setActiveModal(null)}>
-        <View style={s.modal}>
+        <SafeAreaView style={s.modal} edges={['top', 'bottom']}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>  Appearance</Text>
-            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}></Text></TouchableOpacity>
+            <Text style={s.modalTitle}>Appearance</Text>
+            <IconButton name="close" label="Close settings" onPress={() => setActiveModal(null)} />
           </View>
           <ScrollView contentContainerStyle={s.modalBody}>
             <Text style={s.settingSection}>Theme Mode</Text>
@@ -484,15 +494,15 @@ export default function ProfileScreen() {
               ))}
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/*  DELETE ACCOUNT MODAL  */}
       <Modal visible={activeModal==='deleteAccount'} animationType="slide" presentationStyle="pageSheet" onRequestClose={()=>setActiveModal(null)}>
-        <View style={s.modal}>
+        <SafeAreaView style={s.modal} edges={['top', 'bottom']}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>  Delete Account</Text>
-            <TouchableOpacity onPress={()=>setActiveModal(null)} style={s.modalClose}><Text style={s.modalCloseTxt}></Text></TouchableOpacity>
+            <Text style={s.modalTitle}>Delete Account</Text>
+            <IconButton name="close" label="Close settings" onPress={() => setActiveModal(null)} />
           </View>
           <ScrollView contentContainerStyle={s.modalBody}>
             <View style={s.deleteWarning}>
@@ -501,7 +511,7 @@ export default function ProfileScreen() {
               <View style={{ gap:6, marginTop:8 }}>
                 {['All your scanned receipts','All your purchase history','All your saved data','Your account and login'].map((item,i) => (
                   <View key={i} style={{ flexDirection:'row', gap:8, alignItems:'center' }}>
-                    <Text style={{ color:C.red, fontSize:13 }}></Text>
+                    <Ionicons name="remove-circle-outline" size={16} color={C.red} />
                     <Text style={{ color:C.text2, fontSize:13 }}>{item}</Text>
                   </View>
                 ))}
@@ -536,7 +546,7 @@ export default function ProfileScreen() {
               <Text style={[s.signOutText,{ color:C.text2 }]}>Cancel</Text>
             </TouchableOpacity>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
     </ScrollView>
@@ -615,9 +625,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   // MODALS
   modal:{ flex:1, backgroundColor:C.bg },
   modalHeader:{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', padding:20, borderBottomWidth:1, borderBottomColor:C.border, backgroundColor:C.surface },
-  modalTitle:{ color:C.text, fontSize:17, fontWeight:'700' },
-  modalClose:{ backgroundColor:C.surface2, borderWidth:1, borderColor:C.border, borderRadius:99, width:32, height:32, alignItems:'center', justifyContent:'center' },
-  modalCloseTxt:{ color:C.text2, fontSize:15 },
+  modalTitle:{ flex:1, color:C.text, fontSize:17, fontWeight:'700', marginRight:12 },
   modalBody:{ padding:20, paddingBottom:40 },
   settingSection:{ color:C.text3, fontSize:10, fontWeight:'600', letterSpacing:1, textTransform:'uppercase', marginBottom:12 },
   settingRow:{ flexDirection:'row', alignItems:'center', paddingVertical:14, borderBottomWidth:1, borderBottomColor:C.border, gap:12 },

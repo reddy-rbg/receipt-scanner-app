@@ -1,9 +1,13 @@
 import { Stack } from 'expo-router';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Platform, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
 import { useTheme } from '../stores/themeStore';
 import { appLogger } from '../utils/logger';
+import { WebAlertHost } from '../components/WebAlertHost';
 
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
   useEffect(() => {
@@ -29,7 +33,8 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => voi
 }
 
 export default function RootLayout() {
-  const { isDark } = useTheme();
+  const { isDark, colors: C } = useTheme();
+  const [fontsLoaded, fontError] = useFonts(Ionicons.font);
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof globalThis.addEventListener !== 'function') return;
     const onError = (event: any) => appLogger.error(
@@ -49,12 +54,16 @@ export default function RootLayout() {
       globalThis.removeEventListener('unhandledrejection', onRejection);
     };
   }, []);
+  if (!fontsLoaded && !fontError) {
+    return <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.accent} accessibilityLabel="Loading app" /></View>;
+  }
   return (
-    <>
+    <ThemeProvider value={{ ...(isDark ? DarkTheme : DefaultTheme), colors: { ...(isDark ? DarkTheme.colors : DefaultTheme.colors), background: C.bg, card: C.surface, text: C.text, border: C.border, primary: C.accent } }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
-    </>
+      <WebAlertHost />
+    </ThemeProvider>
   );
 }

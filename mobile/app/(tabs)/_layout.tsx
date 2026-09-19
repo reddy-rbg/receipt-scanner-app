@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { IconButton } from '../../components/IconButton';
 import { loadUser, useAuth } from '../../stores/authStore';
 import { loadTheme, useTheme } from '../../stores/themeStore';
 import LoginScreen from '../LoginScreen';
@@ -15,6 +17,12 @@ const FALLBACK_COLORS = {
 export default function TabLayout() {
   const { isLoggedIn } = useAuth();
   const { colors: C } = useTheme();
+  const insets = useSafeAreaInsets();
+  const backButton = () => (
+    <View style={{ marginLeft: 12 }}>
+      <IconButton name="arrow-back" label="Go back" onPress={() => router.canGoBack() ? router.back() : router.replace('/home')} />
+    </View>
+  );
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
@@ -44,6 +52,7 @@ export default function TabLayout() {
     <Tabs
       initialRouteName="home"
       backBehavior="history"
+      safeAreaInsets={{ bottom: 0 }}
       screenOptions={{
         headerStyle: {
           backgroundColor: C.bg,
@@ -55,17 +64,15 @@ export default function TabLayout() {
         headerTintColor: C.text,
         headerTitleStyle: { fontWeight:'900', fontSize:17, letterSpacing:-0.2 },
         tabBarStyle: {
-          position: 'absolute',
-          left: 13,
-          right: 13,
-          bottom: 10,
-          backgroundColor: 'rgba(255,253,248,0.94)',
-          borderTopColor: 'rgba(255,255,255,0.92)',
+          marginHorizontal: 13,
+          marginBottom: Math.max(insets.bottom, 10),
+          backgroundColor: C.surface,
+          borderTopColor: C.border,
           borderTopWidth: 1,
           borderLeftWidth: 1,
           borderRightWidth: 1,
           borderBottomWidth: 1,
-          borderColor: 'rgba(255,255,255,0.92)',
+          borderColor: C.border,
           borderRadius: 26,
           borderBottomRightRadius: 16,
           height: 72,
@@ -78,6 +85,9 @@ export default function TabLayout() {
           shadowOffset: { width: 0, height: 11 },
         },
         tabBarActiveTintColor: C.accent,
+        tabBarLabelPosition: 'below-icon',
+        tabBarHideOnKeyboard: true,
+        sceneStyle: { backgroundColor: C.bg },
         tabBarInactiveTintColor: C.text3,
         tabBarLabelStyle: { fontSize:10, fontWeight:'800', marginTop:2, letterSpacing:-0.1 },
       }}
@@ -96,6 +106,7 @@ export default function TabLayout() {
         options={{
           title: 'Receipts',
           headerShown: false,
+          sceneStyle: { backgroundColor: C.bg, paddingTop: insets.top },
           tabBarLabel: 'Receipts',
           tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'receipt' : 'receipt-outline'} size={size} color={color} />,
         }}
@@ -105,10 +116,10 @@ export default function TabLayout() {
         options={{
           title: 'Capture',
           tabBarLabel: 'Capture',
-          tabBarItemStyle: styles.captureItem,
+          tabBarIconStyle: { width: 44, height: 28 },
           tabBarIcon: () => (
             <View style={[styles.captureButton, { backgroundColor:C.accent, shadowColor:C.accent }]}>
-              <Ionicons name="scan-outline" size={25} color="#FFF" />
+              <Ionicons name="scan-outline" size={22} color="#FFF" />
             </View>
           ),
         }}
@@ -118,6 +129,7 @@ export default function TabLayout() {
         options={{
           title: 'Memory',
           headerShown: false,
+          sceneStyle: { backgroundColor: C.bg, paddingTop: insets.top },
           tabBarLabel: 'Memory',
           tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'bar-chart' : 'bar-chart-outline'} size={size} color={color} />,
         }}
@@ -125,8 +137,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="agent"
         options={{
-          title: 'AI Generator',
+          title: 'AI Assistant',
           headerShown: false,
+          sceneStyle: { backgroundColor: C.bg, paddingTop: insets.top },
           tabBarLabel: 'AI',
           tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'sparkles' : 'sparkles-outline'} size={size + 1} color={color} />,
         }}
@@ -136,6 +149,7 @@ export default function TabLayout() {
         options={{
           href: null,
           title: 'Shopping',
+          headerLeft: backButton,
         }}
       />
       <Tabs.Screen
@@ -143,6 +157,7 @@ export default function TabLayout() {
         options={{
           href: null,
           title: 'Profile',
+          headerLeft: backButton,
         }}
       />
     </Tabs>
@@ -150,13 +165,10 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  captureItem: {
-    marginTop:-12,
-  },
   captureButton: {
-    width:56,
-    height:56,
-    borderRadius:20,
+    width:44,
+    height:28,
+    borderRadius:10,
     borderBottomRightRadius:8,
     alignItems:'center',
     justifyContent:'center',
