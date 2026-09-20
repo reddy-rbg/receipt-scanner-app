@@ -105,7 +105,7 @@ function getReceiptItemVisual(item: any): ReceiptItemVisual {
   if (has('green bean', 'beans', 'lentil', ' dal', 'dhal', 'chana', ' peas', 'pea ')) {
     return { icon:'seed-outline', color:'#4C9461', label:'Beans or pulses' };
   }
-  if (has('orange', 'lemon', 'lime', 'citrus')) {
+  if (has('orang', 'lemon', 'lime', 'citrus')) {
     return { icon:'fruit-citrus', color:'#E68A28', label:'Citrus fruit' };
   }
   if (has('cabbage', 'lettuce', 'spinach', 'kale', 'cilantro', 'coriander', 'greens', 'okra', 'bhindi')) {
@@ -129,7 +129,7 @@ function getReceiptItemVisual(item: any): ReceiptItemVisual {
   if (has('ice cream', 'icecream')) {
     return { icon:'ice-cream', color:'#B05D91', label:'Ice cream' };
   }
-  if (has('milk', 'yogurt', 'curd', 'cream', 'dairy')) {
+  if (has('milk', 'yogurt', 'curd', 'cream', 'dairy', 'sr c')) {
     return { icon:'bottle-tonic-outline', color:'#4A83B3', label:'Dairy' };
   }
   if (has('coffee', 'tea')) {
