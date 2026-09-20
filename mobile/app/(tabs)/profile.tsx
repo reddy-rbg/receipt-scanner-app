@@ -3,11 +3,12 @@ import { useAuth, clearUser, getGuestSessionId } from '../../stores/authStore';
 import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, TextInput, Alert, Modal, Switch,
+  ActivityIndicator, TextInput, Modal, Switch,
   Linking, Platform, Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { IconButton } from '../../components/IconButton';
+import { showAlert } from '../../components/WebAlertHost';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Updates from 'expo-updates';
 import * as Clipboard from 'expo-clipboard';
@@ -64,7 +65,7 @@ export default function ProfileScreen() {
   }
 
   function handleSignOut() {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+    showAlert('Sign Out', 'Are you sure you want to sign out?', [
       { text:'Cancel', style:'cancel' },
       {
         text:'Sign Out',
@@ -90,7 +91,7 @@ export default function ProfileScreen() {
       const data = await res.json();
       if (!res.ok) { setDeleteError(data.detail || 'Could not delete account.'); return; }
       setActiveModal(null);
-      Alert.alert('Account Deleted', 'Your account and all data have been permanently deleted.', [
+      showAlert('Account Deleted', 'Your account and all data have been permanently deleted.', [
         { text:'OK', onPress: async () => { await clearUser(); } }
       ]);
     } catch { setDeleteError('Could not connect. Please try again.'); }
@@ -103,7 +104,7 @@ export default function ProfileScreen() {
       const update = await Updates.checkForUpdateAsync();
       if (update.isAvailable) {
         setUpdateAvailable(true);
-        Alert.alert('Update Available', 'Install the latest version now?', [
+        showAlert('Update Available', 'Install the latest version now?', [
           { text:'Later', style:'cancel' },
           { text:'Update Now', onPress: async () => {
             await Updates.fetchUpdateAsync();
@@ -111,10 +112,10 @@ export default function ProfileScreen() {
           }}
         ]);
       } else {
-        Alert.alert(' Up to date', 'You have the latest version of ReceiptAI!');
+        showAlert(' Up to date', 'You have the latest version of ReceiptAI!');
       }
     } catch {
-      Alert.alert('Could not check for updates', 'Please try again later. Your current version is still available.');
+      showAlert('Could not check for updates', 'Please try again later. Your current version is still available.');
     } finally {
       setUpdateLoading(false);
     }
@@ -130,12 +131,12 @@ export default function ProfileScreen() {
           return;
         }
         await Clipboard.setStringAsync(`${message} ${globalThis.location?.origin || ''}`.trim());
-        Alert.alert('Share link copied', 'ReceiptAI information was copied to your clipboard.');
+        showAlert('Share link copied', 'ReceiptAI information was copied to your clipboard.');
         return;
       }
       await Share.share({ message, title:'ReceiptAI' });
     } catch (error:any) {
-      if (error?.name !== 'AbortError') Alert.alert('Could not share', 'Please try again.');
+      if (error?.name !== 'AbortError') showAlert('Could not share', 'Please try again.');
     }
   }
 
@@ -144,7 +145,7 @@ export default function ProfileScreen() {
       if (Platform.OS === 'web') {
         const NotificationApi = (globalThis as any).Notification;
         if (!NotificationApi?.requestPermission) {
-          Alert.alert('Notifications unavailable', 'This browser does not support notification permissions.');
+          showAlert('Notifications unavailable', 'This browser does not support notification permissions.');
           return false;
         }
         return (await NotificationApi.requestPermission()) === 'granted';
@@ -164,11 +165,11 @@ export default function ProfileScreen() {
     }
     const granted = await requestNotificationPermission();
     setter(granted);
-    if (!granted) Alert.alert('Permission Required', 'Please enable notifications in your device or browser settings.');
+    if (!granted) showAlert('Permission Required', 'Please enable notifications in your device or browser settings.');
   }
 
   function handleHelpSupport() {
-    Alert.alert('Help & Support', 'How can we help?', [
+    showAlert('Help & Support', 'How can we help?', [
       { text:'Cancel', style:'cancel' },
       { text:' Email Support', onPress:() => Linking.openURL('mailto:support@receiptai.app') },
       { text:'Support Website', onPress:() => Linking.openURL(`${API}/support/`) },
@@ -350,7 +351,7 @@ export default function ProfileScreen() {
                   if(rating===0) return;
                   setShowRating(false);
                   setTimeout(()=>{
-                    Alert.alert(
+                    showAlert(
                       'Thank you',
                       rating>=4 ? 'We love building ReceiptAI for you!' : 'We appreciate your feedback and will keep improving!'
                     );

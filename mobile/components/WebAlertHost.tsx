@@ -29,16 +29,24 @@ function publish(request: AlertRequest | null) {
   listeners.forEach(listener => listener(request));
 }
 
-if (Platform.OS === 'web') {
-  Alert.alert = (title, message, buttons, options) => {
-    publish({
-      id: nextId++,
-      title,
-      message,
-      buttons: buttons?.length ? buttons : [{ text: 'OK' }],
-      options,
-    });
-  };
+export function showAlert(
+  title: string,
+  message?: string,
+  buttons?: AlertButton[],
+  options?: AlertOptions,
+) {
+  if (Platform.OS !== 'web') {
+    Alert.alert(title, message, buttons, options);
+    return;
+  }
+
+  publish({
+    id: nextId++,
+    title,
+    message,
+    buttons: buttons?.length ? buttons : [{ text: 'OK' }],
+    options,
+  });
 }
 
 export function WebAlertHost() {

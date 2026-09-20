@@ -6,9 +6,10 @@
 import { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator, Alert,
+  TextInput, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { showAlert } from '../components/WebAlertHost';
 import { saveUser, startGuestSession } from '../stores/authStore';
 import { DARK_COLORS, useTheme } from '../stores/themeStore';
 import { API } from '../config/api';
@@ -185,7 +186,7 @@ export default function LoginScreen() {
         setError(friendlyRecoveryError(data.detail || data.message || 'Could not send reset email.'));
         return;
       }
-      Alert.alert(
+      showAlert(
         'Check your email',
         data.message || 'If an account exists for this email, a password reset link has been sent.'
       );
@@ -197,7 +198,7 @@ export default function LoginScreen() {
   }
 
   function handleForgotUsername() {
-    Alert.alert(
+    showAlert(
       'Forgot email?',
       'ReceiptAI uses your email address as your username. Try the email you used when creating your account. If you used Guest Trial, no permanent account was created.'
     );

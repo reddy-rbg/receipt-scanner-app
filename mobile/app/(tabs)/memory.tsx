@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
@@ -19,6 +18,7 @@ import { useFocusEffect } from 'expo-router';
 import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
 import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import { API } from '../../config/api';
+import { showAlert } from '../../components/WebAlertHost';
 
 type PriceMemoryItem = {
   item_name: string;
@@ -642,7 +642,7 @@ export default function PriceMemoryScreen() {
 
   async function runLivePriceCheck() {
     if (!checkItem.trim() || !n(checkPrice)) {
-      Alert.alert('Enter item and price', 'Add the item name and today’s price to compare it with your receipts.');
+      showAlert('Enter item and price', 'Add the item name and today’s price to compare it with your receipts.');
       return;
     }
     if (!user) return;
@@ -670,7 +670,7 @@ export default function PriceMemoryScreen() {
       }
       setLiveCheck(data);
     } catch (e: any) {
-      Alert.alert('Live price check failed', e.message || 'Please try again.');
+      showAlert('Live price check failed', e.message || 'Please try again.');
     } finally {
       setLiveChecking(false);
     }
@@ -859,7 +859,7 @@ export default function PriceMemoryScreen() {
 
   async function scheduleAlert(alert: PriceAlert) {
     if (Platform.OS === 'web') {
-      Alert.alert('Mobile reminder', 'Scheduled shopping reminders are available in the iOS and Android apps.');
+      showAlert('Mobile reminder', 'Scheduled shopping reminders are available in the iOS and Android apps.');
       return;
     }
     try {
@@ -871,7 +871,7 @@ export default function PriceMemoryScreen() {
         status = requested.status;
       }
       if (status !== 'granted') {
-        Alert.alert('Notifications disabled', 'Enable notifications to receive shopping reminders.');
+        showAlert('Notifications disabled', 'Enable notifications to receive shopping reminders.');
         return;
       }
 
@@ -889,21 +889,21 @@ export default function PriceMemoryScreen() {
 
       const key = `${alert.type}-${alert.item_name}`;
       setScheduledAlerts(prev => ({ ...prev, [key]: true }));
-      Alert.alert('Reminder set', 'I will remind you tomorrow.');
+      showAlert('Reminder set', 'I will remind you tomorrow.');
     } catch {
-      Alert.alert('Could not set reminder', 'Please try again.');
+      showAlert('Could not set reminder', 'Please try again.');
     }
   }
 
   async function scheduleTopAlerts() {
     const topAlerts = alerts.slice(0, 5);
     if (!topAlerts.length) {
-      Alert.alert('No alerts yet', 'Price Memory needs more repeat purchases before it can schedule alerts.');
+      showAlert('No alerts yet', 'Price Memory needs more repeat purchases before it can schedule alerts.');
       return;
     }
 
     if (Platform.OS === 'web') {
-      Alert.alert('Mobile reminders', 'Scheduled shopping reminders are available in the iOS and Android apps.');
+      showAlert('Mobile reminders', 'Scheduled shopping reminders are available in the iOS and Android apps.');
       return;
     }
 
@@ -916,7 +916,7 @@ export default function PriceMemoryScreen() {
         status = requested.status;
       }
       if (status !== 'granted') {
-        Alert.alert('Notifications disabled', 'Enable notifications to receive shopping reminders.');
+        showAlert('Notifications disabled', 'Enable notifications to receive shopping reminders.');
         return;
       }
 
@@ -940,9 +940,9 @@ export default function PriceMemoryScreen() {
         return next;
       });
       setAutoAlertEnabled(true);
-      Alert.alert('Smart alerts enabled', `Scheduled ${topAlerts.length} shopping reminder${topAlerts.length === 1 ? '' : 's'}.`);
+      showAlert('Smart alerts enabled', `Scheduled ${topAlerts.length} shopping reminder${topAlerts.length === 1 ? '' : 's'}.`);
     } catch {
-      Alert.alert('Could not enable alerts', 'Please try again.');
+      showAlert('Could not enable alerts', 'Please try again.');
     }
   }
 
@@ -954,7 +954,7 @@ export default function PriceMemoryScreen() {
         message: monthlyReportText(monthly, watch),
       });
     } catch {
-      Alert.alert('Could not share report', 'Please try again.');
+      showAlert('Could not share report', 'Please try again.');
     }
   }
 
@@ -976,7 +976,7 @@ export default function PriceMemoryScreen() {
         message: lines.join('\n'),
       });
     } catch {
-      Alert.alert('Could not share brief', 'Please try again.');
+      showAlert('Could not share brief', 'Please try again.');
     }
   }
 

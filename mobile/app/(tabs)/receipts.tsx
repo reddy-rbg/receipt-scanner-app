@@ -4,13 +4,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { IconButton } from '../../components/IconButton';
+import { showAlert } from '../../components/WebAlertHost';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { API } from '../../config/api';
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Modal, FlatList, TextInput, RefreshControl,
-  Alert, KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 
 const RECEIPTS_CACHE_KEY = 'receiptai:receipts-cache:v1';
@@ -371,7 +372,7 @@ export default function ReceiptsScreen() {
       if (!res.ok) throw new Error(data.detail || 'Could not filter receipts.');
       showResults(data.receipts || [], `${fromD}  ${toD}`);
     } catch (e:any) {
-      Alert.alert('Could not filter receipts', e.message || 'Please try again.');
+      showAlert('Could not filter receipts', e.message || 'Please try again.');
     }
   }
 
@@ -411,7 +412,7 @@ export default function ReceiptsScreen() {
       setShown(prev => prev.filter(r => r.id !== selected.id));
       setTimeout(() => { setSelected(null); setDeleted(false); setDeleteMode(false); }, 1600);
     } catch (e:any) {
-      Alert.alert('Could not delete receipt', e.message || 'Please try again.');
+      showAlert('Could not delete receipt', e.message || 'Please try again.');
     }
   }
 
@@ -425,7 +426,7 @@ export default function ReceiptsScreen() {
   async function saveEditedItem() {
     if (!selected || !editingItem) return;
     if (!editName.trim()) {
-      Alert.alert('Item name required', 'Please enter an item name.');
+      showAlert('Item name required', 'Please enter an item name.');
       return;
     }
 
@@ -455,9 +456,9 @@ export default function ReceiptsScreen() {
       setAll(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
       setShown(prev => prev.map(r => r.id === updatedReceipt.id ? updatedReceipt : r));
       setEditingItem(null);
-      Alert.alert('Saved', 'Item correction saved. Price Memory will use the corrected item.');
+      showAlert('Saved', 'Item correction saved. Price Memory will use the corrected item.');
     } catch (e:any) {
-      Alert.alert('Could not save', e.message || 'Please try again.');
+      showAlert('Could not save', e.message || 'Please try again.');
     } finally {
       setEditSaving(false);
     }

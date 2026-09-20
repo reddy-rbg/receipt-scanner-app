@@ -4,7 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -17,6 +16,7 @@ import {
 import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore';
 import { useTheme } from '../../stores/themeStore';
 import { API } from '../../config/api';
+import { showAlert } from '../../components/WebAlertHost';
 const STORAGE_KEY = 'receiptai_shop_list_v1';
 
 type PriceMatch = {
@@ -173,7 +173,7 @@ export default function ShopScreen() {
       .filter(name => !existing.has(name.toLowerCase()))
       .map(name => ({ id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, name, checked: false, loading: true }));
     if (!nextItems.length) {
-      Alert.alert('Already in list', 'That item is already on today\'s list.');
+      showAlert('Already in list', 'That item is already on today\'s list.');
       return;
     }
     setItems(prev => [...nextItems, ...prev]);

@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Clipboard from 'expo-clipboard';
 import { API } from '../../config/api';
+import { showAlert } from '../../components/WebAlertHost';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
@@ -228,7 +229,7 @@ export default function AgentScreen() {
 
   function voiceUnavailable() {
     const isExpoGo = Constants.appOwnership === 'expo';
-    Alert.alert(
+    showAlert(
       isExpoGo ? 'Voice build required' : 'Voice recognition unavailable',
       isExpoGo
         ? 'Voice recognition is not supported inside Expo Go. Install and open the ReceiptAI APK instead.'
@@ -237,7 +238,7 @@ export default function AgentScreen() {
   }
 
   function voicePermissionDenied(canAskAgain: boolean) {
-    Alert.alert(
+    showAlert(
       'Microphone permission needed',
       canAskAgain
         ? 'Allow microphone access to ask ReceiptAI questions by voice.'
@@ -255,26 +256,26 @@ export default function AgentScreen() {
       return;
     }
     if (code === 'no-speech' || code === 'speech-timeout') {
-      Alert.alert('No speech heard', 'Please tap the microphone and speak again.');
+      showAlert('No speech heard', 'Please tap the microphone and speak again.');
       return;
     }
     if (code === 'network') {
-      Alert.alert('Voice network error', 'Speech recognition could not reach its service. Check your connection and try again.');
+      showAlert('Voice network error', 'Speech recognition could not reach its service. Check your connection and try again.');
       return;
     }
     if (code === 'busy') {
-      Alert.alert('Voice is busy', 'Wait a moment, then tap the microphone again.');
+      showAlert('Voice is busy', 'Wait a moment, then tap the microphone again.');
       return;
     }
     if (code === 'service-not-allowed' || code === 'language-not-supported') {
-      Alert.alert(
+      showAlert(
         'Speech service unavailable',
         'Enable Google voice typing or the device speech recognition service in Android settings, then try again.',
         [{ text: 'Cancel', style: 'cancel' }, { text: 'Open settings', onPress: () => Linking.openSettings() }]
       );
       return;
     }
-    Alert.alert('Voice error', message || 'Voice recognition could not start. Please try again.');
+    showAlert('Voice error', message || 'Voice recognition could not start. Please try again.');
   }
 
   async function stopVoice() {
@@ -461,7 +462,7 @@ export default function AgentScreen() {
   }
 
   async function clearConversation() {
-    Alert.alert('Clear conversation', 'Start a fresh conversation with AI Assistant?', [
+    showAlert('Clear conversation', 'Start a fresh conversation with AI Assistant?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Clear',
@@ -496,9 +497,9 @@ export default function AgentScreen() {
     if (!value) return;
     try {
       await Clipboard.setStringAsync(value);
-      Alert.alert('Copied', `${label} copied to clipboard.`);
+      showAlert('Copied', `${label} copied to clipboard.`);
     } catch {
-      Alert.alert('Copy failed', 'Please try again.');
+      showAlert('Copy failed', 'Please try again.');
     }
   }
 
@@ -559,7 +560,7 @@ export default function AgentScreen() {
       });
     } catch {
       setMsgs(prev => prev.map((msg, idx) => idx === agentIndex ? { ...msg, feedbackSent: false } : msg));
-      Alert.alert('Feedback not saved', 'Please try again when the backend is reachable.');
+      showAlert('Feedback not saved', 'Please try again when the backend is reachable.');
     }
   }
 
@@ -603,9 +604,9 @@ export default function AgentScreen() {
           alias_value: correction || undefined,
         }),
       });
-      Alert.alert('Reported', 'ReceiptAI will avoid this match for you going forward.');
+      showAlert('Reported', 'ReceiptAI will avoid this match for you going forward.');
     } catch {
-      Alert.alert('Not saved', 'Could not save correction. Try again when connected.');
+      showAlert('Not saved', 'Could not save correction. Try again when connected.');
     }
   }
 

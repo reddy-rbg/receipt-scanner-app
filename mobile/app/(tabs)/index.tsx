@@ -6,11 +6,12 @@ import { getGuestSessionId, getUserToken, useAuth } from '../../stores/authStore
 import { useTheme } from '../../stores/themeStore';
 import { API } from '../../config/api';
 import { appLogger } from '../../utils/logger';
+import { showAlert } from '../../components/WebAlertHost';
 import { useState, useEffect, useCallback } from 'react';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  ActivityIndicator, Alert, Modal,
+  ActivityIndicator, Modal,
   Image,
   ScrollView,
   StyleSheet,
@@ -402,7 +403,7 @@ export default function ScanScreen(){
 
   async function openPreviousReceipt(row:any) {
     if (!row?.previousReceiptId) {
-      Alert.alert('Previous receipt', 'No previous receipt link was returned for this comparison.');
+      showAlert('Previous receipt', 'No previous receipt link was returned for this comparison.');
       return;
     }
     setPreviousReceiptLoading(true);
@@ -410,7 +411,7 @@ export default function ScanScreen(){
       const receipts = await loadOwnerReceipts();
       const receipt = receipts.find((r:any) => String(r.id) === String(row.previousReceiptId));
       if (!receipt) {
-        Alert.alert('Previous receipt', 'I could not find that previous receipt in your saved receipts.');
+        showAlert('Previous receipt', 'I could not find that previous receipt in your saved receipts.');
         return;
       }
       setPreviousReceipt(receipt);
@@ -418,7 +419,7 @@ export default function ScanScreen(){
       const itemByName = (receipt.items || []).find((item:any) => !isWeakFragmentMatch(row.item, item?.name || item?.item));
       setPreviousReceiptItem(itemByLine || itemByName || null);
     } catch(e:any) {
-      Alert.alert('Previous receipt', e.message || 'Could not open previous receipt.');
+      showAlert('Previous receipt', e.message || 'Could not open previous receipt.');
     } finally {
       setPreviousReceiptLoading(false);
     }
@@ -512,7 +513,7 @@ export default function ScanScreen(){
 
   async function pickImage(){
     const p=await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if(!p.granted){Alert.alert('Permission needed','Allow photo access.');return;}
+    if(!p.granted){showAlert('Permission needed','Allow photo access.');return;}
     const r=await ImagePicker.launchImageLibraryAsync({
       mediaTypes:['images'],
       quality:1,
@@ -539,11 +540,11 @@ export default function ScanScreen(){
 
   async function takePhoto(){
     if (imageUris.length >= MAX_SCAN_IMAGE_PAGES) {
-      Alert.alert('Page limit reached', `You can scan up to ${MAX_SCAN_IMAGE_PAGES} photo pages at one time.`);
+      showAlert('Page limit reached', `You can scan up to ${MAX_SCAN_IMAGE_PAGES} photo pages at one time.`);
       return;
     }
     const p=await ImagePicker.requestCameraPermissionsAsync();
-    if(!p.granted){Alert.alert('Permission needed','Allow camera access.');return;}
+    if(!p.granted){showAlert('Permission needed','Allow camera access.');return;}
     const r=await ImagePicker.launchCameraAsync({quality:1});
     if(!r.canceled&&r.assets[0]){
       setFileStatus('');
@@ -587,7 +588,7 @@ export default function ScanScreen(){
     if(!uri) return;
 
     if(!user){
-      Alert.alert('Authentication required', 'Please sign in or start a guest trial first.');
+      showAlert('Authentication required', 'Please sign in or start a guest trial first.');
       return;
     }
 
@@ -614,7 +615,7 @@ export default function ScanScreen(){
       if (prepared.size && prepared.size > MAX_UPLOAD_BYTES) {
         const message = 'Please crop the receipt closer and try again. The image is still above 5 MB after compression.';
         setScanError(message);
-        Alert.alert('Image too large', message);
+        showAlert('Image too large', message);
         return;
       }
 
@@ -626,7 +627,7 @@ export default function ScanScreen(){
         const guestSessionId = user.guest_session_id || user.id;
 
         if(!guestSessionId){
-          Alert.alert('Authentication required', 'Guest session is missing. Please sign out and start guest trial again.');
+          showAlert('Authentication required', 'Guest session is missing. Please sign out and start guest trial again.');
           return;
         }
 
@@ -635,7 +636,7 @@ export default function ScanScreen(){
           : `${API}/guest/scan-receipt?session_id=${encodeURIComponent(guestSessionId)}`;
       } else {
         if(!token || token === 'guest'){
-          Alert.alert('Authentication required', 'Your session token is missing. Please sign out and sign in again.');
+          showAlert('Authentication required', 'Your session token is missing. Please sign out and sign in again.');
           return;
         }
 
@@ -648,7 +649,7 @@ export default function ScanScreen(){
         if (oversizedPage) {
           const message = 'One receipt page is still above 5 MB after compression. Please crop it closer and try again.';
           setScanError(message);
-          Alert.alert('Image too large', message);
+          showAlert('Image too large', message);
           return;
         }
         if (preparedPages.some(page => page.compressed)) {
@@ -697,7 +698,7 @@ export default function ScanScreen(){
           : rawMessage;
         const responseRequestId = res.headers.get('X-Request-ID');
         setScanError(`${friendlyMessage}${responseRequestId ? ` Request ID: ${responseRequestId}` : ''}`);
-        Alert.alert('Scan Failed', friendlyMessage);
+        showAlert('Scan Failed', friendlyMessage);
         return;
       }
 
@@ -738,7 +739,7 @@ export default function ScanScreen(){
           guest: Boolean(user?.is_guest || user?.token === 'guest'),
         },
       });
-      Alert.alert('Error', visibleMessage);
+      showAlert('Error', visibleMessage);
     }finally{
       setLoading(false);
     }
@@ -786,7 +787,7 @@ export default function ScanScreen(){
     }
     setReviewSaving(false);
     setReviewModalVisible(false);
-    Alert.alert('Corrections saved', 'Item names updated in your price memory.');
+    showAlert('Corrections saved', 'Item names updated in your price memory.');
   }
 
   function renderReviewModal() {
