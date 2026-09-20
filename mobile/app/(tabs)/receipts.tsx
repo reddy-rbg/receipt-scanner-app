@@ -2,7 +2,7 @@ import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { IconButton } from '../../components/IconButton';
 import { showAlert } from '../../components/WebAlertHost';
 import { SafeAreaView } from 'react-native-safe-area-context';
