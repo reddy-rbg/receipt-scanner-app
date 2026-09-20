@@ -9,9 +9,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { API } from '../../config/api';
 import { useState, useEffect, useCallback, type ComponentProps } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, Image, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Modal, FlatList, TextInput, RefreshControl,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, type ImageSourcePropType,
 } from 'react-native';
 
 const RECEIPTS_CACHE_KEY = 'receiptai:receipts-cache:v1';
@@ -38,10 +38,23 @@ type ReceiptCategory = {
 };
 
 type ReceiptItemVisual = {
-  icon: ComponentProps<typeof MaterialCommunityIcons>['name'];
   color: string;
   label: string;
-};
+} & (
+  | { icon: ComponentProps<typeof MaterialCommunityIcons>['name']; image?: never }
+  | { image: ImageSourcePropType; icon?: never }
+);
+
+const ITEM_PICTOGRAMS = {
+  jalebi: require('../../assets/item-pictograms/jalebi.png'),
+  tindora: require('../../assets/item-pictograms/tindora.png'),
+  banana: require('../../assets/item-pictograms/banana.png'),
+  garlic: require('../../assets/item-pictograms/garlic.png'),
+  greenChilies: require('../../assets/item-pictograms/green-chilies.png'),
+  avocado: require('../../assets/item-pictograms/avocado.png'),
+  tomato: require('../../assets/item-pictograms/tomato.png'),
+  curryLeaves: require('../../assets/item-pictograms/curry-leaves.png'),
+} satisfies Record<string, ImageSourcePropType>;
 
 const FILTER_TABS = [
   { key:'all',   label:'All' },
@@ -84,10 +97,34 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (n(item?.price) < 0 || has('discount', 'coupon', 'savings')) {
     return { icon:'tag-outline', color:'#6F63B6', label:'Discount' };
   }
+  if (has('jalebi', 'jilebi', 'jelebi', 'jilabi')) {
+    return { image:ITEM_PICTOGRAMS.jalebi, color:'#D97822', label:'Jalebi' };
+  }
+  if (has('curry leaf', 'curry leaves', 'karivepaku')) {
+    return { image:ITEM_PICTOGRAMS.curryLeaves, color:'#378C55', label:'Curry leaves' };
+  }
+  if (has('tindora', 'dondakaya', 'ivy gourd')) {
+    return { image:ITEM_PICTOGRAMS.tindora, color:'#4F9559', label:'Tindora' };
+  }
+  if (has('green chili', 'green chilli', 'chili green', 'chilli green', 'hari mirch')) {
+    return { image:ITEM_PICTOGRAMS.greenChilies, color:'#4B923E', label:'Green chilies' };
+  }
+  if (has('banana', 'plantain', 'raw banana')) {
+    return { image:ITEM_PICTOGRAMS.banana, color:'#C99724', label:'Banana' };
+  }
+  if (has('garlic')) {
+    return { image:ITEM_PICTOGRAMS.garlic, color:'#9A7D69', label:'Garlic' };
+  }
+  if (has('avocado')) {
+    return { image:ITEM_PICTOGRAMS.avocado, color:'#5A873B', label:'Avocado' };
+  }
+  if (has('tomato')) {
+    return { image:ITEM_PICTOGRAMS.tomato, color:'#CB4B45', label:'Tomato' };
+  }
   if (has('popcorn', 'ppcrn', 'pcrn')) {
     return { icon:'popcorn', color:'#C58C24', label:'Popcorn' };
   }
-  if (has('curry leaf', 'curry leaves', 'karivepaku', 'methi leaves', 'mint leaves', 'pudina', 'basil', 'parsley', 'thyme', 'rosemary', 'bay leaf', 'fresh herb')) {
+  if (has('methi leaves', 'mint leaves', 'pudina', 'basil', 'parsley', 'thyme', 'rosemary', 'bay leaf', 'fresh herb')) {
     return { icon:'leaf', color:'#378C55', label:'Fresh herbs' };
   }
   if (has('paprika', 'chili', 'chilli', 'pepper', 'masala', 'spice', 'turmeric', 'haldi', 'cinnamon', 'saffron', 'cardamom', 'elaichi', 'cumin', 'jeera', 'clove', 'mustard seed', 'fenugreek seed', 'hing', 'asafoetida', 'seasoning')) {
@@ -1066,7 +1103,11 @@ export default function ReceiptsScreen() {
                       ]}
                       accessibilityLabel={`${itemVisual.label} icon`}
                     >
-                      <MaterialCommunityIcons name={itemVisual.icon} size={21} color={itemVisual.color} />
+                      {itemVisual.image ? (
+                        <Image source={itemVisual.image} style={s.mItemPicture} resizeMode="contain" />
+                      ) : (
+                        <MaterialCommunityIcons name={itemVisual.icon} size={21} color={itemVisual.color} />
+                      )}
                     </View>
                     <View style={{flex:1}}>
                       {item.code ? <Text style={s.mCode}>{item.code}</Text> : null}
@@ -1297,6 +1338,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   pageCount:{ color:C.text2, fontSize:11, fontWeight:'800', minWidth:34, textAlign:'center' },
   mItem:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', paddingVertical:11, borderBottomWidth:1, borderBottomColor:C.border, gap:10 },
   mItemVisual:{ width:40, height:40, borderRadius:12, borderWidth:1, alignItems:'center', justifyContent:'center', marginTop:1, flexShrink:0 },
+  mItemPicture:{ width:34, height:34 },
   mCode:{ color:C.text3, fontSize:9, fontFamily:'monospace', marginBottom:2 },
   mName:{ color:C.text, fontSize:13, fontWeight:'700' },
   mDetailWrap:{ marginTop:5, gap:2 },
