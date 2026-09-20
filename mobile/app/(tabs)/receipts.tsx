@@ -114,7 +114,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('cabbage', 'lettuce', 'spinach', 'palak', 'kale', 'cilantro', 'coriander', 'greens', 'okra', 'bhindi', 'methi')) {
     return { icon:'leaf', color:'#438F55', label:'Leafy vegetable' };
   }
-  if (has('eggplant', 'brinjal', 'gourd', 'squash', 'zucchini', 'cucumber', 'pumpkin', 'tomato', 'potato', 'onion', 'garlic', 'ginger', 'radish', 'beetroot', 'beet root', 'cauliflower', 'broccoli', 'vegetable', 'veggie')) {
+  if (has('eggplant', 'brinjal', 'gourd', 'squash', 'zucchini', 'cucumber', 'pumpkin', 'tomato', 'potato', 'onion', 'garlic', 'ginger', 'radish', 'beetroot', 'beet root', 'cauliflower', 'broccoli', 'tindora', 'dondakaya', 'lauki', 'sorakaya', 'karela', 'turai', 'beerakaya', 'arbi', 'yam', 'plantain', 'raw banana', 'moringa', 'vegetable', 'veggie')) {
     return { icon:'food-apple-outline', color:'#4F9559', label:'Fresh vegetable' };
   }
   if (has('chicken', 'turkey', 'breast', 'brst', 'beef', 'steak', 'pork', 'mutton', 'lamb', 'meat')) {
@@ -310,6 +310,7 @@ function getReceiptCategory(receipt: Receipt): ReceiptCategory {
   if (matchAny(store, ['costco', "sam's club", 'sams club'])) return categoryByKey('inventory');
   if (matchAny(store, ['exxon', 'exon express', 'express pay'])) return categoryByKey('fuel');
   if (matchAny(store, ['royal smokes', 'royal smoke', 'smoke shop', 'tobacco', 'vape', 'cigar'])) return categoryByKey('smoke');
+  if (matchAny(store, ['produce', 'grocery', 'bazaar', 'bazar'])) return categoryByKey('food');
   if (matchAny(store, ['india bazaar', 'india bazar', 'namaste indian', 'bharath bazaar', 'bharat bazaar'])) return categoryByKey('food');
   if (matchAny(store, ['kfc', 'kentucky fried chicken', 'mcdonald', 'subway', 'popeyes', 'chick-fil-a', 'chick fil a'])) return categoryByKey('restaurant');
   if (matchAny(store, ['coffee', 'cafe', 'café', 'starbucks', 'dunkin', 'scooter'])) return categoryByKey('coffee');
