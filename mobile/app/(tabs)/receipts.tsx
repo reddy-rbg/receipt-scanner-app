@@ -7,7 +7,7 @@ import { IconButton } from '../../components/IconButton';
 import { showAlert } from '../../components/WebAlertHost';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { API } from '../../config/api';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ComponentProps } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Modal, FlatList, TextInput, RefreshControl,
@@ -33,7 +33,8 @@ type Receipt = {
 type ReceiptCategory = {
   key: string;
   label: string;
-  icon: string;
+  icon: ComponentProps<typeof Ionicons>['name'];
+  color: string;
 };
 
 const FILTER_TABS = [
@@ -48,18 +49,23 @@ const FILTER_TABS = [
 ];
 
 const CATEGORIES: ReceiptCategory[] = [
-  { key:'inventory',  label:'Wholesale Inventory', icon:'' },
-  { key:'food',       label:'Food & Grocery',       icon:'' },
-  { key:'restaurant', label:'Restaurants',          icon:'' },
-  { key:'garden',     label:'Gardening & Hardware', icon:'' },
-  { key:'medical',    label:'Hospital & Medical',   icon:'' },
-  { key:'pharmacy',   label:'Pharmacy & Health',    icon:'' },
-  { key:'bank',       label:'Bank & Finance',       icon:'' },
-  { key:'fuel',       label:'Fuel & Auto',          icon:'' },
-  { key:'home',       label:'Home & Household',     icon:'' },
-  { key:'shopping',   label:'Retail Shopping',      icon:'' },
-  { key:'other',      label:'Other',                icon:'' },
+  { key:'inventory',  label:'Wholesale Inventory', icon:'business-outline',  color:'#3783D5' },
+  { key:'food',       label:'Food & Grocery',       icon:'basket-outline',    color:'#1E9B72' },
+  { key:'restaurant', label:'Restaurants',          icon:'restaurant-outline', color:'#D94E64' },
+  { key:'coffee',     label:'Coffee & Cafe',        icon:'cafe-outline',      color:'#9A6849' },
+  { key:'garden',     label:'Gardening & Hardware', icon:'leaf-outline',      color:'#4E9A55' },
+  { key:'medical',    label:'Hospital & Medical',   icon:'medkit-outline',    color:'#D8576B' },
+  { key:'pharmacy',   label:'Pharmacy & Health',    icon:'medical-outline',   color:'#A45CC7' },
+  { key:'bank',       label:'Bank & Finance',       icon:'card-outline',      color:'#4C78C2' },
+  { key:'fuel',       label:'Fuel & Auto',          icon:'car-sport-outline', color:'#E47D2B' },
+  { key:'home',       label:'Home & Household',     icon:'home-outline',      color:'#6E79B7' },
+  { key:'shopping',   label:'Retail Shopping',      icon:'bag-handle-outline', color:'#198E91' },
+  { key:'other',      label:'Other',                icon:'receipt-outline',   color:'#7658FF' },
 ];
+
+function categoryByKey(key: string) {
+  return CATEGORIES.find(category => category.key === key) || CATEGORIES[CATEGORIES.length - 1];
+}
 
 function receiptSearchText(receipt: Receipt) {
   const itemText = (receipt.items || [])
@@ -139,39 +145,48 @@ const INDIAN_GROCERY_TERMS = [
 
 function getReceiptCategory(receipt: Receipt): ReceiptCategory {
   const text = receiptSearchText(receipt);
+  const store = String(receipt.store || '').toLowerCase();
+
+  // Stable merchant overrides keep mixed-category stores predictable.
+  if (matchAny(store, ['costco', "sam's club", 'sams club'])) return categoryByKey('inventory');
+  if (matchAny(store, ['exxon', 'exon express', 'express pay'])) return categoryByKey('fuel');
+  if (matchAny(store, ['india bazaar', 'india bazar', 'namaste indian', 'bharath bazaar', 'bharat bazaar'])) return categoryByKey('food');
+  if (matchAny(store, ['kfc', 'kentucky fried chicken', 'mcdonald', 'subway', 'popeyes', 'chick-fil-a', 'chick fil a'])) return categoryByKey('restaurant');
+  if (matchAny(store, ['coffee', 'cafe', 'café', 'starbucks', 'dunkin', 'scooter'])) return categoryByKey('coffee');
+  if (matchAny(store, ['walmart', 'wal mart', 'wal*mart'])) return categoryByKey('shopping');
 
   if (matchAny(text, ['wholesale', 'invoice', 'sold to', 'ship to', 'tobacco license', 'vape', 'nicotine', 'e-liquid', 'eliquid', 'gummies', 'smoke shop', 'warehouse'])) {
-    return CATEGORIES.find(c => c.key === 'inventory')!;
+    return categoryByKey('inventory');
   }
   if (matchAny(text, ['bank', 'atm', 'withdrawal', 'deposit', 'credit union', 'chase', 'wells fargo', 'bank of america', 'capital one', 'payment receipt'])) {
-    return CATEGORIES.find(c => c.key === 'bank')!;
+    return categoryByKey('bank');
   }
   if (matchAny(text, ['hospital', 'clinic', 'medical center', 'urgent care', 'doctor', 'dental', 'dentist', 'labcorp', 'quest diagnostics', 'patient'])) {
-    return CATEGORIES.find(c => c.key === 'medical')!;
+    return categoryByKey('medical');
   }
   if (matchAny(text, ['cvs', 'walgreens', 'pharmacy', 'rx ', 'medicine', 'vitamin', 'health'])) {
-    return CATEGORIES.find(c => c.key === 'pharmacy')!;
+    return categoryByKey('pharmacy');
   }
   if (matchAny(text, ['lowe', 'home depot', 'tractor supply', 'garden', 'mulch', 'soil', 'plant', 'rose', 'fertilizer', 'hardware', 'paint', 'lumber'])) {
-    return CATEGORIES.find(c => c.key === 'garden')!;
+    return categoryByKey('garden');
   }
-  if (matchAny(text, ['restaurant', 'cafe', 'pizza', 'burger', 'taco', 'mcdonald', 'starbucks', 'subway', 'doordash', 'uber eats', 'grubhub'])) {
-    return CATEGORIES.find(c => c.key === 'restaurant')!;
+  if (matchAny(text, ['restaurant', 'pizza', 'burger', 'taco', 'kfc', 'mcdonald', 'subway', 'doordash', 'uber eats', 'grubhub'])) {
+    return categoryByKey('restaurant');
   }
   if (matchAny(text, ['walmart', 'wal mart', 'wal*mart', 'kroger', 'aldi', 'costco', 'sam club', 'target grocery', 'supermarket', 'market', 'grocery', 'food', 'seafood', 'milk', 'bread', 'egg', ...INDIAN_GROCERY_TERMS])) {
-    return CATEGORIES.find(c => c.key === 'food')!;
+    return categoryByKey('food');
   }
   if (matchAny(text, ['shell', 'exxon', 'chevron', 'bp ', 'circle k', 'speedway', 'gas', 'fuel', 'auto', 'oil change', 'tire'])) {
-    return CATEGORIES.find(c => c.key === 'fuel')!;
+    return categoryByKey('fuel');
   }
   if (matchAny(text, ['ikea', 'bed bath', 'household', 'cleaner', 'detergent', 'furniture', 'kitchen'])) {
-    return CATEGORIES.find(c => c.key === 'home')!;
+    return categoryByKey('home');
   }
   if (matchAny(text, ['amazon', 'best buy', 'tj maxx', 'marshalls', 'mall', 'clothing', 'shoes', 'apparel', 'electronics'])) {
-    return CATEGORIES.find(c => c.key === 'shopping')!;
+    return categoryByKey('shopping');
   }
 
-  return CATEGORIES.find(c => c.key === 'other')!;
+  return categoryByKey('other');
 }
 
 const MONTHS = [
@@ -694,38 +709,50 @@ export default function ReceiptsScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           removeClippedSubviews={false}
-          renderItem={({item:r,index}) => (
-            <TouchableOpacity
-              style={s.card}
-              onPress={() => { setSelected(r); setDeleted(false); setDeleteMode(false); }}
-              activeOpacity={0.8}
-            >
-              <View style={[s.receiptIcon, { backgroundColor:['#8F77EE','#E88C91','#E8B961','#58B8B2'][index % 4] }]}>
-                <Ionicons name="receipt-outline" size={19} color="#FFFEFA" />
-              </View>
-              <View style={{flex:1}}>
-                <View style={s.cardTopLine}>
-                  <Text style={s.idBadge}>#{r.id}</Text>
-                  <View style={s.categoryBadge}>
-                    <Text style={s.categoryBadgeTxt}>{getReceiptCategory(r).label}</Text>
-                  </View>
+          renderItem={({item:r}) => {
+            const receiptCategory = getReceiptCategory(r);
+            return (
+              <TouchableOpacity
+                style={s.card}
+                onPress={() => { setSelected(r); setDeleted(false); setDeleteMode(false); }}
+                activeOpacity={0.8}
+              >
+                <View
+                  style={[
+                    s.receiptIcon,
+                    {
+                      backgroundColor:`${receiptCategory.color}1F`,
+                      borderColor:`${receiptCategory.color}4D`,
+                    },
+                  ]}
+                  accessibilityLabel={`${receiptCategory.label} receipt`}
+                >
+                  <Ionicons name={receiptCategory.icon} size={22} color={receiptCategory.color} />
                 </View>
-                <Text style={s.storeName}>{r.store}</Text>
-                <Text style={s.meta} numberOfLines={2}>
-                  {[r.date, r.time, r.address].filter(Boolean).join('  ')}
-                </Text>
-              </View>
-              <View style={{alignItems:'flex-end',flexShrink:0}}>
-                <Text style={s.total}>${n(r.total).toFixed(2)}</Text>
-                {n(r.total_savings)>0 && (
-                  <View style={s.pill}>
-                    <Text style={s.pillTxt}>Saved ${r.total_savings!.toFixed(2)}</Text>
+                <View style={{flex:1}}>
+                  <View style={s.cardTopLine}>
+                    <Text style={s.idBadge}>#{r.id}</Text>
+                    <View style={[s.categoryBadge, { backgroundColor:`${receiptCategory.color}14`, borderColor:`${receiptCategory.color}3D` }]}>
+                      <Text style={[s.categoryBadgeTxt, { color:receiptCategory.color }]}>{receiptCategory.label}</Text>
+                    </View>
                   </View>
-                )}
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={C.text3} />
-            </TouchableOpacity>
-          )}
+                  <Text style={s.storeName}>{r.store}</Text>
+                  <Text style={s.meta} numberOfLines={2}>
+                    {[r.date, r.time, r.address].filter(Boolean).join('  ')}
+                  </Text>
+                </View>
+                <View style={{alignItems:'flex-end',flexShrink:0}}>
+                  <Text style={s.total}>${n(r.total).toFixed(2)}</Text>
+                  {n(r.total_savings)>0 && (
+                    <View style={s.pill}>
+                      <Text style={s.pillTxt}>Saved ${r.total_savings!.toFixed(2)}</Text>
+                    </View>
+                  )}
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={C.text3} />
+              </TouchableOpacity>
+            );
+          }}
           ListEmptyComponent={
             <View style={s.empty}>
               <Ionicons name="receipt-outline" size={44} color={C.text3} />
@@ -760,8 +787,16 @@ export default function ReceiptsScreen() {
             <View style={{flex:1}}>
               <Text style={s.modalStore}>{selected?.store||'Unknown Store'}</Text>
               {selected ? (
-                <View style={[s.categoryBadge, { alignSelf:'flex-start', marginBottom:8 }]}>
-                  <Text style={s.categoryBadgeTxt}>{getReceiptCategory(selected).label}</Text>
+                <View style={[
+                  s.categoryBadge,
+                  {
+                    alignSelf:'flex-start',
+                    marginBottom:8,
+                    backgroundColor:`${getReceiptCategory(selected).color}14`,
+                    borderColor:`${getReceiptCategory(selected).color}3D`,
+                  },
+                ]}>
+                  <Text style={[s.categoryBadgeTxt, { color:getReceiptCategory(selected).color }]}>{getReceiptCategory(selected).label}</Text>
                 </View>
               ) : null}
               <Text style={s.modalMeta}>
@@ -1042,7 +1077,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
 
   // Receipt cards
   card:{ backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:22, borderBottomRightRadius:8, padding:11, marginBottom:8, flexDirection:'row', alignItems:'center', gap:11, shadowColor:'#36283E', shadowOpacity:0.09, shadowRadius:16, shadowOffset:{width:0,height:8}, elevation:3 },
-  receiptIcon:{ width:45, height:45, borderRadius:16, borderBottomRightRadius:6, alignItems:'center', justifyContent:'center' },
+  receiptIcon:{ width:45, height:45, borderRadius:16, borderBottomRightRadius:6, borderWidth:1, alignItems:'center', justifyContent:'center' },
   cardTopLine:{ flexDirection:'row', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:4 },
   idBadge:{ color:C.text3, fontSize:9, fontFamily:'monospace', letterSpacing:0.5, marginBottom:3 },
   categoryBadge:{ backgroundColor:'rgba(128,111,255,0.10)', borderWidth:1, borderColor:'rgba(128,111,255,0.24)', borderRadius:8, paddingHorizontal:8, paddingVertical:3 },
