@@ -37,6 +37,12 @@ type ReceiptCategory = {
   color: string;
 };
 
+type ReceiptItemVisual = {
+  icon: ComponentProps<typeof MaterialCommunityIcons>['name'];
+  color: string;
+  label: string;
+};
+
 const FILTER_TABS = [
   { key:'all',   label:'All' },
   { key:'store', label:'Search' },
@@ -66,6 +72,98 @@ const CATEGORIES: ReceiptCategory[] = [
 
 function categoryByKey(key: string) {
   return CATEGORIES.find(category => category.key === key) || CATEGORIES[CATEGORIES.length - 1];
+}
+
+function getReceiptItemVisual(item: any): ReceiptItemVisual {
+  const text = [item?.name, item?.item, item?.description, item?.category]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  const has = (...terms: string[]) => terms.some(term => text.includes(term));
+
+  if (n(item?.price) < 0 || has('discount', 'coupon', 'savings')) {
+    return { icon:'tag-outline', color:'#6F63B6', label:'Discount' };
+  }
+  if (has('popcorn', 'ppcrn', 'pcrn')) {
+    return { icon:'popcorn', color:'#C58C24', label:'Popcorn' };
+  }
+  if (has('paprika', 'chili', 'chilli', 'pepper', 'masala', 'spice', 'turmeric', 'cinnamon', 'saffron', 'cardamom', 'seasoning')) {
+    return { icon:'chili-mild-outline', color:'#D15D3F', label:'Spice' };
+  }
+  if (has('tuna', 'fish', 'salmon', 'tilapia', 'seafood', 'shrimp', 'prawn')) {
+    return { icon:'fish', color:'#287FA5', label:'Seafood' };
+  }
+  if (has('corn')) {
+    return { icon:'corn', color:'#C89124', label:'Corn' };
+  }
+  if (has('mushroom', 'mush')) {
+    return { icon:'mushroom-outline', color:'#8B6B57', label:'Mushroom' };
+  }
+  if (has('carrot')) {
+    return { icon:'carrot', color:'#DE7333', label:'Carrot' };
+  }
+  if (has('green bean', 'beans', 'lentil', ' dal', 'dhal', 'chana', ' peas', 'pea ')) {
+    return { icon:'seed-outline', color:'#4C9461', label:'Beans or pulses' };
+  }
+  if (has('orange', 'lemon', 'lime', 'citrus')) {
+    return { icon:'fruit-citrus', color:'#E68A28', label:'Citrus fruit' };
+  }
+  if (has('cabbage', 'lettuce', 'spinach', 'kale', 'cilantro', 'coriander', 'greens', 'okra', 'bhindi')) {
+    return { icon:'leaf', color:'#438F55', label:'Leafy vegetable' };
+  }
+  if (has('chicken', 'turkey', 'breast', 'brst', 'beef', 'steak', 'pork', 'mutton', 'lamb', 'meat')) {
+    return { icon:'food-drumstick-outline', color:'#BC6752', label:'Meat' };
+  }
+  if (has('rice')) {
+    return { icon:'rice', color:'#9B7546', label:'Rice' };
+  }
+  if (has('bread', 'bun', 'naan', 'roti', 'tortilla')) {
+    return { icon:'bread-slice-outline', color:'#AF7540', label:'Bread' };
+  }
+  if (has('egg')) {
+    return { icon:'egg-outline', color:'#C49331', label:'Eggs' };
+  }
+  if (has('cheese')) {
+    return { icon:'cheese', color:'#C99A2D', label:'Cheese' };
+  }
+  if (has('ice cream', 'icecream')) {
+    return { icon:'ice-cream', color:'#B05D91', label:'Ice cream' };
+  }
+  if (has('milk', 'yogurt', 'curd', 'cream', 'dairy')) {
+    return { icon:'bottle-tonic-outline', color:'#4A83B3', label:'Dairy' };
+  }
+  if (has('coffee', 'tea')) {
+    return { icon:'coffee-outline', color:'#8D6048', label:'Coffee or tea' };
+  }
+  if (has('water')) {
+    return { icon:'water-outline', color:'#3D8FC1', label:'Water' };
+  }
+  if (has('juice', 'soda', 'coke', 'pepsi', 'drink', 'beverage')) {
+    return { icon:'bottle-soda-outline', color:'#5B78B8', label:'Drink' };
+  }
+  if (has('apple', 'banana', 'mango', 'grape', 'fruit', 'berry', 'berries')) {
+    return { icon:'fruit-grapes-outline', color:'#7E62AE', label:'Fruit' };
+  }
+  if (has('cookie', 'biscuit', 'cracker')) {
+    return { icon:'cookie-outline', color:'#A76B3E', label:'Snack' };
+  }
+  if (has('candy', 'chocolate', 'sweet')) {
+    return { icon:'candy-outline', color:'#C2597A', label:'Candy' };
+  }
+  if (has('soap', 'cleaner', 'detergent', 'bleach', 'spray')) {
+    return { icon:'spray-bottle', color:'#3F8C91', label:'Household cleaner' };
+  }
+  if (has('medicine', 'tablet', 'capsule', 'vitamin', 'pharmacy')) {
+    return { icon:'medical-bag', color:'#AA5F94', label:'Health item' };
+  }
+  if (has('shirt', 'dress', 'jeans', 'pants', 'clothing', 'apparel')) {
+    return { icon:'hanger', color:'#6D71AE', label:'Clothing' };
+  }
+  if (has('tool', 'hardware', 'screw', 'nail', 'hammer')) {
+    return { icon:'hammer-screwdriver', color:'#6C7480', label:'Hardware' };
+  }
+
+  return { icon:'package-variant-closed', color:'#7668A9', label:'Purchased item' };
 }
 
 function receiptSearchText(receipt: Receipt) {
@@ -894,8 +992,21 @@ export default function ReceiptsScreen() {
                 const neg = item.price < 0;
                 const ps  = neg ? `-$${Math.abs(item.price).toFixed(2)}` : `$${n(item.price).toFixed(2)}`;
                 const detailLines = itemDetailLines(item);
+                const itemVisual = getReceiptItemVisual(item);
                 return (
                   <View key={originalIndex} style={s.mItem}>
+                    <View
+                      style={[
+                        s.mItemVisual,
+                        {
+                          backgroundColor:`${itemVisual.color}17`,
+                          borderColor:`${itemVisual.color}35`,
+                        },
+                      ]}
+                      accessibilityLabel={`${itemVisual.label} icon`}
+                    >
+                      <MaterialCommunityIcons name={itemVisual.icon} size={21} color={itemVisual.color} />
+                    </View>
                     <View style={{flex:1}}>
                       {item.code ? <Text style={s.mCode}>{item.code}</Text> : null}
                       <Text style={s.mName}>{item.name}</Text>
@@ -1124,6 +1235,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
   pageBtnText:{ color:C.accent, fontSize:11, fontWeight:'900' },
   pageCount:{ color:C.text2, fontSize:11, fontWeight:'800', minWidth:34, textAlign:'center' },
   mItem:{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', paddingVertical:11, borderBottomWidth:1, borderBottomColor:C.border, gap:10 },
+  mItemVisual:{ width:40, height:40, borderRadius:12, borderWidth:1, alignItems:'center', justifyContent:'center', marginTop:1, flexShrink:0 },
   mCode:{ color:C.text3, fontSize:9, fontFamily:'monospace', marginBottom:2 },
   mName:{ color:C.text, fontSize:13, fontWeight:'700' },
   mDetailWrap:{ marginTop:5, gap:2 },
