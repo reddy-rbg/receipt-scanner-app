@@ -51,6 +51,19 @@ def test_web_root_and_client_routes_use_the_shared_app():
     assert api.json()["version"] == "1.0.4"
 
 
+def test_web_app_shell_is_not_cached_but_hashed_assets_are():
+    client = TestClient(app)
+    app_shell = client.get("/app/")
+    client_route = client.get("/app/receipts")
+    index = (WEB_APP / "index.html").read_text(encoding="utf-8")
+    bundle_path = index.split('src="', 1)[1].split('"', 1)[0]
+    bundle = client.get(bundle_path)
+
+    assert app_shell.headers["cache-control"] == "no-cache, no-store, must-revalidate"
+    assert client_route.headers["cache-control"] == "no-cache, no-store, must-revalidate"
+    assert bundle.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
 def test_backend_routes_keep_priority_over_spa_fallback():
     client = TestClient(app)
     assert client.get("/health/live").json()["status"] == "ok"

@@ -35,12 +35,22 @@ class SPAStaticFiles(StaticFiles):
     """Serve the shared Expo web build and fall back to its client router."""
 
     async def get_response(self, path: str, scope):
+        serves_app_shell = path in {"", ".", "index.html"} or path.endswith("/")
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code != 404:
                 raise
-            return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
+            serves_app_shell = True
+
+        if serves_app_shell or response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 class ClientErrorEvent(BaseModel):
