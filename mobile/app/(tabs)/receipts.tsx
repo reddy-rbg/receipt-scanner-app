@@ -73,6 +73,7 @@ const ITEM_PICTOGRAMS = {
   meat: require('../../assets/item-pictograms/meat.png'),
   cilantro: require('../../assets/item-pictograms/cilantro.png'),
   keema: require('../../assets/item-pictograms/keema.png'),
+  genericProduct: require('../../assets/item-pictograms/generic-product.png'),
 } satisfies Record<string, ImageSourcePropType>;
 
 const FILTER_TABS = [
@@ -111,15 +112,39 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
-  const has = (...terms: string[]) => terms.some(term => text.includes(term));
+  const normalizedText = text.replace(/[^a-z0-9]+/g, ' ').trim();
+  const paddedText = ` ${normalizedText} `;
+  const has = (...terms: string[]) => terms.some(term => {
+    const normalizedTerm = term.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    return normalizedTerm.length > 0 && paddedText.includes(` ${normalizedTerm} `);
+  });
 
   if (n(item?.price) < 0 || has('discount', 'coupon', 'savings')) {
     return { icon:'tag-outline', color:'#6F63B6', label:'Discount' };
   }
+  if (has(
+    'vape', 'vaping', 'nicotine', 'nixodine', 'e liquid', 'eliquid',
+    'cigarette', 'cigarettes', 'cigar', 'cigars', 'tobacco', 'rolling paper',
+    'disposable pod', 'replacement pod', 'detox flush'
+  )) {
+    return { icon:'smoking', color:'#70616D', label:'Smoke shop item' };
+  }
+
+  const guardedCategoryVisuals: Partial<Record<string, ReceiptItemVisual>> = {
+    garden:   { icon:'sprout-outline', color:'#568F4C', label:'Garden or hardware item' },
+    medical:  { icon:'medical-bag', color:'#D45C72', label:'Medical item' },
+    pharmacy: { icon:'pill', color:'#9862B7', label:'Pharmacy item' },
+    bank:     { icon:'receipt-text-outline', color:'#5274BA', label:'Financial line item' },
+    fuel:     { icon:'gas-station-outline', color:'#D97732', label:'Fuel or auto item' },
+    smoke:    { icon:'smoking', color:'#70616D', label:'Smoke shop item' },
+    home:     { icon:'home-heart', color:'#7470B7', label:'Household item' },
+  };
+  const guardedCategoryVisual = guardedCategoryVisuals[receiptCategory?.key || ''];
+  if (guardedCategoryVisual) return guardedCategoryVisual;
   if (has('jalebi', 'jilebi', 'jelebi', 'jilabi')) {
     return { image:ITEM_PICTOGRAMS.jalebi, color:'#D97822', label:'Jalebi' };
   }
-  if (has('curry leaf', 'curry leaves', 'karivepaku')) {
+  if (has('curry leaf', 'curry leaves', 'curry lvs', 'karivepaku')) {
     return { image:ITEM_PICTOGRAMS.curryLeaves, color:'#378C55', label:'Curry leaves' };
   }
   if (has('tindora', 'dondakaya', 'ivy gourd')) {
@@ -135,6 +160,9 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   }
   if (has('banana', 'plantain', 'raw banana')) {
     return { image:ITEM_PICTOGRAMS.banana, color:'#C99724', label:'Banana' };
+  }
+  if (has('garlic naan', 'garlic nan')) {
+    return { image:ITEM_PICTOGRAMS.bread, color:'#AF7540', label:'Garlic naan' };
   }
   if (has('garlic')) {
     return { image:ITEM_PICTOGRAMS.garlic, color:'#9A7D69', label:'Garlic' };
@@ -172,6 +200,15 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('goat keema', 'mutton keema', 'lamb keema', 'goat kheema', 'mutton kheema', 'kheema', 'qeema', 'keema')) {
     return { image:ITEM_PICTOGRAMS.keema, color:'#A94F43', label:'Keema' };
   }
+  if (has('almond milk', 'almondmilk')) {
+    return { image:ITEM_PICTOGRAMS.dairy, color:'#4A83B3', label:'Dairy alternative' };
+  }
+  if (has('ground chicken', 'grd ckn', 'hl grd ckn')) {
+    return { image:ITEM_PICTOGRAMS.meat, color:'#BC6752', label:'Ground chicken' };
+  }
+  if (has('asparagus', 'sweet pepper', 'sweet peppers', 'swt pep', 'mini swt pep')) {
+    return { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#4F9559', label:'Fresh vegetable' };
+  }
   if (has('popcorn', 'ppcrn', 'pcrn')) {
     return { icon:'popcorn', color:'#C58C24', label:'Popcorn' };
   }
@@ -193,10 +230,10 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('carrot')) {
     return { icon:'carrot', color:'#DE7333', label:'Carrot' };
   }
-  if (has('green bean', 'beans', 'lentil', ' dal', 'dhal', 'chana', 'rajma', 'moong', 'mung', 'toor', 'urad', 'masoor', 'garbanzo', 'chickpea', ' peas', 'pea ')) {
+  if (has('green bean', 'green beans', 'beans', 'lentil', 'lentils', 'dal', 'dhal', 'chana', 'rajma', 'moong', 'mung', 'toor', 'urad', 'masoor', 'garbanzo', 'chickpea', 'chickpeas', 'peas', 'pea')) {
     return { image:ITEM_PICTOGRAMS.lentils, color:'#4C9461', label:'Beans or pulses' };
   }
-  if (has('orang', 'lemon', 'lime', 'citrus')) {
+  if (has('orange', 'oranges', 'lemon', 'lemons', 'lime', 'limes', 'citrus')) {
     return { image:ITEM_PICTOGRAMS.mixedFruit, color:'#E68A28', label:'Citrus fruit' };
   }
   if (has('cabbage', 'lettuce', 'spinach', 'palak', 'kale', 'cilantro', 'coriander', 'greens', 'okra', 'bhindi', 'methi')) {
@@ -205,7 +242,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('eggplant', 'brinjal', 'gourd', 'squash', 'zucchini', 'cucumber', 'pumpkin', 'tomato', 'potato', 'onion', 'garlic', 'ginger', 'radish', 'beetroot', 'beet root', 'cauliflower', 'broccoli', 'tindora', 'dondakaya', 'lauki', 'sorakaya', 'karela', 'turai', 'beerakaya', 'arbi', 'yam', 'plantain', 'raw banana', 'moringa', 'vegetable', 'veggie')) {
     return { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#4F9559', label:'Fresh vegetable' };
   }
-  if (has('chicken', 'turkey', 'breast', 'brst', 'beef', 'steak', 'pork', 'goat', 'mutton', 'lamb', 'meat')) {
+  if (has('chicken', 'turkey', 'breast', 'brst', 'beef', 'steak', 'pork', 'goat', 'mutton', 'lamb', 'meat', 'ground meat')) {
     return { image:ITEM_PICTOGRAMS.meat, color:'#BC6752', label:'Meat' };
   }
   if (has('rice')) {
@@ -213,6 +250,9 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   }
   if (has('atta', 'flour', 'besan', 'maida', 'semolina', 'sooji', 'suji', 'rava')) {
     return { image:ITEM_PICTOGRAMS.flour, color:'#A47742', label:'Flour' };
+  }
+  if (has('noodle', 'noodles', 'ramen', 'vermicelli', 'sevai', 'pasta', 'macaroni', 'spaghetti', 'spag')) {
+    return { icon:'noodles', color:'#B87932', label:'Noodles or pasta' };
   }
   if (has('oats', 'wheat', 'barley', 'millet', 'ragi', 'jowar', 'bajra', 'quinoa', 'poha', 'grain')) {
     return { image:ITEM_PICTOGRAMS.rice, color:'#A47B36', label:'Grain' };
@@ -232,7 +272,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('ice cream', 'icecream')) {
     return { icon:'ice-cream', color:'#B05D91', label:'Ice cream' };
   }
-  if (has('milk', 'yogurt', 'curd', 'cream', 'dairy', 'sr c')) {
+  if (has('milk', 'yogurt', 'curd', 'dairy', 'sour cream', 'heavy cream', 'whipping cream', 'sr c')) {
     return { image:ITEM_PICTOGRAMS.dairy, color:'#4A83B3', label:'Dairy' };
   }
   if (has('ghee', 'cooking oil', 'olive oil', 'vegetable oil', 'sunflower oil', 'canola oil')) {
@@ -244,16 +284,13 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('salt', 'sugar', 'jaggery')) {
     return { icon:'shaker-outline', color:'#8A7381', label:'Pantry staple' };
   }
-  if (has('noodle', 'ramen', 'vermicelli', 'sevai', 'pasta', 'macaroni')) {
-    return { icon:'noodles', color:'#B87932', label:'Noodles or pasta' };
-  }
   if (has('coffee', 'tea')) {
     return { icon:'coffee-outline', color:'#8D6048', label:'Coffee or tea' };
   }
   if (has('water')) {
     return { icon:'water-outline', color:'#3D8FC1', label:'Water' };
   }
-  if (has('juice', 'soda', 'coke', 'pepsi', 'drink', 'beverage')) {
+  if (has('juice', 'soda', 'coke', 'pepsi', 'drink', 'beverage', 'bubly', 'sparkling water')) {
     return { icon:'bottle-soda-outline', color:'#5B78B8', label:'Drink' };
   }
   if (has('coconut', 'pineapple')) {
@@ -262,7 +299,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('watermelon', 'melon')) {
     return { icon:'fruit-watermelon', color:'#D35661', label:'Melon' };
   }
-  if (has('apple', 'banana', 'mango', 'grape', 'guava', 'papaya', 'fruit', 'berry', 'berries')) {
+  if (has('apple', 'apples', 'banana', 'bananas', 'mango', 'mangoes', 'grape', 'grapes', 'guava', 'papaya', 'fruit', 'fruits', 'berry', 'berries', 'mangosteen')) {
     return { image:ITEM_PICTOGRAMS.mixedFruit, color:'#7E62AE', label:'Fruit' };
   }
   if (has('cookie', 'biscuit', 'cracker', 'chips', 'mixture', 'namkeen', 'snack')) {
@@ -277,7 +314,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('cake', 'cupcake', 'muffin', 'pastry')) {
     return { icon:'cupcake', color:'#B45D82', label:'Bakery item' };
   }
-  if (has('candy', 'chocolate', 'sweet')) {
+  if (has('candy', 'chocolate', 'sweet candy', 'mithai')) {
     return { icon:'candy-outline', color:'#C2597A', label:'Candy' };
   }
   if (has('frozen', 'ice bag')) {
@@ -289,7 +326,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('medicine', 'tablet', 'capsule', 'vitamin', 'pharmacy')) {
     return { icon:'medical-bag', color:'#AA5F94', label:'Health item' };
   }
-  if (has('shirt', 'dress', 'jeans', 'pants', 'clothing', 'apparel')) {
+  if (has('shirt', 'shirts', 't shirt', 'tee', 'dress', 'jeans', 'pants', 'short', 'shorts', 'clothing', 'apparel', 'woven short')) {
     return { icon:'hanger', color:'#6D71AE', label:'Clothing' };
   }
   if (has('tool', 'hardware', 'screw', 'nail', 'hammer')) {
@@ -297,7 +334,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   }
 
   const categoryFallbacks: Record<string, ReceiptItemVisual> = {
-    food:       { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#248A65', label:'Food or grocery item' },
+    food:       { image:ITEM_PICTOGRAMS.genericProduct, color:'#248A65', label:'Unidentified grocery product' },
     restaurant: { image:ITEM_PICTOGRAMS.bread, color:'#CE556A', label:'Prepared food' },
     coffee:     { image:ITEM_PICTOGRAMS.lemonGingerTea, color:'#936248', label:'Cafe item' },
     garden:     { icon:'sprout-outline', color:'#568F4C', label:'Garden or hardware item' },
@@ -307,11 +344,11 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
     fuel:       { icon:'gas-station-outline', color:'#D97732', label:'Fuel or auto item' },
     smoke:      { icon:'smoking', color:'#70616D', label:'Smoke shop item' },
     home:       { icon:'home-heart', color:'#7470B7', label:'Household item' },
-    shopping:   { icon:'shopping-outline', color:'#238A8B', label:'Retail item' },
-    inventory:  { icon:'warehouse', color:'#4678C8', label:'Inventory item' },
+    shopping:   { image:ITEM_PICTOGRAMS.genericProduct, color:'#238A8B', label:'Unidentified retail product' },
+    inventory:  { image:ITEM_PICTOGRAMS.genericProduct, color:'#4678C8', label:'Unidentified inventory product' },
   };
 
-  return categoryFallbacks[receiptCategory?.key || ''] || { icon:'shape-outline', color:'#7668A9', label:'Uncategorized item' };
+  return categoryFallbacks[receiptCategory?.key || ''] || { image:ITEM_PICTOGRAMS.genericProduct, color:'#7668A9', label:'Unidentified product' };
 }
 
 function receiptSearchText(receipt: Receipt) {
@@ -397,12 +434,13 @@ function getReceiptCategory(receipt: Receipt): ReceiptCategory {
   // Stable merchant overrides keep mixed-category stores predictable.
   if (matchAny(store, ['costco', "sam's club", 'sams club'])) return categoryByKey('inventory');
   if (matchAny(store, ['exxon', 'exon express', 'express pay'])) return categoryByKey('fuel');
-  if (matchAny(store, ['royal smokes', 'royal smoke', 'smoke shop', 'tobacco', 'vape', 'cigar'])) return categoryByKey('smoke');
+  if (matchAny(store, ['royal smokes', 'royal smoke', 'smoke shop', 'tobacco', 'vape', 'vapor planet', 'central arkansas wholesale', 'cigar'])) return categoryByKey('smoke');
   if (matchAny(store, ['produce', 'grocery', 'bazaar', 'bazar'])) return categoryByKey('food');
   if (matchAny(store, ['india bazaar', 'india bazar', 'namaste indian', 'bharath bazaar', 'bharat bazaar'])) return categoryByKey('food');
   if (matchAny(store, ['kfc', 'kentucky fried chicken', 'mcdonald', 'subway', 'popeyes', 'chick-fil-a', 'chick fil a'])) return categoryByKey('restaurant');
   if (matchAny(store, ['coffee', 'cafe', 'café', 'starbucks', 'dunkin', 'scooter'])) return categoryByKey('coffee');
   if (matchAny(store, ['walmart', 'wal mart', 'wal*mart'])) return categoryByKey('shopping');
+  if (matchAny(store, ['ross dress for less', 'ross stores'])) return categoryByKey('shopping');
 
   if (matchAny(text, ['smoke shop', 'tobacco', 'cigarette', 'cigar', 'vape', 'nicotine', 'e-liquid', 'eliquid'])) {
     return categoryByKey('smoke');
