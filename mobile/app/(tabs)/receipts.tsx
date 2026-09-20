@@ -54,6 +54,23 @@ const ITEM_PICTOGRAMS = {
   avocado: require('../../assets/item-pictograms/avocado.png'),
   tomato: require('../../assets/item-pictograms/tomato.png'),
   curryLeaves: require('../../assets/item-pictograms/curry-leaves.png'),
+  mint: require('../../assets/item-pictograms/mint.png'),
+  jackfruit: require('../../assets/item-pictograms/jackfruit.png'),
+  edamame: require('../../assets/item-pictograms/edamame.png'),
+  broccoli: require('../../assets/item-pictograms/broccoli.png'),
+  mixedVegetables: require('../../assets/item-pictograms/mixed-vegetables.png'),
+  lemonGingerTea: require('../../assets/item-pictograms/lemon-ginger-tea.png'),
+  broth: require('../../assets/item-pictograms/broth.png'),
+  rice: require('../../assets/item-pictograms/rice.png'),
+  flour: require('../../assets/item-pictograms/flour.png'),
+  lentils: require('../../assets/item-pictograms/lentils.png'),
+  dairy: require('../../assets/item-pictograms/dairy.png'),
+  eggs: require('../../assets/item-pictograms/eggs.png'),
+  bread: require('../../assets/item-pictograms/bread.png'),
+  mixedFruit: require('../../assets/item-pictograms/mixed-fruit.png'),
+  spices: require('../../assets/item-pictograms/spices.png'),
+  seafood: require('../../assets/item-pictograms/seafood.png'),
+  meat: require('../../assets/item-pictograms/meat.png'),
 } satisfies Record<string, ImageSourcePropType>;
 
 const FILTER_TABS = [
@@ -121,17 +138,38 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('tomato')) {
     return { image:ITEM_PICTOGRAMS.tomato, color:'#CB4B45', label:'Tomato' };
   }
+  if (has('mint leaves', 'mint leaf', 'pudina')) {
+    return { image:ITEM_PICTOGRAMS.mint, color:'#378C55', label:'Mint leaves' };
+  }
+  if (has('jackfruit', 'jack fruit')) {
+    return { image:ITEM_PICTOGRAMS.jackfruit, color:'#A8862F', label:'Jackfruit' };
+  }
+  if (has('edamame', 'be edamame', 'gv edamame')) {
+    return { image:ITEM_PICTOGRAMS.edamame, color:'#4D963F', label:'Edamame' };
+  }
+  if (has('broccoli', 'brflor', 'broc flor')) {
+    return { image:ITEM_PICTOGRAMS.broccoli, color:'#438F55', label:'Broccoli' };
+  }
+  if (has('mixed vegetable', 'mixed veg', 'mxdvg')) {
+    return { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#4F9559', label:'Mixed vegetables' };
+  }
+  if (has('lemon ginger', 'lem gng', 'ginger tea', 'irani chai')) {
+    return { image:ITEM_PICTOGRAMS.lemonGingerTea, color:'#A46E35', label:'Tea' };
+  }
+  if (has('bone broth', 'bone brt', 'kf bone brt', 'broth')) {
+    return { image:ITEM_PICTOGRAMS.broth, color:'#A8753C', label:'Broth' };
+  }
   if (has('popcorn', 'ppcrn', 'pcrn')) {
     return { icon:'popcorn', color:'#C58C24', label:'Popcorn' };
   }
   if (has('methi leaves', 'mint leaves', 'pudina', 'basil', 'parsley', 'thyme', 'rosemary', 'bay leaf', 'fresh herb')) {
-    return { icon:'leaf', color:'#378C55', label:'Fresh herbs' };
+    return { image:ITEM_PICTOGRAMS.mint, color:'#378C55', label:'Fresh herbs' };
   }
   if (has('paprika', 'chili', 'chilli', 'pepper', 'masala', 'spice', 'turmeric', 'haldi', 'cinnamon', 'saffron', 'cardamom', 'elaichi', 'cumin', 'jeera', 'clove', 'mustard seed', 'fenugreek seed', 'hing', 'asafoetida', 'seasoning')) {
-    return { icon:'chili-mild-outline', color:'#D15D3F', label:'Spice' };
+    return { image:ITEM_PICTOGRAMS.spices, color:'#D15D3F', label:'Spice' };
   }
   if (has('tuna', 'fish', 'salmon', 'tilapia', 'seafood', 'shrimp', 'prawn')) {
-    return { icon:'fish', color:'#287FA5', label:'Seafood' };
+    return { image:ITEM_PICTOGRAMS.seafood, color:'#287FA5', label:'Seafood' };
   }
   if (has('corn')) {
     return { icon:'corn', color:'#C89124', label:'Corn' };
@@ -143,37 +181,37 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
     return { icon:'carrot', color:'#DE7333', label:'Carrot' };
   }
   if (has('green bean', 'beans', 'lentil', ' dal', 'dhal', 'chana', 'rajma', 'moong', 'mung', 'toor', 'urad', 'masoor', 'garbanzo', 'chickpea', ' peas', 'pea ')) {
-    return { icon:'seed-outline', color:'#4C9461', label:'Beans or pulses' };
+    return { image:ITEM_PICTOGRAMS.lentils, color:'#4C9461', label:'Beans or pulses' };
   }
   if (has('orang', 'lemon', 'lime', 'citrus')) {
-    return { icon:'fruit-citrus', color:'#E68A28', label:'Citrus fruit' };
+    return { image:ITEM_PICTOGRAMS.mixedFruit, color:'#E68A28', label:'Citrus fruit' };
   }
   if (has('cabbage', 'lettuce', 'spinach', 'palak', 'kale', 'cilantro', 'coriander', 'greens', 'okra', 'bhindi', 'methi')) {
-    return { icon:'leaf', color:'#438F55', label:'Leafy vegetable' };
+    return { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#438F55', label:'Leafy vegetable' };
   }
   if (has('eggplant', 'brinjal', 'gourd', 'squash', 'zucchini', 'cucumber', 'pumpkin', 'tomato', 'potato', 'onion', 'garlic', 'ginger', 'radish', 'beetroot', 'beet root', 'cauliflower', 'broccoli', 'tindora', 'dondakaya', 'lauki', 'sorakaya', 'karela', 'turai', 'beerakaya', 'arbi', 'yam', 'plantain', 'raw banana', 'moringa', 'vegetable', 'veggie')) {
-    return { icon:'food-apple-outline', color:'#4F9559', label:'Fresh vegetable' };
+    return { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#4F9559', label:'Fresh vegetable' };
   }
   if (has('chicken', 'turkey', 'breast', 'brst', 'beef', 'steak', 'pork', 'mutton', 'lamb', 'meat')) {
-    return { icon:'food-drumstick-outline', color:'#BC6752', label:'Meat' };
+    return { image:ITEM_PICTOGRAMS.meat, color:'#BC6752', label:'Meat' };
   }
   if (has('rice')) {
-    return { icon:'rice', color:'#9B7546', label:'Rice' };
+    return { image:ITEM_PICTOGRAMS.rice, color:'#9B7546', label:'Rice' };
   }
   if (has('atta', 'flour', 'besan', 'maida', 'semolina', 'sooji', 'suji', 'rava')) {
-    return { icon:'sack-outline', color:'#A47742', label:'Flour' };
+    return { image:ITEM_PICTOGRAMS.flour, color:'#A47742', label:'Flour' };
   }
   if (has('oats', 'wheat', 'barley', 'millet', 'ragi', 'jowar', 'bajra', 'quinoa', 'poha', 'grain')) {
-    return { icon:'grain', color:'#A47B36', label:'Grain' };
+    return { image:ITEM_PICTOGRAMS.rice, color:'#A47B36', label:'Grain' };
   }
   if (has('bread', 'bun', 'naan', 'roti', 'tortilla')) {
-    return { icon:'bread-slice-outline', color:'#AF7540', label:'Bread' };
+    return { image:ITEM_PICTOGRAMS.bread, color:'#AF7540', label:'Bread' };
   }
   if (has('egg')) {
-    return { icon:'egg-outline', color:'#C49331', label:'Eggs' };
+    return { image:ITEM_PICTOGRAMS.eggs, color:'#C49331', label:'Eggs' };
   }
   if (has('cheese', 'paneer')) {
-    return { icon:'cheese', color:'#C99A2D', label:'Cheese' };
+    return { image:ITEM_PICTOGRAMS.dairy, color:'#C99A2D', label:'Cheese' };
   }
   if (has('peanut', 'groundnut', 'almond', 'cashew', 'pistachio', 'walnut', 'mixed nuts')) {
     return { icon:'peanut-outline', color:'#9B6A3B', label:'Nuts' };
@@ -182,7 +220,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
     return { icon:'ice-cream', color:'#B05D91', label:'Ice cream' };
   }
   if (has('milk', 'yogurt', 'curd', 'cream', 'dairy', 'sr c')) {
-    return { icon:'bottle-tonic-outline', color:'#4A83B3', label:'Dairy' };
+    return { image:ITEM_PICTOGRAMS.dairy, color:'#4A83B3', label:'Dairy' };
   }
   if (has('ghee', 'cooking oil', 'olive oil', 'vegetable oil', 'sunflower oil', 'canola oil')) {
     return { icon:'oil', color:'#B8892F', label:'Cooking oil' };
@@ -212,7 +250,7 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
     return { icon:'fruit-watermelon', color:'#D35661', label:'Melon' };
   }
   if (has('apple', 'banana', 'mango', 'grape', 'guava', 'papaya', 'fruit', 'berry', 'berries')) {
-    return { icon:'fruit-grapes-outline', color:'#7E62AE', label:'Fruit' };
+    return { image:ITEM_PICTOGRAMS.mixedFruit, color:'#7E62AE', label:'Fruit' };
   }
   if (has('cookie', 'biscuit', 'cracker', 'chips', 'mixture', 'namkeen', 'snack')) {
     return { icon:'cookie-outline', color:'#A76B3E', label:'Snack' };
@@ -246,9 +284,9 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   }
 
   const categoryFallbacks: Record<string, ReceiptItemVisual> = {
-    food:       { icon:'food-variant', color:'#248A65', label:'Food or grocery item' },
-    restaurant: { icon:'silverware-fork-knife', color:'#CE556A', label:'Prepared food' },
-    coffee:     { icon:'coffee-outline', color:'#936248', label:'Cafe item' },
+    food:       { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#248A65', label:'Food or grocery item' },
+    restaurant: { image:ITEM_PICTOGRAMS.bread, color:'#CE556A', label:'Prepared food' },
+    coffee:     { image:ITEM_PICTOGRAMS.lemonGingerTea, color:'#936248', label:'Cafe item' },
     garden:     { icon:'sprout-outline', color:'#568F4C', label:'Garden or hardware item' },
     medical:    { icon:'medical-bag', color:'#D45C72', label:'Medical item' },
     pharmacy:   { icon:'pill', color:'#9862B7', label:'Pharmacy item' },
