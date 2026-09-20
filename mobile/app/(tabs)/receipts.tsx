@@ -2,7 +2,7 @@ import { DARK_COLORS, useTheme } from '../../stores/themeStore';
 import { useAuth, getUserToken, getGuestSessionId } from '../../stores/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { IconButton } from '../../components/IconButton';
 import { showAlert } from '../../components/WebAlertHost';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,7 +33,7 @@ type Receipt = {
 type ReceiptCategory = {
   key: string;
   label: string;
-  icon: ComponentProps<typeof Ionicons>['name'];
+  icon: ComponentProps<typeof MaterialCommunityIcons>['name'];
   color: string;
 };
 
@@ -49,18 +49,18 @@ const FILTER_TABS = [
 ];
 
 const CATEGORIES: ReceiptCategory[] = [
-  { key:'inventory',  label:'Wholesale Inventory', icon:'business-outline',  color:'#3783D5' },
-  { key:'food',       label:'Food & Grocery',       icon:'basket-outline',    color:'#1E9B72' },
-  { key:'restaurant', label:'Restaurants',          icon:'restaurant-outline', color:'#D94E64' },
-  { key:'coffee',     label:'Coffee & Cafe',        icon:'cafe-outline',      color:'#9A6849' },
-  { key:'garden',     label:'Gardening & Hardware', icon:'leaf-outline',      color:'#4E9A55' },
-  { key:'medical',    label:'Hospital & Medical',   icon:'medkit-outline',    color:'#D8576B' },
-  { key:'pharmacy',   label:'Pharmacy & Health',    icon:'medical-outline',   color:'#A45CC7' },
-  { key:'bank',       label:'Bank & Finance',       icon:'card-outline',      color:'#4C78C2' },
-  { key:'fuel',       label:'Fuel & Auto',          icon:'car-sport-outline', color:'#E47D2B' },
-  { key:'home',       label:'Home & Household',     icon:'home-outline',      color:'#6E79B7' },
-  { key:'shopping',   label:'Retail Shopping',      icon:'bag-handle-outline', color:'#198E91' },
-  { key:'other',      label:'Other',                icon:'receipt-outline',   color:'#7658FF' },
+  { key:'inventory',  label:'Wholesale Inventory', icon:'warehouse',              color:'#4678C8' },
+  { key:'food',       label:'Food & Grocery',       icon:'food-apple-outline',     color:'#248A65' },
+  { key:'restaurant', label:'Restaurants',          icon:'silverware-fork-knife',  color:'#CE556A' },
+  { key:'coffee',     label:'Coffee & Cafe',        icon:'coffee-outline',         color:'#936248' },
+  { key:'garden',     label:'Gardening & Hardware', icon:'sprout-outline',         color:'#568F4C' },
+  { key:'medical',    label:'Hospital & Medical',   icon:'hospital-box-outline',   color:'#D45C72' },
+  { key:'pharmacy',   label:'Pharmacy & Health',    icon:'pill',                   color:'#9862B7' },
+  { key:'bank',       label:'Bank & Finance',       icon:'bank-outline',           color:'#5274BA' },
+  { key:'fuel',       label:'Fuel & Auto',          icon:'gas-station-outline',    color:'#D97732' },
+  { key:'home',       label:'Home & Household',     icon:'home-heart',             color:'#7470B7' },
+  { key:'shopping',   label:'Retail Shopping',      icon:'shopping-outline',       color:'#238A8B' },
+  { key:'other',      label:'Other',                icon:'receipt-text-outline',   color:'#755FB3' },
 ];
 
 function categoryByKey(key: string) {
@@ -721,13 +721,14 @@ export default function ReceiptsScreen() {
                   style={[
                     s.receiptIcon,
                     {
-                      backgroundColor:`${receiptCategory.color}1F`,
-                      borderColor:`${receiptCategory.color}4D`,
+                      backgroundColor:`${receiptCategory.color}18`,
+                      borderColor:`${receiptCategory.color}33`,
+                      shadowColor:receiptCategory.color,
                     },
                   ]}
                   accessibilityLabel={`${receiptCategory.label} receipt`}
                 >
-                  <Ionicons name={receiptCategory.icon} size={22} color={receiptCategory.color} />
+                  <MaterialCommunityIcons name={receiptCategory.icon} size={25} color={receiptCategory.color} />
                 </View>
                 <View style={{flex:1}}>
                   <View style={s.cardTopLine}>
@@ -1077,7 +1078,7 @@ const createStyles = (C: typeof DARK_COLORS) => StyleSheet.create({
 
   // Receipt cards
   card:{ backgroundColor:C.card, borderWidth:1, borderColor:C.border, borderRadius:22, borderBottomRightRadius:8, padding:11, marginBottom:8, flexDirection:'row', alignItems:'center', gap:11, shadowColor:'#36283E', shadowOpacity:0.09, shadowRadius:16, shadowOffset:{width:0,height:8}, elevation:3 },
-  receiptIcon:{ width:45, height:45, borderRadius:16, borderBottomRightRadius:6, borderWidth:1, alignItems:'center', justifyContent:'center' },
+  receiptIcon:{ width:48, height:48, borderRadius:15, borderWidth:1, alignItems:'center', justifyContent:'center', shadowOpacity:0.12, shadowRadius:8, shadowOffset:{width:0,height:4}, elevation:2 },
   cardTopLine:{ flexDirection:'row', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:4 },
   idBadge:{ color:C.text3, fontSize:9, fontFamily:'monospace', letterSpacing:0.5, marginBottom:3 },
   categoryBadge:{ backgroundColor:'rgba(128,111,255,0.10)', borderWidth:1, borderColor:'rgba(128,111,255,0.24)', borderRadius:8, paddingHorizontal:8, paddingVertical:3 },

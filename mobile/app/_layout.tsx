@@ -3,7 +3,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { ActivityIndicator, Platform, Text, TouchableOpacity, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { useTheme } from '../stores/themeStore';
 import { appLogger } from '../utils/logger';
@@ -34,7 +34,7 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => voi
 
 export default function RootLayout() {
   const { isDark, colors: C } = useTheme();
-  const [fontsLoaded, fontError] = useFonts(Ionicons.font);
+  const [fontsLoaded, fontError] = useFonts({ ...Ionicons.font, ...MaterialCommunityIcons.font });
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof globalThis.addEventListener !== 'function') return;
     const onError = (event: any) => appLogger.error(
