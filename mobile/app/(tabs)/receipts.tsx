@@ -50,7 +50,7 @@ const FILTER_TABS = [
 
 const CATEGORIES: ReceiptCategory[] = [
   { key:'inventory',  label:'Wholesale Inventory', icon:'warehouse',              color:'#4678C8' },
-  { key:'food',       label:'Food & Grocery',       icon:'food-apple-outline',     color:'#248A65' },
+  { key:'food',       label:'Food & Grocery',       icon:'basket',                 color:'#248A65' },
   { key:'restaurant', label:'Restaurants',          icon:'silverware-fork-knife',  color:'#CE556A' },
   { key:'coffee',     label:'Coffee & Cafe',        icon:'coffee-outline',         color:'#936248' },
   { key:'garden',     label:'Gardening & Hardware', icon:'sprout-outline',         color:'#568F4C' },
@@ -58,6 +58,7 @@ const CATEGORIES: ReceiptCategory[] = [
   { key:'pharmacy',   label:'Pharmacy & Health',    icon:'pill',                   color:'#9862B7' },
   { key:'bank',       label:'Bank & Finance',       icon:'bank-outline',           color:'#5274BA' },
   { key:'fuel',       label:'Fuel & Auto',          icon:'gas-station-outline',    color:'#D97732' },
+  { key:'smoke',      label:'Smoke Shop',           icon:'smoking',                color:'#70616D' },
   { key:'home',       label:'Home & Household',     icon:'home-heart',             color:'#7470B7' },
   { key:'shopping',   label:'Retail Shopping',      icon:'shopping-outline',       color:'#238A8B' },
   { key:'other',      label:'Other',                icon:'receipt-text-outline',   color:'#755FB3' },
@@ -150,12 +151,16 @@ function getReceiptCategory(receipt: Receipt): ReceiptCategory {
   // Stable merchant overrides keep mixed-category stores predictable.
   if (matchAny(store, ['costco', "sam's club", 'sams club'])) return categoryByKey('inventory');
   if (matchAny(store, ['exxon', 'exon express', 'express pay'])) return categoryByKey('fuel');
+  if (matchAny(store, ['royal smokes', 'royal smoke', 'smoke shop', 'tobacco', 'vape', 'cigar'])) return categoryByKey('smoke');
   if (matchAny(store, ['india bazaar', 'india bazar', 'namaste indian', 'bharath bazaar', 'bharat bazaar'])) return categoryByKey('food');
   if (matchAny(store, ['kfc', 'kentucky fried chicken', 'mcdonald', 'subway', 'popeyes', 'chick-fil-a', 'chick fil a'])) return categoryByKey('restaurant');
   if (matchAny(store, ['coffee', 'cafe', 'café', 'starbucks', 'dunkin', 'scooter'])) return categoryByKey('coffee');
   if (matchAny(store, ['walmart', 'wal mart', 'wal*mart'])) return categoryByKey('shopping');
 
-  if (matchAny(text, ['wholesale', 'invoice', 'sold to', 'ship to', 'tobacco license', 'vape', 'nicotine', 'e-liquid', 'eliquid', 'gummies', 'smoke shop', 'warehouse'])) {
+  if (matchAny(text, ['smoke shop', 'tobacco', 'cigarette', 'cigar', 'vape', 'nicotine', 'e-liquid', 'eliquid'])) {
+    return categoryByKey('smoke');
+  }
+  if (matchAny(text, ['wholesale', 'invoice', 'sold to', 'ship to', 'warehouse'])) {
     return categoryByKey('inventory');
   }
   if (matchAny(text, ['bank', 'atm', 'withdrawal', 'deposit', 'credit union', 'chase', 'wells fargo', 'bank of america', 'capital one', 'payment receipt'])) {
