@@ -52,6 +52,26 @@ CAPTURE  →  EXTRACT  →  VALIDATE  →  REMEMBER  →  RETRIEVE  →  ANSWER
 
 The result is more than OCR. ReceiptAI builds a private, queryable record of real-world purchases and makes that record useful through a conversational Agent.
 
+## Current application experience
+
+The Expo app now uses the same product UI on Android, iOS, and the hosted web
+application. Its primary navigation is organized around five tasks:
+
+| Tab | Purpose |
+| --- | --- |
+| **Home** | Purchase summary, recent activity, and quick actions |
+| **Receipts** | Search, filter, inspect, and correct saved receipts |
+| **Capture** | Upload or photograph image, PDF, and multi-page receipts |
+| **Memory** | Review price history, shopping insights, and reminders |
+| **AI** | Ask the evidence-grounded ReceiptAI assistant |
+
+The web build includes accessible in-app dialogs with working cancel and
+confirmation actions, browser-safe sharing, notification fallbacks, responsive
+navigation, and explicit close/back controls. HTML app-shell responses use
+`no-cache, no-store, must-revalidate`, while hashed JavaScript and asset files
+use immutable caching. This prevents a browser from continuing to show an old
+interface after a Railway deployment.
+
 ## The Receipt Intelligence Loop
 
 <img src="./assets/readme/receiptai-architecture.svg" alt="ReceiptAI intelligence-loop architecture showing scan, ask, and operations paths around a shared trust core" width="100%" />
@@ -65,6 +85,36 @@ The architecture is designed as three connected journeys around one shared trust
 | **Operate** | Ops console → RBAC guard → usage, issues, assignments, and audit | Make production behavior visible without bypassing data scopes |
 
 At the center, FastAPI owns authentication checks, authorization, orchestration, validation, and API contracts. Supabase is the durable purchase-memory and access-control store. Claude is an extraction and reasoning dependency—not the source of truth.
+
+### AI provider status and OpenAI option
+
+Claude/Anthropic is the current production provider for receipt extraction and
+Agent reasoning. The provider has not been switched to OpenAI yet.
+
+For a future migration, the recommended design is to add OpenAI as a selectable
+server-side provider and evaluate it against the same receipt questions before
+changing the production default. The OpenAI Responses API is a strong candidate
+for the conversational assistant because it supports structured outputs and
+tool-driven workflows. A provider change alone cannot guarantee relevant
+answers: retrieval quality, the typed intent plan, evidence gates, prompts, and
+evaluation cases remain responsible for keeping responses aligned with the
+user's question.
+
+OpenAI API authentication requires a secret API key; an application email and
+password are not API credentials. Store a future `OPENAI_API_KEY` only in the
+backend environment or Railway secret settings, never in the mobile bundle,
+source control, or a committed `.env` file. See the
+[OpenAI API authentication documentation](https://developers.openai.com/api/reference/overview#authentication).
+
+Recommended rollout:
+
+1. Add a provider interface without changing receipt or Agent API contracts.
+2. Configure `OPENAI_API_KEY` as a server-side secret.
+3. Run the existing evidence, intent, receipt, and regression evaluations for
+   Claude and OpenAI with the same inputs.
+4. Compare answer relevance, grounded-claim accuracy, latency, and cost.
+5. Switch the default only after OpenAI meets the release thresholds; keep a
+   provider rollback setting during the initial rollout.
 
 <details>
 <summary><b>Scan journey: cost-aware extraction</b></summary>
@@ -257,7 +307,9 @@ npm run web
 The deployed backend serves the checked-in production bundle at
 [`/app/`](https://web-production-3605f4.up.railway.app/app/). Browser camera and
 file uploads use the same scan APIs as iOS and Android, and sanitized browser
-failures are recorded in the operations Issues workspace.
+failures are recorded in the operations Issues workspace. After a deployment,
+the app shell is revalidated automatically. A browser that cached a release
+from before this policy was added may require one hard refresh.
 
 ## Operations console
 
@@ -360,6 +412,11 @@ npm audit --omit=dev --audit-level=critical
 ```
 
 Then follow the device, migration, deployment, and rollback checks in [`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md).
+
+The September 2026 UI release was validated with the offline release verifier,
+the backend test suite, focused web-hosting tests, TypeScript, Expo lint, an Expo
+web export, an npm production-dependency audit, and production browser smoke
+tests covering guest navigation and confirmation-dialog interaction.
 
 ## Project documentation
 
