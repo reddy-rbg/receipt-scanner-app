@@ -73,6 +73,15 @@ const ITEM_PICTOGRAMS = {
   meat: require('../../assets/item-pictograms/meat.png'),
   cilantro: require('../../assets/item-pictograms/cilantro.png'),
   keema: require('../../assets/item-pictograms/keema.png'),
+  greenOnion: require('../../assets/item-pictograms/green-onion.png'),
+  cabbage: require('../../assets/item-pictograms/cabbage.png'),
+  okra: require('../../assets/item-pictograms/okra.png'),
+  squash: require('../../assets/item-pictograms/squash.png'),
+  onion: require('../../assets/item-pictograms/onion.png'),
+  eggplant: require('../../assets/item-pictograms/eggplant.png'),
+  cucumber: require('../../assets/item-pictograms/cucumber.png'),
+  ginger: require('../../assets/item-pictograms/ginger.png'),
+  sweetPotato: require('../../assets/item-pictograms/sweet-potato.png'),
   genericProduct: require('../../assets/item-pictograms/generic-product.png'),
 } satisfies Record<string, ImageSourcePropType>;
 
@@ -173,6 +182,33 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('tomato')) {
     return { image:ITEM_PICTOGRAMS.tomato, color:'#CB4B45', label:'Tomato' };
   }
+  if (has('green onion', 'green onions', 'american green onion', 'onion green', 'scallion', 'scallions', 'spring onion', 'spring onions')) {
+    return { image:ITEM_PICTOGRAMS.greenOnion, color:'#4B923E', label:'Green onion' };
+  }
+  if (has('cabbage')) {
+    return { image:ITEM_PICTOGRAMS.cabbage, color:'#5B963F', label:'Cabbage' };
+  }
+  if (has('okra', 'bhindi', 'lady finger', 'lady fingers')) {
+    return { image:ITEM_PICTOGRAMS.okra, color:'#4F9559', label:'Okra' };
+  }
+  if (has('squash', 'gourd', 'chayote', 'dosakai', 'lauki', 'sorakaya', 'karela', 'turai', 'beerakaya', 'zucchini', 'pumpkin')) {
+    return { image:ITEM_PICTOGRAMS.squash, color:'#6E9A42', label:'Squash or gourd' };
+  }
+  if (has('eggplant', 'brinjal')) {
+    return { image:ITEM_PICTOGRAMS.eggplant, color:'#76508F', label:'Eggplant' };
+  }
+  if (has('cucumber')) {
+    return { image:ITEM_PICTOGRAMS.cucumber, color:'#4D963F', label:'Cucumber' };
+  }
+  if (has('onion', 'onions')) {
+    return { image:ITEM_PICTOGRAMS.onion, color:'#A55B72', label:'Onion' };
+  }
+  if (has('ginger', 'galanga', 'galangal')) {
+    return { image:ITEM_PICTOGRAMS.ginger, color:'#B7874D', label:'Ginger' };
+  }
+  if (has('sweet potato', 'sweet potatoes', 'yam', 'yams')) {
+    return { image:ITEM_PICTOGRAMS.sweetPotato, color:'#B96846', label:'Sweet potato' };
+  }
   if (has('cilantro', 'coriander leaves', 'coriander leaf', 'fresh coriander')) {
     return { image:ITEM_PICTOGRAMS.cilantro, color:'#3F8F50', label:'Cilantro' };
   }
@@ -236,10 +272,10 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   if (has('orange', 'oranges', 'lemon', 'lemons', 'lime', 'limes', 'citrus')) {
     return { image:ITEM_PICTOGRAMS.mixedFruit, color:'#E68A28', label:'Citrus fruit' };
   }
-  if (has('cabbage', 'lettuce', 'spinach', 'palak', 'kale', 'cilantro', 'coriander', 'greens', 'okra', 'bhindi', 'methi')) {
+  if (has('lettuce', 'spinach', 'palak', 'kale', 'cilantro', 'coriander', 'greens', 'methi')) {
     return { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#438F55', label:'Leafy vegetable' };
   }
-  if (has('eggplant', 'brinjal', 'gourd', 'squash', 'zucchini', 'cucumber', 'pumpkin', 'tomato', 'potato', 'onion', 'garlic', 'ginger', 'radish', 'beetroot', 'beet root', 'cauliflower', 'broccoli', 'tindora', 'dondakaya', 'lauki', 'sorakaya', 'karela', 'turai', 'beerakaya', 'arbi', 'yam', 'plantain', 'raw banana', 'moringa', 'vegetable', 'veggie')) {
+  if (has('tomato', 'potato', 'garlic', 'radish', 'beetroot', 'beet root', 'cauliflower', 'broccoli', 'tindora', 'dondakaya', 'arbi', 'plantain', 'raw banana', 'moringa', 'vegetable', 'veggie')) {
     return { image:ITEM_PICTOGRAMS.mixedVegetables, color:'#4F9559', label:'Fresh vegetable' };
   }
   if (has('chicken', 'turkey', 'breast', 'brst', 'beef', 'steak', 'pork', 'goat', 'mutton', 'lamb', 'meat', 'ground meat')) {

@@ -72,6 +72,12 @@ navigation, and explicit close/back controls. HTML app-shell responses use
 use immutable caching. This prevents a browser from continuing to show an old
 interface after a Railway deployment.
 
+Receipt item rows automatically select a product pictogram from normalized item
+names and common aliases. The matcher includes dedicated produce images for
+items such as green onions, cabbage, okra, squash, eggplant, cucumber, onions,
+ginger, and sweet potatoes, while unidentified products use a neutral fallback
+instead of a misleading category image.
+
 ## The Receipt Intelligence Loop
 
 <img src="./assets/readme/receiptai-architecture.svg" alt="ReceiptAI intelligence-loop architecture showing scan, ask, and operations paths around a shared trust core" width="100%" />
