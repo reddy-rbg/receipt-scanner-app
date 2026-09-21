@@ -4503,6 +4503,39 @@ def price_memory_event_price(event: dict) -> float:
     return line_price
 
 
+def dedupe_price_memory_events(events: list[dict]) -> list[dict]:
+    """Collapse duplicate scans that produce the same daily price observation."""
+    unique_events: list[dict] = []
+    seen: set[tuple[str, str, float]] = set()
+
+    for event in sorted(
+        events,
+        key=lambda value: (
+            event_date(value) or datetime.min,
+            str(value.get("receipt_id") or ""),
+            str(value.get("line_index") or ""),
+        ),
+    ):
+        date_key = event_date_iso(event)
+        if not date_key:
+            # Without a reliable date, preserve the event instead of guessing that
+            # two unrelated receipt lines are duplicates.
+            unique_events.append(event)
+            continue
+
+        key = (
+            date_key,
+            normalize_text(event.get("store") or "unknown store"),
+            round(price_memory_event_price(event), 2),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_events.append(event)
+
+    return unique_events
+
+
 def receipt_item_name_fingerprint(receipt: dict) -> set[str]:
     names: set[str] = set()
     for item in receipt.get("items") or []:
@@ -4582,20 +4615,13 @@ def build_price_memory(user_id: str | None = None, guest_session_id: str | None 
             "item_name_normalized": normalized,
             "product_size": product_size or None,
             "events": [],
-            "stores": {},
-            "dates": [],
         })
         grouped[key]["events"].append(event)
-        grouped[key]["stores"].setdefault(event.get("store") or "Unknown store", [])
-        grouped[key]["stores"][event.get("store") or "Unknown store"].append(price)
-        parsed_date = event_date(event)
-        if parsed_date:
-            grouped[key]["dates"].append(parsed_date)
 
     profiles = []
     today = datetime.now()
     for data in grouped.values():
-        events = data["events"]
+        events = dedupe_price_memory_events(data["events"])
         prices = [price_memory_event_price(e) for e in events if price_memory_event_price(e) > 0]
         if not prices:
             continue
@@ -4610,7 +4636,7 @@ def build_price_memory(user_id: str | None = None, guest_session_id: str | None 
 
         cheapest_event = min(events, key=lambda e: price_memory_event_price(e) or 999999)
         latest_event = max(events, key=lambda e: event_date(e) or datetime.min)
-        dates = sorted(data["dates"])
+        dates = sorted(parsed for event in events if (parsed := event_date(event)))
         frequency_days = None
         next_expected_date = None
         if len(dates) >= 2:
@@ -4620,9 +4646,12 @@ def build_price_memory(user_id: str | None = None, guest_session_id: str | None 
                 next_expected = dates[-1] + (dates[-1] - dates[-2] if len(dates) >= 2 else today - today)
                 next_expected_date = next_expected.strftime("%Y-%m-%d")
 
+        store_prices: dict[str, list[float]] = {}
+        for event in events:
+            store_prices.setdefault(event.get("store") or "Unknown store", []).append(price_memory_event_price(event))
         store_averages = {
             store: round(sum(vals) / len(vals), 2)
-            for store, vals in data["stores"].items()
+            for store, vals in store_prices.items()
             if vals
         }
         cheapest_store = min(store_averages, key=store_averages.get) if store_averages else cheapest_event.get("store")

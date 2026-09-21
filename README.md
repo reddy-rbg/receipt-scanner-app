@@ -78,6 +78,10 @@ items such as green onions, cabbage, okra, squash, eggplant, cucumber, onions,
 ginger, and sweet potatoes, while unidentified products use a neutral fallback
 instead of a misleading category image.
 
+Price Memory collapses duplicate scans that report the same item, store, date,
+and price. Trend charts show one point per purchase date and appear only after
+the item has prices from at least two dates.
+
 ## The Receipt Intelligence Loop
 
 <img src="./assets/readme/receiptai-architecture.svg" alt="ReceiptAI intelligence-loop architecture showing scan, ask, and operations paths around a shared trust core" width="100%" />

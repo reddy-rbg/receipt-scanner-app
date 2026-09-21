@@ -484,6 +484,45 @@ def test_price_memory_keeps_full_history_for_instant_price_check():
         agent.fetch_owner_item_events = original_events
 
 
+def test_price_memory_collapses_duplicate_same_day_price_observations():
+    base_event = {
+        "line_index": 1,
+        "store": "India Mart",
+        "date": "5/23/26",
+        "created_at": "2026-05-23",
+        "item_original": "CHICKEN LEG & THIGH",
+        "item_normalized": "chicken leg thigh",
+        "quantity": 1,
+        "unit": "each",
+        "line_price": 3.49,
+    }
+    duplicate_events = [
+        {**base_event, "receipt_id": f"duplicate-{index}"}
+        for index in range(15)
+    ]
+    earlier_event = {
+        **base_event,
+        "receipt_id": "earlier",
+        "date": "5/01/26",
+        "created_at": "2026-05-01",
+        "line_price": 3.99,
+    }
+
+    original_events = agent.fetch_owner_item_events
+    try:
+        agent.fetch_owner_item_events = lambda user_id=None, guest_session_id=None, limit=1000: [
+            earlier_event,
+            *duplicate_events,
+        ]
+        profile = agent.build_price_memory(user_id="test-user")[0]
+        assert profile["times_bought"] == 2
+        assert len(profile["price_events"]) == 2
+        assert [event["date"] for event in profile["price_events"]] == ["2026-05-01", "2026-05-23"]
+        assert profile["average_price"] == 3.74
+    finally:
+        agent.fetch_owner_item_events = original_events
+
+
 def test_price_memory_uses_unit_price_for_multi_each_lines():
     event = {
         "receipt_id": "cilantro-pack",

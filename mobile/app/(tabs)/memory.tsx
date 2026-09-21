@@ -48,6 +48,7 @@ type PriceEvent = {
   price?: number | string | null;
   compare_price?: number | string | null;
   receipt_id?: number | string | null;
+  line_index?: number | string | null;
 };
 
 type ShoppingPlanItem = {
@@ -193,6 +194,28 @@ const parseMemoryDate = (value?: string | null) => {
 const formatHistoryDate = (value?: string | null) => {
   const parsed = parseMemoryDate(value);
   return parsed ? parsed.toLocaleDateString(undefined, { month:'short', day:'numeric' }) : 'Date unavailable';
+};
+const combinePriceHistoryByDate = (events: PriceEvent[]) => {
+  const grouped = new Map<string, { event: PriceEvent; total: number; count: number }>();
+  events.forEach((event, index) => {
+    const value = n(event.compare_price ?? event.price);
+    if (value <= 0) return;
+    const parsedDate = parseMemoryDate(event.date);
+    const dateKey = parsedDate
+      ? dateInputValue(parsedDate)
+      : `undated-${event.receipt_id || 'receipt'}-${event.line_index ?? index}`;
+    const existing = grouped.get(dateKey);
+    if (existing) {
+      existing.total += value;
+      existing.count += 1;
+      return;
+    }
+    grouped.set(dateKey, { event, total:value, count:1 });
+  });
+  return [...grouped.values()].map(({ event, total, count }) => ({
+    ...event,
+    compare_price: total / count,
+  }));
 };
 const memoryErrorMessage = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -1637,8 +1660,7 @@ export default function PriceMemoryScreen() {
               </View>
             </View>
             {shown.slice(0, 30).map((item, index) => {
-              const history = [...(item.price_events || item.recent_events || [])]
-                .filter(event => n(event.compare_price ?? event.price) > 0)
+              const history = combinePriceHistoryByDate(item.price_events || item.recent_events || [])
                 .sort((a, b) => (parseMemoryDate(a.date)?.getTime() || 0) - (parseMemoryDate(b.date)?.getTime() || 0));
               const previousEvent = history.length > 1 ? history[history.length - 2] : undefined;
               const minHistory = history.length ? Math.min(...history.map(event => n(event.compare_price ?? event.price))) : 0;
@@ -1649,7 +1671,7 @@ export default function PriceMemoryScreen() {
                   <View style={s.priceMemoryHead}>
                     <View style={{ flex:1 }}>
                       <Text style={s.priceMemoryName}>{item.item_name}</Text>
-                      <Text style={s.priceMemoryMeta}>{item.times_bought} purchase{item.times_bought === 1 ? '' : 's'}{item.product_size ? ` · ${item.product_size}` : ''}</Text>
+                      <Text style={s.priceMemoryMeta}>{history.length} purchase date{history.length === 1 ? '' : 's'}{item.product_size ? ` · ${item.product_size}` : ''}</Text>
                     </View>
                     <Text style={s.priceMemoryCurrent}>{money(history.length ? n(history[history.length - 1].compare_price ?? history[history.length - 1].price) : item.usual_price)}</Text>
                   </View>
@@ -1660,21 +1682,28 @@ export default function PriceMemoryScreen() {
                     <View><Text style={s.priceMemoryLabel}>Highest</Text><Text style={[s.priceMemoryValue, { color:C.gold }]}>{money(item.highest_price)}</Text></View>
                   </View>
                   <Text style={s.subsectionTitle}>Price history</Text>
-                  <Text style={s.priceHistoryHint}>Each violet bar is one purchase. Taller means a higher per-unit price.</Text>
-                  <View style={s.priceHistoryRow}>
-                    {history.slice(-10).map((event, eventIndex) => {
-                      const value = n(event.compare_price ?? event.price);
-                      const height = 8 + Math.round(((value - minHistory) / historyRange) * 34);
-                      return (
-                        <View key={`${event.date || 'undated'}-${eventIndex}`} style={s.priceHistoryPoint}>
-                          <Text style={s.priceHistoryPrice}>{money(value)}</Text>
-                          <View style={[s.priceHistoryBar, { height }]} />
-                          <Text style={s.priceHistoryDate} numberOfLines={1}>{formatHistoryDate(event.date)}</Text>
-                        </View>
-                      );
-                    })}
-                    {history.length === 0 ? <Text style={s.emptyInline}>History will appear after this item is scanned again.</Text> : null}
-                  </View>
+                  {history.length >= 2 ? (
+                    <>
+                      <Text style={s.priceHistoryHint}>One violet bar per purchase date. Same-day entries are combined.</Text>
+                      <View style={s.priceHistoryRow}>
+                        {history.slice(-10).map((event, eventIndex) => {
+                          const value = n(event.compare_price ?? event.price);
+                          const height = 8 + Math.round(((value - minHistory) / historyRange) * 34);
+                          return (
+                            <View key={`${event.date || 'undated'}-${eventIndex}`} style={s.priceHistoryPoint}>
+                              <Text style={s.priceHistoryPrice}>{money(value)}</Text>
+                              <View style={[s.priceHistoryBar, { height }]} />
+                              <Text style={s.priceHistoryDate} numberOfLines={1}>{formatHistoryDate(event.date)}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </>
+                  ) : history.length === 1 ? (
+                    <Text style={s.emptyInline}>One price recorded on {formatHistoryDate(history[0].date)}. Scan it on another date to start a trend.</Text>
+                  ) : (
+                    <Text style={s.emptyInline}>History will appear after this item is scanned again.</Text>
+                  )}
                 </View>
               );
             })}
