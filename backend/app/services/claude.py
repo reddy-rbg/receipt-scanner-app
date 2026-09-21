@@ -136,7 +136,18 @@ def _clean_price_list_description(description: str) -> str:
     upper = text.upper()
     for prefix in sorted(PRICE_LIST_CATEGORY_PREFIXES, key=len, reverse=True):
         if upper.startswith(prefix + " "):
-            return text[len(prefix):].strip(" -")
+            remainder = text[len(prefix):].strip(" -")
+            # A category label can be merged into the first row of a PDF, such
+            # as "GINGER GALANGA HAWAII 15 LB". But "GINGER 1LB" is itself a
+            # valid product row; stripping GINGER would leave only a pack size.
+            size_only = re.fullmatch(
+                r"\d+(?:\.\d+)?(?:\s*[-/]\s*\d+(?:\.\d+)?)?\s*"
+                r"(?:LB|LBS|CT|OZ|GM|KG|GAL|ML|L|LTR|PCS|ROLLS|CM)",
+                remainder,
+                flags=re.I,
+            )
+            if not size_only:
+                return remainder
     return text
 
 

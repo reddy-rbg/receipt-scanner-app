@@ -108,6 +108,8 @@ def test_digital_pdf_summary_lines_are_not_items():
 
     item_names = [item["name"] for item in parsed["items"]]
     assert len(item_names) == len(expected_items)
+    assert item_names == [name for name, _ in expected_items]
+    assert "GINGER 1LB" in item_names
     assert "TAX" not in item_names
     assert "TOTAL" not in item_names
     assert all(not name.startswith("DISCOUNT") for name in item_names)
@@ -127,6 +129,8 @@ def test_scan_path_keeps_zero_token_parser_and_correct_totals():
     item_names = [item["name"] for item in scanned["items"]]
 
     assert len(item_names) == len(expected_items)
+    assert item_names == [name for name, _ in expected_items]
+    assert "GINGER 1LB" in item_names
     assert "TAX" not in item_names
     assert "TOTAL" not in item_names
     assert scanned["discount"] == expected_discount
