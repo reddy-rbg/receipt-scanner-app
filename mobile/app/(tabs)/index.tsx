@@ -59,6 +59,14 @@ function isHeicImage(uri: string) {
   const ext = uri.split('?')[0].split('.').pop()?.toLowerCase();
   return ext === 'heic' || ext === 'heif';
 }
+
+function isHeicAsset(asset: { uri?: string; fileName?: string | null; mimeType?: string | null }) {
+  const mime = String(asset.mimeType || '').toLowerCase();
+  return mime === 'image/heic'
+    || mime === 'image/heif'
+    || isHeicImage(asset.fileName || '')
+    || isHeicImage(asset.uri || '');
+}
 function uploadFileName(uri: string, fallback: string) {
   const name = uri.split('?')[0].split('/').pop() || fallback;
   if (!/\.[a-z0-9]{2,5}$/i.test(name)) return fallback;
@@ -132,9 +140,17 @@ async function fileSize(uri: string) {
   }
 }
 
-async function compressReceiptImage(uri: string) {
+async function compressReceiptImage(uri: string, sourceName = uri) {
   let currentUri = uri;
   let currentSize = await fileSize(currentUri);
+  const sourceIsHeic = isHeicImage(sourceName) || isHeicImage(uri);
+
+  // Browsers do not reliably decode HEIC blobs, and passing the original bytes
+  // with a .jpg name makes the backend reject or misread the upload. Native
+  // builds can convert HEIC through ImageManipulator below.
+  if (Platform.OS === 'web' && sourceIsHeic) {
+    throw new Error('HEIC photos are not supported in the browser. Choose a JPEG, PNG, or WEBP export, or use the mobile app.');
+  }
 
   // Preserve ordinary browser file/blob URIs. The backend performs the final
   // Claude-specific crop, resize, compression, and visual-token optimization.
@@ -523,18 +539,28 @@ export default function ScanScreen(){
     if(!r.canceled&&r.assets?.length){
       setFileStatus('');
       setScanError('');
-      const prepared = await Promise.all(r.assets.slice(0, MAX_SCAN_IMAGE_PAGES).map(asset => compressReceiptImage(asset.uri)));
-      const preparedUris = prepared.map(item => item.uri);
-      setUri(preparedUris[0]);
-      setImageUris(preparedUris);
-      setIsPDF(false);
-      setResult(null);
-      setResultItemPage(0);
-      setPriceInsights([]);
-      setDuplicate('');
-      const compressedCount = prepared.filter(item => item.compressed).length;
-      const pageText = preparedUris.length > 1 ? `${preparedUris.length} pages selected. They will be scanned together.` : '1 page selected.';
-      setFileStatus(compressedCount ? `${pageText} ${compressedCount} image(s) compressed for scanning.` : pageText);
+      const selectedAssets = r.assets.slice(0, MAX_SCAN_IMAGE_PAGES);
+      try {
+        if (Platform.OS === 'web' && selectedAssets.some(isHeicAsset)) {
+          throw new Error('HEIC photos are not supported in the browser. Choose a JPEG, PNG, or WEBP export, or use the mobile app.');
+        }
+        const prepared = await Promise.all(selectedAssets.map(asset => compressReceiptImage(asset.uri, asset.fileName || asset.uri)));
+        const preparedUris = prepared.map(item => item.uri);
+        setUri(preparedUris[0]);
+        setImageUris(preparedUris);
+        setIsPDF(false);
+        setResult(null);
+        setResultItemPage(0);
+        setPriceInsights([]);
+        setDuplicate('');
+        const compressedCount = prepared.filter(item => item.compressed).length;
+        const pageText = preparedUris.length > 1 ? `${preparedUris.length} pages selected. They will be scanned together.` : '1 page selected.';
+        setFileStatus(compressedCount ? `${pageText} ${compressedCount} image(s) compressed for scanning.` : pageText);
+      } catch (error: any) {
+        const message = error?.message || 'Could not prepare the selected receipt image.';
+        setScanError(message);
+        showAlert('Unsupported image', message);
+      }
     }
   }
 
@@ -946,9 +972,9 @@ export default function ScanScreen(){
                 <Ionicons name="document-text-outline" size={34} color={C.text} />
               </View>
               <Text style={s.uploadTitle}>Tap to select a receipt</Text>
-              <Text style={s.uploadSub}>JPG / PNG / WEBP / HEIC / PDF</Text>
+              <Text style={s.uploadSub}>{Platform.OS === 'web' ? 'JPG / PNG / WEBP / PDF' : 'JPG / PNG / WEBP / HEIC / PDF'}</Text>
               <View style={s.fmtRow}>
-                {['JPG','PNG','WEBP','HEIC','PDF'].map(f=>(
+                {(Platform.OS === 'web' ? ['JPG','PNG','WEBP','PDF'] : ['JPG','PNG','WEBP','HEIC','PDF']).map(f=>(
                   <View key={f} style={s.fmtPill}><Text style={s.fmtText}>{f}</Text></View>
                 ))}
               </View>

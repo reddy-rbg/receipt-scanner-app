@@ -198,6 +198,98 @@ def test_complete_price_history_of_buying_eggs_does_not_create_buying_item():
     assert result.get("answer_card") is None
 
 
+def test_latest_receipt_total_uses_most_recent_saved_receipt():
+    receipts = [
+        {
+            "id": "older",
+            "store": "Older Store",
+            "date": "2026-06-10",
+            "created_at": "2026-06-10T09:00:00Z",
+            "total": 99.99,
+            "items": [{"name": "Older item", "price": 99.99}],
+        },
+        {
+            "id": "137",
+            "store": "INDIA BAZAAR",
+            "date": "2026-09-02",
+            "created_at": "2026-09-20T09:00:00Z",
+            "total": 14.35,
+            "items": [{"name": "Curry leaves", "price": 0.59}],
+        },
+    ]
+    original_fetch = agent.fetch_owner_receipts
+    try:
+        agent.fetch_owner_receipts = lambda user_id=None, guest_session_id=None, limit=300: receipts
+        result = agent.run_agent("What did I spend on my latest receipt?", [])
+    finally:
+        agent.fetch_owner_receipts = original_fetch
+
+    assert "india bazaar" in result["response"].lower()
+    assert "$14.35" in result["response"]
+    assert "#137" in result["response"]
+    assert result["rag_trace"]["intent"] == "latest_receipt"
+
+
+def test_recorded_price_modifier_is_not_treated_as_part_of_item_name():
+    understood = agent.local_understand_user_query(
+        "What is my lowest recorded price for American green onion?"
+    )
+    plan = agent.intent_plan_from_understanding(
+        "What is my lowest recorded price for American green onion?",
+        "What is my lowest recorded price for American green onion?",
+        understood,
+    )
+
+    assert plan.item_query == "american greenonion"
+    assert list(plan.items) == ["american greenonion"]
+
+
+def test_compound_chicken_leg_and_thigh_history_stays_one_item():
+    events = [
+        {
+            "receipt_id": "invoice",
+            "line_index": 1,
+            "store": "OM Produce",
+            "date": "2026-07-14",
+            "created_at": "2026-07-14",
+            "item_original": "CHICKEN LEG & THIGH 40 LB",
+            "item_normalized": "chicken leg thigh 40 lb",
+            "quantity": 40,
+            "unit": "lb",
+            "unit_price": 5.32,
+            "line_price": 212.80,
+        },
+        {
+            "receipt_id": "retail",
+            "line_index": 1,
+            "store": "India Mart",
+            "date": "2026-05-23",
+            "created_at": "2026-05-23",
+            "item_original": "CHICKEN LEG & THIGH*",
+            "item_normalized": "chicken leg thigh",
+            "quantity": 1.711,
+            "unit": "lb",
+            "unit_price": 3.49,
+            "line_price": 5.97,
+        },
+    ]
+    original_events = agent.fetch_owner_item_events
+    try:
+        agent.fetch_owner_item_events = lambda user_id=None, guest_session_id=None, limit=1000: events
+        result = agent.run_agent("Show my complete price history for chicken leg and thigh.", [])
+    finally:
+        agent.fetch_owner_item_events = original_events
+
+    response = result["response"].lower()
+    assert "i found 2 chicken leg thigh purchases" in response
+    assert "price history:" in response
+    assert "2026-07-14" in response
+    assert "2026-05-23" in response
+    assert "not found" not in response
+    assert result.get("answer_card") is None
+    assert result["rag_trace"]["matched_event_count"] == 2
+
+
 def test_generic_meat_can_return_all_meat_items():
     names = event_names("What is the cheap meat price")
     assert "GOAT KEEMA" in names

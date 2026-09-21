@@ -343,7 +343,7 @@ STOP_WORDS = {
     "history", "compare", "comparison", "cost", "costs", "damage", "damages", "howmuch", "much", "where", "it", "this", "that", "cheaper",
     "trend", "trends", "regularly", "often", "deal", "deals", "least", "all", "should", "good", "avoid", "above", "now", "wait", "low", "equal", "equals", "right",
     "is", "s", "are", "was", "were", "find", "give", "get", "please", "pls", "want", "need", "in", "at", "on", "near",
-    "of", "with", "under", "over", "than", "by", "around", "inside", "between", "about", "list",
+    "of", "with", "under", "over", "than", "by", "around", "inside", "between", "about", "list", "and", "or",
     "per",
     "them", "those", "these", "ones", "top", "most", "common", "commonly", "usual", "usually", "frequent", "open",
     "am", "mostly", "frequently", "buying", "buys", "purchases", "purchasing", "purpased", "purposed", "coming", "cmg", "month", "next",
@@ -706,6 +706,9 @@ def normalize_text(text: str | None) -> str:
     # User may say frame while receipt says prem; this is not a perfect synonym, but helps this project use case.
     t = re.sub(r"\bframe\b", "prem", t)
     t = re.sub(r"[^a-z0-9\.]+", " ", t)
+    # Keep decimal points (3.49), but remove sentence punctuation attached to
+    # product words ("thigh.") so exact receipt matching is not blocked.
+    t = re.sub(r"(?<!\d)\.|\.(?!\d)", " ", t)
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
@@ -1280,7 +1283,7 @@ SHOPPING_LIST_NOISE_WORDS = STOP_WORDS | {
     "cheepest", "cheapeast", "lowest", "cheaply", "cheapest",
     # query modifier words that describe what kind of answer the user wants
     "full", "history", "trend", "trends", "all", "complete", "entire",
-    "show", "tell", "give", "display", "view", "recent", "latest",
+    "show", "tell", "give", "display", "view", "recent", "latest", "recorded", "record",
     # category/descriptor prefixes — never a specific product name
     "spice", "spices", "grocery", "groceries", "staple", "staples",
     "item", "items", "product", "products", "ingredient", "ingredients",
@@ -5094,6 +5097,8 @@ def classify_receipt_action(message: str) -> str:
     m = correct_query_words(normalize_text(message))
     tokens = set(m.split())
     meaningful_tokens = tokens - STOP_WORDS
+    if re.search(r"\b(?:latest|last|most recent)\s+(?:saved\s+)?receipt\b", m):
+        return "latest_receipt"
     if looks_like_global_price_question(message):
         return "global_cheapest"
     if looks_like_repeat_price_trend_question(message):
@@ -5671,6 +5676,24 @@ def recent_receipts_answer(receipts: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def latest_receipt_answer(receipts: list[dict]) -> str:
+    """Answer from the most recently saved receipt, matching receipt-list order."""
+    if not receipts:
+        return "I do not see any receipts yet."
+    latest = max(receipts, key=lambda r: r.get("created_at") or r.get("date") or "")
+    store = latest.get("store") or "Unknown store"
+    date = latest.get("date") or (latest.get("created_at") or "")[:10] or "unknown date"
+    total = money(latest.get("total"))
+    receipt_id = latest.get("id")
+    item_count = len([item for item in (latest.get("items") or []) if isinstance(item, dict)])
+    lines = [f"Your latest saved receipt is {store} on {date}.", f"Total paid: {total}."]
+    if item_count:
+        lines.append(f"Items captured: {item_count}.")
+    if receipt_id:
+        lines.append(f"Receipt #{receipt_id}.")
+    return "\n".join(lines)
+
+
 def store_frequency_answer(receipts: list[dict]) -> str:
     stores: dict[str, dict[str, Any]] = {}
     for receipt in receipts:
@@ -6141,6 +6164,8 @@ def receipt_action_answer(
         return tax_discount_refund_answer(receipts)
     if action == "recent_receipts":
         return recent_receipts_answer(receipts)
+    if action == "latest_receipt":
+        return latest_receipt_answer(receipts)
     if action == "store_frequency":
         return store_frequency_answer(receipts)
     if action == "store_spend":

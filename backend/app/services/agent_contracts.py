@@ -15,7 +15,7 @@ from typing import Any
 ITEM_ENTITY_META_WORDS = {
     "all", "best", "bought", "buy", "buying", "buys", "cheap", "cheapest",
     "complete", "cost", "entire", "find", "full", "history", "latest",
-    "paid", "pay", "price", "prices", "purchase", "purchased", "purchases",
+    "paid", "pay", "price", "prices", "purchase", "purchased", "purchases", "recorded", "record",
     "purchasing", "recent", "show", "total", "trend", "trends", "where", "when",
 }
 

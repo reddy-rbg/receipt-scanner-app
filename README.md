@@ -65,6 +65,12 @@ application. Its primary navigation is organized around five tasks:
 | **Memory** | Review price history, shopping insights, and reminders |
 | **AI** | Ask the evidence-grounded ReceiptAI assistant |
 
+Capture accepts JPEG, PNG, WEBP, and PDF in the browser, including multiple
+overlapping photos for long receipts and multi-page PDFs. Native mobile builds
+also accept HEIC/HEIF photos and convert them before upload. The browser shows a
+clear unsupported-format message for HEIC instead of relabeling its bytes as a
+JPEG and sending an unreadable file to the server.
+
 The web build includes accessible in-app dialogs with working cancel and
 confirmation actions, browser-safe sharing, notification fallbacks, responsive
 navigation, and explicit close/back controls. HTML app-shell responses use
