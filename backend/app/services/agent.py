@@ -5097,6 +5097,8 @@ def classify_receipt_action(message: str) -> str:
     m = correct_query_words(normalize_text(message))
     tokens = set(m.split())
     meaningful_tokens = tokens - STOP_WORDS
+    if looks_like_total_spending_question(message):
+        return "total_spending"
     if re.search(r"\b(?:latest|last|most recent)\s+(?:saved\s+)?receipt\b", m):
         return "latest_receipt"
     if looks_like_global_price_question(message):
@@ -5542,6 +5544,22 @@ def smart_spending_overview_answer(receipts: list[dict], item_events: list[dict]
         lines.append("")
         lines.append("Best next move: compare repeat items before checkout.")
 
+    return "\n".join(lines)
+
+
+def total_spending_answer(receipts: list[dict]) -> str:
+    """Return the exact aggregate paid across the available receipt set."""
+    if not receipts:
+        return "I do not see any receipts yet."
+
+    total_spent = sum(_safe_float(receipt.get("total")) for receipt in receipts)
+    average_trip = total_spent / len(receipts)
+    lines = [
+        "Total spending",
+        metric_line("Paid", money(total_spent)),
+        metric_line("Receipts", receipt_count_text(len(receipts))),
+        metric_line("Average", money(average_trip)),
+    ]
     return "\n".join(lines)
 
 
@@ -6156,6 +6174,8 @@ def receipt_action_answer(
         return graph_memory_answer(message, item_events)
     if action == "category_spending":
         return category_spending_answer(receipts)
+    if action == "total_spending":
+        return total_spending_answer(receipts)
     if action == "weekly_spending":
         return weekly_expense_answer(receipts, message)
     if action == "monthly_spending":

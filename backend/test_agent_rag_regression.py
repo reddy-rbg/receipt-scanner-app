@@ -230,6 +230,42 @@ def test_latest_receipt_total_uses_most_recent_saved_receipt():
     assert result["rag_trace"]["intent"] == "latest_receipt"
 
 
+def test_total_spending_across_all_receipts_returns_aggregate():
+    receipts = [
+        {
+            "id": "140",
+            "store": "DINEFINE TEST RESTAURANT",
+            "date": "2026-09-21",
+            "created_at": "2026-09-21T10:00:00Z",
+            "total": 64.26,
+            "items": [{"name": "Sparkling Water", "price": 6.00}],
+        },
+        {
+            "id": "141",
+            "store": "Omtestmarket",
+            "date": "2026-07-01",
+            "created_at": "2026-09-21T11:00:00Z",
+            "total": 157.03,
+            "items": [{"name": "GOAT KEEMA 1LB", "price": 14.98}],
+        },
+    ]
+    original_fetch_receipts = agent.fetch_owner_receipts
+    original_fetch_events = agent.fetch_owner_item_events
+    try:
+        agent.fetch_owner_receipts = lambda user_id=None, guest_session_id=None, limit=300: receipts
+        agent.fetch_owner_item_events = lambda user_id=None, guest_session_id=None: []
+        result = agent.run_agent("How much did I spend across all receipts in total?", [])
+    finally:
+        agent.fetch_owner_receipts = original_fetch_receipts
+        agent.fetch_owner_item_events = original_fetch_events
+
+    assert "total spending" in result["response"].lower()
+    assert "$221.29" in result["response"]
+    assert "2 receipts" in result["response"].lower()
+    assert agent.classify_receipt_action("How much did I spend across all receipts in total?") == "total_spending"
+    assert result["rag_trace"]["retrieval"] == "structured_receipt_aggregation"
+
+
 def test_recorded_price_modifier_is_not_treated_as_part_of_item_name():
     understood = agent.local_understand_user_query(
         "What is my lowest recorded price for American green onion?"
