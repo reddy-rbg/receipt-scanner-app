@@ -39,6 +39,16 @@ def test_shared_scan_source_uses_browser_blob_uploads():
     assert "Request ID:" in source
 
 
+def test_receipt_item_visuals_require_perfect_confidence_or_use_category():
+    source = (
+        Path(__file__).parent.parent / "mobile" / "app" / "(tabs)" / "receipts.tsx"
+    ).read_text(encoding="utf-8")
+    assert "confidence === 1" in source
+    assert "categoryVisualForProduct" in source
+    assert "Read confidence:" in source
+    assert "kind:'category'" in source
+
+
 def test_web_root_and_client_routes_use_the_shared_app():
     client = TestClient(app)
     root = client.get("/")

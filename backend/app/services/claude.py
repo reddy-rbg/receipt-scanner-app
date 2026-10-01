@@ -362,6 +362,9 @@ def try_parse_digital_price_list_pdf(pdf_bytes: bytes, filename: str) -> dict | 
                         "unit_label": product_size or "each",
                         "explicit_quantity": False,
                         "source": "price_list",
+                        # The PDF text layer supplied the complete description
+                        # and price directly, without visual OCR guessing.
+                        "confidence": 1.0,
                         "metadata": {
                             "source_document": "digital_price_list_pdf",
                             "page": page_number,
@@ -1099,6 +1102,14 @@ def normalize_receipt_data(data: dict) -> dict:
         name = clean_display_name(name)
         item["name"] = name
         item.setdefault("source", source)
+        raw_confidence = item.get("confidence")
+        try:
+            item_confidence = float(raw_confidence) if raw_confidence is not None else None
+            if item_confidence is not None and 1 < item_confidence <= 100:
+                item_confidence /= 100
+            item["confidence"] = round(max(0.0, min(1.0, item_confidence)), 4) if item_confidence is not None else None
+        except (TypeError, ValueError):
+            item["confidence"] = None
         item_price = _safe_float(item.get("price"), 0.0)
         discount_like = (
             item_price < 0
@@ -1612,6 +1623,7 @@ FIRST — check if this is a readable receipt, invoice, or wholesale vendor pric
 - A very long receipt may be supplied as overlapping vertical image segments. Use the overlap only for continuity and never duplicate an item, coupon, discount, subtotal, tax, or total that appears at a segment boundary.
 - For damaged/folded receipts or invoices, extract all readable lines and add unclear or hidden parts to validation_notes instead of inventing them.
 - In validation.confidence, use 0.90+ only when store/vendor, date or effective date, and most item lines/prices are clearly readable. Use below 0.72 for far, tiny, blurry, or uncertain scans.
+- Set confidence on EACH item. Use 1.0 only when the complete item name and its price are perfectly readable and correctly paired. Use 0.75-0.99 when mostly readable but abbreviated, faint, or partly uncertain. Use below 0.75 when the line is uncertain. Never raise confidence just because the product is familiar.
 
 
 CRITICAL PRODUCT SIZE VS QUANTITY RULES:
@@ -1785,7 +1797,8 @@ Return JSON only — no extra text, no markdown:
             "quantity_type": "each",
             "unit_label": "each",
             "explicit_quantity": false,
-            "source": "printed"
+            "source": "printed",
+            "confidence": 1.0
         }
     ],
     "handwritten_items": [],

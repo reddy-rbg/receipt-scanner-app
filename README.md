@@ -88,8 +88,11 @@ interface after a Railway deployment.
 Receipt item rows automatically select a product pictogram from normalized item
 names and common aliases. The matcher includes dedicated produce images for
 items such as green onions, cabbage, okra, squash, eggplant, cucumber, onions,
-ginger, and sweet potatoes, while unidentified products use a neutral fallback
-instead of a misleading category image.
+ginger, and sweet potatoes. New scans also store read confidence for every item:
+only a 100% readable known product uses its specific pictogram, while lower
+confidence and unidentified products use the matching grocery, produce, meat,
+beverage, retail, or other category visual. Older saved receipts retain exact
+known pictograms for backward compatibility.
 
 Price Memory collapses duplicate scans that report the same item, store, date,
 and price. Trend charts show one point per purchase date and appear only after

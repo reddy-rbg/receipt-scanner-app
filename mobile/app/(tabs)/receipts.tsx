@@ -40,6 +40,7 @@ type ReceiptCategory = {
 type ReceiptItemVisual = {
   color: string;
   label: string;
+  kind?: 'product' | 'category';
 } & (
   | { icon: ComponentProps<typeof MaterialCommunityIcons>['name']; image?: never }
   | { image: ImageSourcePropType; icon?: never }
@@ -116,7 +117,7 @@ function categoryByKey(key: string) {
   return CATEGORIES.find(category => category.key === key) || CATEGORIES[CATEGORIES.length - 1];
 }
 
-function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): ReceiptItemVisual {
+function getReceiptItemVisualCandidate(item: any, receiptCategory?: ReceiptCategory): ReceiptItemVisual {
   const text = [item?.name, item?.item, item?.description, item?.category]
     .filter(Boolean)
     .join(' ')
@@ -387,6 +388,84 @@ function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): Rec
   return categoryFallbacks[receiptCategory?.key || ''] || { image:ITEM_PICTOGRAMS.genericProduct, color:'#7668A9', label:'Unidentified product' };
 }
 
+const SPECIFIC_PRODUCT_VISUALS = new Set([
+  'Jalebi', 'Curry leaves', 'Tindora', 'Green chilies', 'Banana', 'Garlic naan',
+  'Garlic', 'Avocado', 'Tomato', 'Green onion', 'Cabbage', 'Okra', 'Squash or gourd',
+  'Eggplant', 'Cucumber', 'Onion', 'Ginger', 'Sweet potato', 'Cilantro', 'Mint leaves',
+  'Jackfruit', 'Edamame', 'Broccoli', 'Mixed vegetables', 'Tea', 'Broth', 'Keema',
+  'Ground chicken', 'Popcorn', 'Corn', 'Mushroom', 'Carrot', 'Rice', 'Flour',
+  'Noodles or pasta', 'Bread', 'Eggs', 'Cheese', 'Nuts', 'Ice cream', 'Cooking oil',
+  'Coffee or tea', 'Water', 'Drink', 'Tropical fruit', 'Melon', 'Fruit', 'Snack',
+  'Pizza', 'Burger', 'Bakery item', 'Candy',
+]);
+
+function normalizedItemConfidence(item: any) {
+  const raw = Number(item?.confidence);
+  if (!Number.isFinite(raw)) return null;
+  const normalized = raw > 1 && raw <= 100 ? raw / 100 : raw;
+  return Math.max(0, Math.min(1, normalized));
+}
+
+function categoryVisualForProduct(label: string, receiptCategory?: ReceiptCategory): ReceiptItemVisual {
+  if (['Banana', 'Avocado', 'Jackfruit', 'Tropical fruit', 'Melon', 'Fruit'].includes(label)) {
+    return { icon:'fruit-cherries', color:'#A5659D', label:'Fruit category', kind:'category' };
+  }
+  if (['Curry leaves', 'Tindora', 'Green chilies', 'Garlic', 'Tomato', 'Green onion', 'Cabbage', 'Okra', 'Squash or gourd', 'Eggplant', 'Cucumber', 'Onion', 'Ginger', 'Sweet potato', 'Cilantro', 'Mint leaves', 'Edamame', 'Broccoli', 'Mixed vegetables', 'Corn', 'Mushroom', 'Carrot'].includes(label)) {
+    return { icon:'leaf', color:'#4A9352', label:'Produce category', kind:'category' };
+  }
+  if (['Keema', 'Ground chicken'].includes(label)) {
+    return { icon:'food-steak', color:'#B45E50', label:'Meat category', kind:'category' };
+  }
+  if (['Tea', 'Coffee or tea', 'Water', 'Drink'].includes(label)) {
+    return { icon:'cup-outline', color:'#4F7FA3', label:'Beverage category', kind:'category' };
+  }
+  if (['Jalebi', 'Garlic naan', 'Bread', 'Pizza', 'Burger', 'Bakery item', 'Candy', 'Ice cream', 'Snack', 'Popcorn'].includes(label)) {
+    return { icon:'food-outline', color:'#BB7044', label:'Prepared food category', kind:'category' };
+  }
+  if (['Rice', 'Flour', 'Noodles or pasta', 'Cooking oil', 'Broth'].includes(label)) {
+    return { icon:'food-variant', color:'#9A7746', label:'Pantry category', kind:'category' };
+  }
+  if (['Eggs', 'Cheese'].includes(label)) {
+    return { icon:'food-variant', color:'#B18A36', label:'Dairy and eggs category', kind:'category' };
+  }
+  if (label === 'Nuts') {
+    return { icon:'peanut-outline', color:'#91663F', label:'Nuts category', kind:'category' };
+  }
+
+  const categoryFallbacks: Record<string, ReceiptItemVisual> = {
+    food:       { icon:'basket-outline', color:'#248A65', label:'Grocery category', kind:'category' },
+    restaurant: { icon:'silverware-fork-knife', color:'#CE556A', label:'Restaurant category', kind:'category' },
+    coffee:     { icon:'coffee-outline', color:'#936248', label:'Cafe category', kind:'category' },
+    garden:     { icon:'sprout-outline', color:'#568F4C', label:'Garden category', kind:'category' },
+    medical:    { icon:'medical-bag', color:'#D45C72', label:'Medical category', kind:'category' },
+    pharmacy:   { icon:'pill', color:'#9862B7', label:'Pharmacy category', kind:'category' },
+    bank:       { icon:'receipt-text-outline', color:'#5274BA', label:'Finance category', kind:'category' },
+    fuel:       { icon:'gas-station-outline', color:'#D97732', label:'Fuel category', kind:'category' },
+    smoke:      { icon:'smoking', color:'#70616D', label:'Smoke shop category', kind:'category' },
+    home:       { icon:'home-heart', color:'#7470B7', label:'Household category', kind:'category' },
+    shopping:   { icon:'shopping-outline', color:'#238A8B', label:'Retail category', kind:'category' },
+    inventory:  { icon:'warehouse', color:'#4678C8', label:'Inventory category', kind:'category' },
+  };
+  return categoryFallbacks[receiptCategory?.key || ''] || { icon:'shape-outline', color:'#7668A9', label:'Other category', kind:'category' };
+}
+
+function getReceiptItemVisual(item: any, receiptCategory?: ReceiptCategory): ReceiptItemVisual {
+  const candidate = getReceiptItemVisualCandidate(item, receiptCategory);
+  const confidence = normalizedItemConfidence(item);
+  const isSpecificProduct = SPECIFIC_PRODUCT_VISUALS.has(candidate.label);
+  // Corrected items are explicit user confirmation. Receipts saved before
+  // item-level confidence was added keep exact, known pictograms for backward
+  // compatibility. New scans require a perfect 1.0 read for product artwork.
+  const productConfirmed = item?.corrected_by_user === true || confidence === 1 || confidence === null;
+  if (isSpecificProduct && productConfirmed) {
+    return { ...candidate, kind:'product' };
+  }
+  if (!isSpecificProduct && candidate.icon) {
+    return { ...candidate, kind:'category' };
+  }
+  return categoryVisualForProduct(candidate.label, receiptCategory);
+}
+
 function receiptSearchText(receipt: Receipt) {
   const itemText = (receipt.items || [])
     .map((item:any) => [item?.name, item?.item, item?.code].filter(Boolean).join(' '))
@@ -413,6 +492,7 @@ function itemDetailLines(item: any) {
   const quantityType = item?.quantity_type;
   const unitLabel = item?.unit_label;
   const source = item?.source;
+  const itemConfidence = normalizedItemConfidence(item);
 
   if (productSize) lines.push(`Size: ${productSize}`);
 
@@ -438,6 +518,9 @@ function itemDetailLines(item: any) {
   }
   if (item?.explicit_quantity === true) {
     lines.push('Explicit quantity shown on receipt');
+  }
+  if (itemConfidence !== null) {
+    lines.push(`Read confidence: ${Math.round(itemConfidence * 100)}%`);
   }
 
   return lines;

@@ -113,6 +113,7 @@ def test_digital_pdf_summary_lines_are_not_items():
     assert "TAX" not in item_names
     assert "TOTAL" not in item_names
     assert all(not name.startswith("DISCOUNT") for name in item_names)
+    assert all(item["confidence"] == 1.0 for item in parsed["items"])
 
     assert parsed["discount"] == expected_discount
     assert parsed["total_savings"] == expected_discount

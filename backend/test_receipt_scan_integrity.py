@@ -154,6 +154,25 @@ def test_missing_discount_is_recovered_from_printed_totals():
     assert normalized["calculated_fields"]["discount"] == "subtotal_plus_tax_minus_total"
 
 
+def test_item_read_confidence_is_normalized_for_visual_selection():
+    receipt = {
+        "store": "Confidence Market",
+        "subtotal": 5.00,
+        "tax": 0,
+        "total": 5.00,
+        "items": [
+            {"name": "Perfect Tomato", "price": 2.00, "confidence": 100},
+            {"name": "Faint Product", "price": 3.00, "confidence": 0.87},
+        ],
+        "validation": {"is_receipt": True, "confidence": 0.94},
+    }
+
+    normalized = claude.normalize_receipt_data(receipt)
+
+    assert normalized["items"][0]["confidence"] == 1.0
+    assert normalized["items"][1]["confidence"] == 0.87
+
+
 def test_price_memory_emits_iso_dates_for_month_name_receipts():
     receipt_event = {
         "receipt_id": "namaste-246",

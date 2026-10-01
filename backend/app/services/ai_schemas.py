@@ -23,6 +23,7 @@ RECEIPT_ITEM_SCHEMA: dict[str, Any] = {
         "unit_label": NULLABLE_STRING,
         "explicit_quantity": {"type": ["boolean", "null"]},
         "source": NULLABLE_STRING,
+        "confidence": NULLABLE_NUMBER,
     },
     "required": [],
     "additionalProperties": False,
