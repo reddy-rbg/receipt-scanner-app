@@ -32,7 +32,7 @@ def test_shared_scan_source_uses_browser_blob_uploads():
     assert "await response.blob()" in source
     assert "formData.append(field, sourceBlob, fileNameForMime(name, effectiveType))" in source
     assert "if (!/\\.[a-z0-9]{2,5}$/i.test(name)) return fallback" in source
-    assert "Preserve ordinary browser file/blob URIs" in source
+    assert "if (!sourceIsHeic && currentSize > 0 && currentSize <= MAX_UPLOAD_BYTES)" in source
     assert "HEIC photos are not supported in the browser" in source
     assert "Platform.OS === 'web' ? 'JPG / PNG / WEBP / PDF'" in source
     assert "setScanError" in source

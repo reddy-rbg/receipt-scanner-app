@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../stores/themeStore';
-import { getUserToken, getGuestSessionId, getUser } from '../../stores/authStore';
+import { getUserToken, getGuestSessionId, getUser, useAuth } from '../../stores/authStore';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
@@ -40,6 +40,9 @@ function friendlyAgentError(message: string) {
   }
   if (lower.includes('column') || lower.includes('receipts.') || lower.includes('sql') || lower.includes('supabase')) {
     return 'I had trouble reading your receipt data. Please try again in a moment.';
+  }
+  if (lower.includes('valid guest session') || lower.includes('not authenticated') || lower.includes('unauthorized') || lower.includes('401')) {
+    return 'Your ReceiptAI session expired. Open Profile and sign in again or start a new guest trial.';
   }
   return message;
 }
@@ -165,14 +168,15 @@ const PRISM_STARTERS = [
   { icon: 'git-compare-outline' as const, label: 'Compare stores', prompt: 'Compare the stores I use and show where I usually save most.' },
 ];
 
+const INITIAL_AGENT_MESSAGE: Msg = {
+  role: 'agent',
+  text: 'Ready. Ask about your receipts, prices, stores, spending, or what to buy from your purchase history.',
+};
+
 export default function AgentScreen() {
   const { colors: C } = useTheme();
-  const [msgs, setMsgs]         = useState<Msg[]>([
-    {
-      role: 'agent',
-      text: 'Ready. Ask about your receipts, prices, stores, spending, or what to buy from your purchase history.',
-    }
-  ]);
+  const user = useAuth(state => state.user);
+  const [msgs, setMsgs]         = useState<Msg[]>([INITIAL_AGENT_MESSAGE]);
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(null);
@@ -185,7 +189,12 @@ export default function AgentScreen() {
   useEffect(() => {
     let active = true;
     async function restoreSession() {
-      const ownerId = getUser()?.id || getGuestSessionId() || 'anonymous';
+      const ownerId = user?.id || getGuestSessionId();
+      setMsgs([INITIAL_AGENT_MESSAGE]);
+      if (!ownerId) {
+        setSessionId('');
+        return;
+      }
       const key = `receiptai:agent-session:${ownerId}`;
       const stored = await AsyncStorage.getItem(key).catch(() => null);
       const value = stored || `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -211,7 +220,7 @@ export default function AgentScreen() {
     }
     restoreSession();
     return () => { active = false; };
-  }, []);
+  }, [user?.id, user?.guest_session_id]);
 
   useFocusEffect(useCallback(() => {}, []));
 
@@ -395,7 +404,21 @@ export default function AgentScreen() {
 
   async function sendMessage(text: string) {
     const message = text.trim();
-    if (!message || loading || !sessionId) return;
+    if (!message || loading) return;
+    const currentUser = getUser();
+    const guestSessionId = getGuestSessionId();
+    const token = getUserToken();
+    if (!currentUser || (!guestSessionId && !token)) {
+      showAlert('Sign in to use ReceiptAI', 'Open Profile and sign in or start a guest trial, then ask again.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Open Profile', onPress: () => router.push('/profile') },
+      ]);
+      return;
+    }
+    if (!sessionId) {
+      showAlert('Assistant is getting ready', 'Wait a moment for your receipt memory to load, then try again.');
+      return;
+    }
 
     setInput('');
     const userMsg: Msg = { role: 'user', text: message };
@@ -408,9 +431,8 @@ export default function AgentScreen() {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 45000);
-      const token = getUserToken();
       const headers: any = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (!guestSessionId && token && token !== 'guest') headers['Authorization'] = `Bearer ${token}`;
 
       let res: Response;
       try {
@@ -418,7 +440,7 @@ export default function AgentScreen() {
           method:  'POST',
           headers,
           signal: controller.signal,
-          body: JSON.stringify({ message, session_id: sessionId, guest_session_id: getGuestSessionId() || undefined }),
+          body: JSON.stringify({ message, session_id: sessionId, guest_session_id: guestSessionId || undefined }),
         });
       } finally {
         clearTimeout(timeout);
@@ -952,6 +974,17 @@ export default function AgentScreen() {
       </ScrollView>
 
       {/* Input */}
+      {!user ? (
+        <View style={[s.authGate, { backgroundColor:C.surface2, borderColor:C.border }]}>
+          <View style={{flex:1}}>
+            <Text style={[s.authGateTitle,{color:C.text}]}>Connect your receipt memory</Text>
+            <Text style={[s.authGateText,{color:C.text2}]}>Sign in or start a guest trial before asking ReceiptAI.</Text>
+          </View>
+          <TouchableOpacity style={[s.authGateButton,{backgroundColor:C.accent}]} onPress={() => router.push('/profile')} activeOpacity={0.84}>
+            <Text style={s.authGateButtonText}>Open Profile</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <View style={[s.inputBar, { backgroundColor: C.bg, borderTopColor: C.border }]}>
         <TextInput
           style={[s.input, { backgroundColor: C.surface, borderColor: C.border, color: C.text }]}
@@ -964,6 +997,7 @@ export default function AgentScreen() {
           returnKeyType="send"
           multiline
           maxLength={500}
+          editable={Boolean(user)}
         />
         <TouchableOpacity
           style={[
@@ -973,17 +1007,17 @@ export default function AgentScreen() {
           accessibilityRole="button"
           accessibilityLabel={voiceMode === 'dictate' ? 'Stop dictation' : 'Dictate a message'}
           onPress={() => voiceMode === 'dictate' ? stopVoice() : startVoice('dictate')}
-          disabled={loading}
+          disabled={loading || !user}
           activeOpacity={0.85}
         >
           <Ionicons name={voiceMode === 'dictate' ? 'mic' : 'mic-outline'} size={20} color={voiceMode === 'dictate' ? '#06120b' : C.accent} />
         </TouchableOpacity>
         <TouchableOpacity
-          style={[s.sendBtn, { backgroundColor: C.accent }, (!input.trim() || loading) && { opacity: 0.35 }]}
+          style={[s.sendBtn, { backgroundColor: C.accent }, (!input.trim() || loading || !user) && { opacity: 0.35 }]}
           accessibilityRole="button"
           accessibilityLabel="Send message"
           onPress={() => sendMessage(input)}
-          disabled={!input.trim() || loading}
+          disabled={!input.trim() || loading || !user}
           activeOpacity={0.85}
         >
           {loading
@@ -1083,6 +1117,11 @@ const s = StyleSheet.create({
   feedbackSaved:{ fontSize: 10, fontWeight: '800', paddingVertical: 5 },
   toolsUsed:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 5 },
   toolBadge:    { borderWidth: 1, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
+  authGate:     { marginHorizontal:18, marginBottom:4, borderWidth:1, borderRadius:15, padding:12, flexDirection:'row', alignItems:'center', gap:10 },
+  authGateTitle:{ fontSize:12, fontWeight:'900', marginBottom:2 },
+  authGateText: { fontSize:10, lineHeight:14 },
+  authGateButton:{ borderRadius:10, paddingHorizontal:11, paddingVertical:9 },
+  authGateButtonText:{ color:'#fff', fontSize:10, fontWeight:'900' },
   inputBar:     { flexDirection: 'row', alignItems: 'flex-end', paddingTop: 12, paddingHorizontal: 18, paddingBottom: 12, borderTopWidth: 0, gap: 8, shadowColor: '#36283E', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
   input:        { flex: 1, borderWidth: 1, borderRadius: 20, borderBottomRightRadius:7, padding: 12, paddingHorizontal: 15, fontSize: 13, maxHeight: 100, shadowColor:'#36283E', shadowOpacity:0.09, shadowRadius:16, shadowOffset:{width:0,height:8}, elevation:2 },
   micBtn:       { width: 44, height: 44, borderRadius: 16, borderBottomRightRadius:7, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },

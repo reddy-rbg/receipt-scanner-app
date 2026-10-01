@@ -152,9 +152,11 @@ async function compressReceiptImage(uri: string, sourceName = uri) {
     throw new Error('HEIC photos are not supported in the browser. Choose a JPEG, PNG, or WEBP export, or use the mobile app.');
   }
 
-  // Preserve ordinary browser file/blob URIs. The backend performs the final
-  // Claude-specific crop, resize, compression, and visual-token optimization.
-  if (Platform.OS === 'web' && currentSize > 0 && currentSize <= MAX_UPLOAD_BYTES) {
+  // Preserve an original image whenever it already fits the upload budget.
+  // Re-encoding a clear camera photo, then re-encoding it again for a
+  // multi-page scan, softens the small text that receipt OCR depends on.
+  // HEIC still needs conversion because the backend expects a web-safe image.
+  if (!sourceIsHeic && currentSize > 0 && currentSize <= MAX_UPLOAD_BYTES) {
     return { uri: currentUri, compressed: false, size: currentSize };
   }
 
@@ -564,8 +566,8 @@ export default function ScanScreen(){
     }
   }
 
-  async function takePhoto(){
-    if (imageUris.length >= MAX_SCAN_IMAGE_PAGES) {
+  async function takePhoto(replaceExisting = false){
+    if (!replaceExisting && imageUris.length >= MAX_SCAN_IMAGE_PAGES) {
       showAlert('Page limit reached', `You can scan up to ${MAX_SCAN_IMAGE_PAGES} photo pages at one time.`);
       return;
     }
@@ -575,18 +577,44 @@ export default function ScanScreen(){
     if(!r.canceled&&r.assets[0]){
       setFileStatus('');
       setScanError('');
-      const prepared = await compressReceiptImage(r.assets[0].uri);
-      setUri(prepared.uri);
-      const nextUris = [...imageUris, prepared.uri].slice(0, MAX_SCAN_IMAGE_PAGES);
-      setImageUris(nextUris);
-      setIsPDF(false);
-      setResult(null);
-      setResultItemPage(0);
-      setPriceInsights([]);
-      setDuplicate('');
-      const pageText = nextUris.length > 1 ? `${nextUris.length} sections ready. Take another section or scan them together.` : '1 photo ready. For a long receipt, add closer overlapping sections.';
-      setFileStatus(prepared.compressed ? `${pageText} Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB.` : pageText);
+      try {
+        const prepared = await compressReceiptImage(r.assets[0].uri);
+        const nextUris = (replaceExisting ? [prepared.uri] : [...imageUris, prepared.uri]).slice(0, MAX_SCAN_IMAGE_PAGES);
+        setUri(nextUris[0]);
+        setImageUris(nextUris);
+        setIsPDF(false);
+        setResult(null);
+        setResultItemPage(0);
+        setPriceInsights([]);
+        setDuplicate('');
+        setDuplicateReceiptId(null);
+        const pageText = nextUris.length > 1 ? `${nextUris.length} sections ready. Take another section or scan them together.` : '1 photo ready. For a long receipt, add closer overlapping sections.';
+        setFileStatus(prepared.compressed ? `${pageText} Image compressed to ${(prepared.size / (1024 * 1024)).toFixed(1)} MB.` : pageText);
+      } catch (error:any) {
+        const message = error?.message || 'Could not prepare the captured receipt photo.';
+        setScanError(message);
+        showAlert('Photo not ready', message);
+      }
     }
+  }
+
+  function removeImagePage(index:number) {
+    const nextUris = imageUris.filter((_, pageIndex) => pageIndex !== index);
+    if (!nextUris.length) {
+      resetScan();
+      return;
+    }
+    setImageUris(nextUris);
+    setUri(nextUris[0]);
+    setResult(null);
+    setResultItemPage(0);
+    setPriceInsights([]);
+    setScanError('');
+    setDuplicate('');
+    setDuplicateReceiptId(null);
+    setFileStatus(nextUris.length > 1
+      ? `${nextUris.length} sections ready. They will be scanned together.`
+      : '1 photo ready.');
   }
 
   async function pickPDF(){
@@ -980,7 +1008,21 @@ export default function ScanScreen(){
               </View>
             </TouchableOpacity>
 
-            {uri && !isPDF && imageUris.length <= 1 && <Image source={{uri}} style={s.preview} resizeMode="contain"/>}
+            {uri && !isPDF && imageUris.length <= 1 && (
+              <View style={s.singlePreviewWrap}>
+                <Image source={{uri}} style={s.preview} resizeMode="contain"/>
+                <TouchableOpacity
+                  style={s.previewRemove}
+                  onPress={resetScan}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove selected receipt photo"
+                  activeOpacity={0.82}
+                >
+                  <Ionicons name="close-circle" size={16} color="#fff" />
+                  <Text style={s.previewRemoveText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {uri && !isPDF && imageUris.length > 1 && (
               <View style={s.multiPreview}>
                 <View style={s.multiPreviewHead}>
@@ -991,6 +1033,16 @@ export default function ScanScreen(){
                   {imageUris.map((pageUri, index) => (
                     <View key={`${pageUri}-${index}`} style={s.pageThumbWrap}>
                       <Image source={{uri: pageUri}} style={s.pageThumb} resizeMode="cover" />
+                      <TouchableOpacity
+                        style={s.pageRemove}
+                        onPress={() => removeImagePage(index)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove section ${index + 1}`}
+                        activeOpacity={0.82}
+                      >
+                        <Ionicons name="close" size={13} color="#fff" />
+                        <Text style={s.pageRemoveText}>Remove</Text>
+                      </TouchableOpacity>
                       <Text style={s.pageThumbLabel}>Section {index + 1}</Text>
                     </View>
                   ))}
@@ -1001,6 +1053,16 @@ export default function ScanScreen(){
               <View style={s.pdfPreview}>
                 <Text style={s.pdfPreviewText}>  {uri.split('/').pop()}</Text>
                 <Text style={s.pdfPreviewSub}>PDF ready to scan</Text>
+                <TouchableOpacity
+                  style={s.pdfRemove}
+                  onPress={resetScan}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove selected PDF"
+                  activeOpacity={0.82}
+                >
+                  <Ionicons name="trash-outline" size={14} color={C.red} />
+                  <Text style={s.pdfRemoveText}>Remove PDF</Text>
+                </TouchableOpacity>
               </View>
             )}
             {fileStatus ? (
@@ -1012,7 +1074,37 @@ export default function ScanScreen(){
             {scanError ? (
               <View style={s.scanError}>
                 <Ionicons name="alert-circle-outline" size={17} color={C.red} />
-                <Text style={s.scanErrorText}>{scanError}</Text>
+                <View style={{flex:1}}>
+                  <Text style={s.scanErrorTitle}>Scan failed</Text>
+                  <Text style={s.scanErrorText}>{scanError}</Text>
+                  <View style={s.scanErrorActions}>
+                    {!isPDF ? (
+                      <TouchableOpacity style={s.scanErrorAction} onPress={() => takePhoto(true)} activeOpacity={0.82}>
+                        <Ionicons name="camera-outline" size={14} color={C.text} />
+                        <Text style={s.scanErrorActionText}>Retake</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity style={s.scanErrorAction} onPress={resetScan} activeOpacity={0.82}>
+                      <Ionicons name="trash-outline" size={14} color={C.red} />
+                      <Text style={[s.scanErrorActionText,{color:C.red}]}>Remove scan</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            {uri && !scanError ? (
+              <View style={s.selectionActions}>
+                {!isPDF ? (
+                  <TouchableOpacity style={s.selectionAction} onPress={() => takePhoto(true)} activeOpacity={0.82}>
+                    <Ionicons name="camera-reverse-outline" size={14} color={C.text2} />
+                    <Text style={s.selectionActionText}>{imageUris.length > 1 ? 'Retake all' : 'Retake'}</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity style={s.selectionAction} onPress={resetScan} activeOpacity={0.82}>
+                  <Ionicons name="trash-outline" size={14} color={C.red} />
+                  <Text style={[s.selectionActionText,{color:C.red}]}>Remove scan</Text>
+                </TouchableOpacity>
               </View>
             ) : null}
 
@@ -1021,7 +1113,7 @@ export default function ScanScreen(){
                 <Ionicons name="images-outline" size={18} color={C.text} />
                 <Text style={s.btnSecTxt}>Gallery</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={takePhoto} activeOpacity={0.8}>
+              <TouchableOpacity style={[s.btn,s.btnSec,{flex:1}]} onPress={() => takePhoto()} activeOpacity={0.8}>
                 <Ionicons name="camera-outline" size={18} color={C.text} />
                 <Text style={s.btnSecTxt}>{imageUris.length ? 'Add Section' : 'Camera'}</Text>
               </TouchableOpacity>
@@ -1420,21 +1512,35 @@ const createStyles = (C: typeof FALLBACK_COLORS) => StyleSheet.create({
   fmtPill:{backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,borderRadius:99,paddingHorizontal:8,paddingVertical:2},
   fmtText:{color:C.text3,fontSize:10},
   preview:{width:'100%',height:200,borderRadius:12,marginTop:14,borderWidth:1,borderColor:C.border},
+  singlePreviewWrap:{position:'relative'},
+  previewRemove:{position:'absolute',right:9,top:23,flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'rgba(8,9,16,0.88)',borderWidth:1,borderColor:'rgba(255,255,255,0.18)',borderRadius:99,paddingHorizontal:9,paddingVertical:6},
+  previewRemoveText:{color:'#fff',fontSize:10,fontWeight:'900'},
   multiPreview:{marginTop:14,backgroundColor:'rgba(124,106,255,0.06)',borderWidth:1,borderColor:'rgba(124,106,255,0.18)',borderRadius:12,padding:12},
   multiPreviewHead:{marginBottom:10},
   multiPreviewTitle:{color:C.text,fontSize:13,fontWeight:'900'},
   multiPreviewSub:{color:C.text2,fontSize:11,marginTop:2},
   pageStrip:{gap:10,paddingRight:4},
-  pageThumbWrap:{width:88},
+  pageThumbWrap:{width:88,position:'relative'},
   pageThumb:{width:88,height:112,borderRadius:10,borderWidth:1,borderColor:C.border,backgroundColor:C.surface},
+  pageRemove:{position:'absolute',right:4,top:4,flexDirection:'row',alignItems:'center',gap:2,backgroundColor:'rgba(8,9,16,0.88)',borderRadius:99,paddingHorizontal:6,paddingVertical:4},
+  pageRemoveText:{color:'#fff',fontSize:8,fontWeight:'900'},
   pageThumbLabel:{color:C.text2,fontSize:10,fontWeight:'800',textAlign:'center',marginTop:5},
   fileNote:{marginTop:10,flexDirection:'row',alignItems:'center',gap:7,backgroundColor:'rgba(106,255,212,0.07)',borderWidth:1,borderColor:'rgba(106,255,212,0.18)',borderRadius:10,padding:10},
   fileNoteText:{color:C.text2,fontSize:11,flex:1},
   scanError:{marginTop:10,flexDirection:'row',alignItems:'flex-start',gap:8,backgroundColor:'rgba(255,99,120,0.10)',borderWidth:1,borderColor:'rgba(255,99,120,0.35)',borderRadius:12,padding:12},
+  scanErrorTitle:{color:C.red,fontSize:12,fontWeight:'900',marginBottom:3},
   scanErrorText:{color:C.red,fontSize:12,flex:1,lineHeight:17,fontWeight:'700'},
+  scanErrorActions:{flexDirection:'row',gap:8,marginTop:10,flexWrap:'wrap'},
+  scanErrorAction:{flexDirection:'row',alignItems:'center',gap:5,backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,borderRadius:9,paddingHorizontal:10,paddingVertical:7},
+  scanErrorActionText:{color:C.text,fontSize:11,fontWeight:'900'},
   pdfPreview:{backgroundColor:'rgba(124,106,255,0.08)',borderWidth:1,borderColor:'rgba(124,106,255,0.2)',borderRadius:12,padding:16,marginTop:14,alignItems:'center'},
   pdfPreviewText:{color:C.accent,fontSize:13,fontWeight:'600'},
   pdfPreviewSub:{color:C.text3,fontSize:11,marginTop:4},
+  pdfRemove:{flexDirection:'row',alignItems:'center',gap:5,marginTop:10,borderWidth:1,borderColor:'rgba(255,99,120,0.28)',borderRadius:9,paddingHorizontal:10,paddingVertical:7},
+  pdfRemoveText:{color:C.red,fontSize:11,fontWeight:'900'},
+  selectionActions:{flexDirection:'row',justifyContent:'flex-end',gap:8,marginTop:10,flexWrap:'wrap'},
+  selectionAction:{flexDirection:'row',alignItems:'center',gap:5,borderWidth:1,borderColor:C.border,backgroundColor:C.surface2,borderRadius:9,paddingHorizontal:10,paddingVertical:7},
+  selectionActionText:{color:C.text2,fontSize:11,fontWeight:'900'},
   btnRow:{flexDirection:'row',gap:8,marginTop:12},
   captureGuide:{marginTop:10,flexDirection:'row',alignItems:'flex-start',gap:8,backgroundColor:C.surface2,borderWidth:1,borderColor:C.border,borderRadius:12,padding:11},
   captureGuideText:{color:C.text2,fontSize:11,lineHeight:16,flex:1},

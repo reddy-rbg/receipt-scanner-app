@@ -69,7 +69,14 @@ Capture accepts JPEG, PNG, WEBP, and PDF in the browser, including multiple
 overlapping photos for long receipts and multi-page PDFs. Native mobile builds
 also accept HEIC/HEIF photos and convert them before upload. The browser shows a
 clear unsupported-format message for HEIC instead of relabeling its bytes as a
-JPEG and sending an unreadable file to the server.
+JPEG and sending an unreadable file to the server. Images that already fit the
+upload limit keep their original detail so small receipt text is not softened by
+repeat compression. Every selected photo, section, or PDF can be removed, and a
+failed camera scan offers direct **Retake** and **Remove scan** actions.
+
+The AI tab waits for a valid signed-in or guest session before loading chat
+history or sending a question. Expired sessions show a clear path back to
+Profile, and switching accounts clears the previous account's visible chat.
 
 The web build includes accessible in-app dialogs with working cancel and
 confirmation actions, browser-safe sharing, notification fallbacks, responsive
