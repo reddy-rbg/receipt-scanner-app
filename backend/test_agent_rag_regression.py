@@ -230,6 +230,45 @@ def test_latest_receipt_total_uses_most_recent_saved_receipt():
     assert result["rag_trace"]["intent"] == "latest_receipt"
 
 
+def test_just_scanned_receipt_summary_does_not_treat_total_as_an_item():
+    receipts = [
+        {
+            "id": "143",
+            "store": "DINEFINE TEST RESTAURANT",
+            "date": "2026-09-21",
+            "created_at": "2026-10-01T02:58:13Z",
+            "total": 64.26,
+            "items": [
+                {"name": "Caesar Salad", "quantity": 2, "unit_price": 12.0, "price": 24.0},
+                {"name": "Grilled Salmon", "quantity": 1, "unit_price": 22.0, "price": 22.0},
+                {"name": "Cheesecake", "quantity": 1, "unit_price": 7.5, "price": 7.5},
+                {"name": "Sparkling Water", "quantity": 2, "unit_price": 3.0, "price": 6.0},
+            ],
+        }
+    ]
+    original_fetch_receipts = agent.fetch_owner_receipts
+    original_fetch_events = agent.fetch_owner_item_events
+    try:
+        agent.fetch_owner_receipts = lambda user_id=None, guest_session_id=None, limit=300: receipts
+        agent.fetch_owner_item_events = lambda user_id=None, guest_session_id=None, limit=1000: []
+        result = agent.run_agent(
+            "What did I buy, what was the total, and which store was it from?",
+            [],
+        )
+    finally:
+        agent.fetch_owner_receipts = original_fetch_receipts
+        agent.fetch_owner_item_events = original_fetch_events
+
+    response = result["response"].lower()
+    assert "dinefine test restaurant" in response
+    assert "$64.26" in result["response"]
+    assert "caesar salad" in response
+    assert "sparkling water" in response
+    assert result["rag_trace"]["intent"] == "latest_receipt"
+    assert result["answer_card"]["receipt_id"] == "143"
+    assert len(result["answer_card"]["rows"]) == 4
+
+
 def test_total_spending_across_all_receipts_returns_aggregate():
     receipts = [
         {

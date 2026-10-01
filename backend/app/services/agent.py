@@ -5097,6 +5097,18 @@ def classify_receipt_action(message: str) -> str:
     m = correct_query_words(normalize_text(message))
     tokens = set(m.split())
     meaningful_tokens = tokens - STOP_WORDS
+    bought_summary = bool(re.search(r"\bwhat (?:did|have) i (?:buy|bought|purchase|purchased)\b", m))
+    bought_summary_scope = bool(re.search(r"\b(?:total|store|receipt|latest|last|recent|scan|scanned)\b", m))
+    receipt_contents = bool(re.search(
+        r"\b(?:what|which) (?:items? )?(?:was|were|is|are)?\s*(?:on|in) (?:my|the) "
+        r"(?:(?:latest|last|most recent) )?receipt\b",
+        m,
+    ))
+    # A just-scanned receipt summary is a receipt-level question. Without this
+    # guard, words such as "total" can be extracted as a fake product and the
+    # item-price path returns no evidence even though the receipt was saved.
+    if receipt_contents or (bought_summary and (bought_summary_scope or m.strip() in {"what did i buy", "what have i bought"})):
+        return "latest_receipt"
     if looks_like_total_spending_question(message):
         return "total_spending"
     if re.search(r"\b(?:latest|last|most recent)\s+(?:saved\s+)?receipt\b", m):
@@ -5703,10 +5715,22 @@ def latest_receipt_answer(receipts: list[dict]) -> str:
     date = latest.get("date") or (latest.get("created_at") or "")[:10] or "unknown date"
     total = money(latest.get("total"))
     receipt_id = latest.get("id")
-    item_count = len([item for item in (latest.get("items") or []) if isinstance(item, dict)])
+    items = [item for item in (latest.get("items") or []) if isinstance(item, dict)]
+    item_count = len(items)
     lines = [f"Your latest saved receipt is {store} on {date}.", f"Total paid: {total}."]
     if item_count:
         lines.append(f"Items captured: {item_count}.")
+        for item in items[:12]:
+            name = compact_text(str(item.get("name") or item.get("item") or "Unknown item"), 36)
+            quantity = _safe_float(item.get("quantity"), 1.0)
+            line_total = _safe_float(item.get("price") if item.get("price") is not None else item.get("line_total"))
+            unit_price = _safe_float(item.get("unit_price"))
+            if quantity > 1 and unit_price > 0:
+                lines.append(f"- {name}: {quantity:g} x {money(unit_price)} = {money(line_total)}")
+            else:
+                lines.append(f"- {name}: {money(line_total)}")
+        if item_count > 12:
+            lines.append(f"- plus {item_count - 12} more item(s)")
     if receipt_id:
         lines.append(f"Receipt #{receipt_id}.")
     return "\n".join(lines)
@@ -6522,6 +6546,37 @@ def deterministic_overview_answer(message: str, user_id: str | None = None, gues
 def deterministic_overview_answer_card(message: str, user_id: str | None = None, guest_session_id: str | None = None) -> dict | None:
     """Optional structured evidence card for deterministic overview answers."""
     m = normalize_text(message)
+    if classify_receipt_action(message) == "latest_receipt":
+        receipts = fetch_owner_receipts(user_id, guest_session_id, limit=300)
+        if not receipts:
+            return None
+        latest = max(receipts, key=lambda r: r.get("created_at") or r.get("date") or "")
+        receipt_id = latest.get("id")
+        store = latest.get("store") or "Unknown store"
+        date = latest.get("date") or (latest.get("created_at") or "")[:10] or "unknown date"
+        rows = []
+        for line_index, item in enumerate(latest.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            rows.append({
+                "item": item.get("name") or item.get("item") or "Unknown item",
+                "price": _safe_float(item.get("price") if item.get("price") is not None else item.get("line_total")),
+                "store": store,
+                "date": date,
+                "receipt_id": receipt_id,
+                "line_index": line_index,
+            })
+        return {
+            "type": "receipt_summary",
+            "title": f"Latest receipt · {store}",
+            "store": store,
+            "date": date,
+            "price": _safe_float(latest.get("total")),
+            "receipt_id": receipt_id,
+            "rows": rows[:12],
+            "note": f"Total paid: {money(latest.get('total'))}",
+        }
+
     if (
         "next shopping" in m
         or "shopping plan" in m
@@ -7205,6 +7260,8 @@ def run_agent(
                 card = shopping_plan_answer_card(user_id, guest_session_id)
             elif action == "price_memory":
                 card = price_memory_answer_card(user_id, guest_session_id)
+            elif action == "latest_receipt":
+                card = deterministic_overview_answer_card(original_message, user_id, guest_session_id)
             evidence = evidence_rows_from_card(card)
             retrieval = "graph_rag_memory" if action == "graph_memory" else "structured_receipt_memory"
             return finalize_agent_result({
